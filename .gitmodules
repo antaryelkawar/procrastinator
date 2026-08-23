@@ -1,0 +1,3 @@
+[submodule "opencode-config"]
+	path = opencode-config
+	url = git@github.com:antaryelkawar/opencode-config.git
