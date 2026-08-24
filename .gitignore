@@ -34,3 +34,18 @@ PARENT_REPO_URL
 
 
 
+/.idea/
+# opencode scratch (managed by scratch plugin — do not edit)
+/tmp/
+/.tmp/
+/.autopilot/
+
+# Local environment files (secrets) — see .env.example
+.env
+
+# Ingestion runtime data (uploaded files, created by the API)
+procrastinator-backend/storage/
+
+# Local build artifacts
+*.exe
+

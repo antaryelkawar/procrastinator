@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: lifemanager
+      POSTGRES_PASSWORD: lifemanager
+      POSTGRES_DB: lifemanager
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lifemanager -d lifemanager"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      # postgres:18+ stores data in version-specific subdirs under
+      # /var/lib/postgresql (see docker-library/postgres#1259); mount there.
+      - pgdata:/var/lib/postgresql
+
+volumes:
+  pgdata:
