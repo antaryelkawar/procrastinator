@@ -8,7 +8,7 @@ Define the canonical data model for assets, ensure data integrity (specifically 
 
 ### Requirement: Canonical asset model
 
-The system SHALL persist Assets in PostgreSQL with the fields: unique opaque identifier, brand, model, serial number, purchase date, price, currency, warranty start, warranty end, and record timestamps. All fields except the identifier and timestamps SHALL be optional (nullable) so partially extracted documents can still establish an Asset.
+The system SHALL persist Assets in PostgreSQL, scoped per tenant, with a **structured core** — unique opaque identifier, `tenant_id`, brand, model, serial number, purchase date, warranty end, price, currency, and document type (`invoice`, `warranty`, `amc`, or `other`) — **plus a generic `metadata` JSONB object** holding arbitrary key-value pairs extracted from documents. All structured fields except the identifier, tenant, document type, and timestamps SHALL be optional (nullable) so partially extracted documents can still establish an Asset. `metadata` SHALL default to an empty object and SHALL NOT be used for identity resolution.
 
 #### Scenario: Asset persists the full extracted field set
 
