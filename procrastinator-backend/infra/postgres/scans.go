@@ -1,0 +1,107 @@
+package postgres
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+
+	"procrastinator-backend/commons/entity"
+	"procrastinator-backend/commons/repo"
+)
+
+// rowScanner is the subset of pgx.Row / pgx.Rows used for scanning.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// toMetadataJSON encodes metadata for the jsonb column. nil/empty maps become "{}".
+func toMetadataJSON(m map[string]any) ([]byte, error) {
+	if m == nil {
+		return []byte("{}"), nil
+	}
+	return json.Marshal(m)
+}
+
+// scanAsset scans a row into an entity.Asset, mapping pgx.ErrNoRows to repo.ErrNotFound.
+func scanAsset(row rowScanner) (entity.Asset, error) {
+	var a entity.Asset
+	var id string
+	var metadataJSON []byte
+	err := row.Scan(
+		&id, &a.TenantID, &a.Brand, &a.Model, &a.SerialNumber, &a.NormSerial,
+		&a.NormBrand, &a.NormModel, &a.PurchaseDate, &a.WarrantyEnd, &a.Price,
+		&a.Currency, &a.DocType, &metadataJSON, &a.CreatedAt, &a.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return entity.Asset{}, repo.ErrNotFound
+		}
+		return entity.Asset{}, err
+	}
+	a.ID = id
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &a.Metadata); err != nil {
+			return entity.Asset{}, fmt.Errorf("decode metadata: %w", err)
+		}
+	}
+	return a, nil
+}
+
+// scanSource scans a row into an entity.Source, mapping pgx.ErrNoRows to repo.ErrNotFound.
+func scanSource(row rowScanner) (entity.Source, error) {
+	var s entity.Source
+	var id string
+	err := row.Scan(
+		&id, &s.TenantID, &s.Filename, &s.ContentType, &s.Size,
+		&s.Path, &s.SHA256, &s.UploadedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return entity.Source{}, repo.ErrNotFound
+		}
+		return entity.Source{}, err
+	}
+	s.ID = id
+	return s, nil
+}
+
+// scanDocument scans a row into an entity.Document, mapping pgx.ErrNoRows to repo.ErrNotFound.
+func scanDocument(row rowScanner) (entity.Document, error) {
+	var d entity.Document
+	var id string
+	var fieldsJSON, rawJSON []byte
+	err := row.Scan(
+		&id, &d.TenantID, &d.AssetID, &d.SourceID, &d.DocType,
+		&fieldsJSON, &rawJSON, &d.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return entity.Document{}, repo.ErrNotFound
+		}
+		return entity.Document{}, err
+	}
+	d.ID = id
+	if err := decodeDocumentJSON(fieldsJSON, rawJSON, &d.ExtractedFields, &d.RawExtraction); err != nil {
+		return entity.Document{}, err
+	}
+	return d, nil
+}
+
+// decodeDocumentJSON decodes the jsonb columns into the document fields.
+// Empty extracted_fields decodes to a nil map; raw_extraction is always
+// decoded into a string.
+func decodeDocumentJSON(fieldsJSON, rawJSON []byte, fields *map[string]any, raw *string) error {
+	if len(fieldsJSON) > 0 {
+		if err := json.Unmarshal(fieldsJSON, fields); err != nil {
+			return fmt.Errorf("decode extracted_fields: %w", err)
+		}
+	}
+	if len(rawJSON) > 0 {
+		if err := json.Unmarshal(rawJSON, raw); err != nil {
+			return fmt.Errorf("decode raw_extraction: %w", err)
+		}
+	}
+	return nil
+}
