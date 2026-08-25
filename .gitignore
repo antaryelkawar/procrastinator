@@ -23,6 +23,7 @@
 hs_err_pid*
 replay_pid*
 
+
 # BEGIN opencode-config (managed by setup.mjs — do not edit)
 opencode.jsonc
 AGENTS.md
@@ -31,6 +32,8 @@ AGENTS.md
 PARENT_REPO_URL
 .scratch/
 # END opencode-config
+
+
 
 
 

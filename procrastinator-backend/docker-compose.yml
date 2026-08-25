@@ -2,13 +2,13 @@ services:
   postgres:
     image: postgres:18
     environment:
-      POSTGRES_USER: lifemanager
-      POSTGRES_PASSWORD: lifemanager
-      POSTGRES_DB: lifemanager
+      POSTGRES_USER: procrastinator
+      POSTGRES_PASSWORD: procrastinator
+      POSTGRES_DB: procrastinator
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lifemanager -d lifemanager"]
+      test: ["CMD-SHELL", "pg_isready -U procrastinator -d procrastinator"]
       interval: 5s
       timeout: 5s
       retries: 12

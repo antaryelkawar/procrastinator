@@ -1,6 +1,7 @@
 -- +goose Up
 CREATE TABLE sources (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id text NOT NULL,
     filename text NOT NULL,
     content_type text NOT NULL,
     byte_size bigint NOT NULL,
@@ -11,6 +12,7 @@ CREATE TABLE sources (
 
 CREATE TABLE assets (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id text NOT NULL,
     brand text,
     model text,
     serial_number text,
@@ -18,21 +20,23 @@ CREATE TABLE assets (
     norm_brand text,
     norm_model text,
     purchase_date date,
+    warranty_end date,
     price numeric,
     currency char(3),
-    warranty_start date,
-    warranty_end date,
+    doc_type text NOT NULL DEFAULT 'other' CHECK (doc_type IN ('invoice','warranty','amc','other')),
+    metadata jsonb NOT NULL DEFAULT '{}',
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX idx_assets_norm_serial ON assets (norm_serial) WHERE norm_serial IS NOT NULL;
+CREATE UNIQUE INDEX uniq_assets_tenant_norm_serial ON assets (tenant_id, norm_serial) WHERE norm_serial IS NOT NULL;
 
 CREATE TABLE documents (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id text NOT NULL,
     asset_id uuid NOT NULL REFERENCES assets(id),
     source_id uuid NOT NULL UNIQUE REFERENCES sources(id),
-    doc_type text NOT NULL CHECK (doc_type IN ('invoice','warranty','other')),
+    doc_type text NOT NULL CHECK (doc_type IN ('invoice','warranty','amc','other')),
     extracted_fields jsonb NOT NULL,
     raw_extraction jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
