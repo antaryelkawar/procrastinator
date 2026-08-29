@@ -6,7 +6,25 @@ This delta redefines the tenancy model to be User-centric. A User is the isolati
 
 ## MODIFIED Requirements
 
+### Requirement: Tenant-scoped persistence
+
+Every tenant-owned table SHALL carry a `tenant_id` column (storing the User ID) referencing the user registry (`tenants.id`). Every repository call SHALL pass the user ID explicitly via the `repo.Tenant(id)` option; when the option is absent, the repository SHALL fall back to the user carried in the passed `context.Context`. The explicit option SHALL take precedence over the context. All reads and writes SHALL be restricted to rows of the resolved user. A repository method invoked with neither an explicit user option nor a context user SHALL return the sentinel error `ErrNoTenant` and SHALL NOT issue any SQL statement.
+
+#### Scenario: Repository writes stamp the context user
+
+- **WHEN** a Document is created in a context carrying user `alice`
+- **THEN** the persisted row has `tenant_id = 'alice'`
+
+#### Scenario: Repository call without user fails closed
+
+- **WHEN** any repository method is called with neither a user option nor a context user
+- **THEN** it returns `ErrNoTenant` and performs no query
+
+## ADDED Requirements
+
 ### Requirement: User-based tenant identification in URL
+
+Supersedes "Tenant identification on every request": the `X-Tenant-ID` header SHALL be removed, and the `{userId}` URL parameter SHALL be the sole tenant identifier.
 
 Every API request SHALL identify the active user (tenant) via the `{userId}` parameter in the URL path. Middleware SHALL extract this ID using the router's parameter resolution (e.g., `chi.URLParam`). Middleware SHALL validate the ID format (non-empty, at most 64 characters from `[A-Za-z0-9_-]`) and SHALL validate that it names a registered user (see "User registry"). A request with a missing or malformed `{userId}` SHALL be rejected with `400 Bad Request`; a request with a well-formed but unregistered user SHALL be rejected with `404 Not Found`. Registry database errors SHALL result in `500 Internal Server Error`. In all rejection cases, the rejection SHALL occur before any handler or repository code runs and no data SHALL be read or written. For accepted requests, middleware SHALL place the user ID into the request `context.Context`.
 
@@ -24,22 +42,6 @@ Every API request SHALL identify the active user (tenant) via the `{userId}` par
 
 - **WHEN** a client sends a request to `/api/users/alice/documents` and `alice` is a registered user
 - **THEN** downstream handlers, services, and repositories observe user `alice` from the request context
-
-### Requirement: Tenant-scoped persistence
-
-Every tenant-owned table SHALL carry a `tenant_id` column (storing the User ID) referencing the user registry (`tenants.id`). Every repository call SHALL pass the user ID explicitly via the `repo.Tenant(id)` option; when the option is absent, the repository SHALL fall back to the user carried in the passed `context.Context`. The explicit option SHALL take precedence over the context. All reads and writes SHALL be restricted to rows of the resolved user. A repository method invoked with neither an explicit user option nor a context user SHALL return the sentinel error `ErrNoTenant` and SHALL NOT issue any SQL statement.
-
-#### Scenario: Repository writes stamp the context user
-
-- **WHEN** a Document is created in a context carrying user `alice`
-- **THEN** the persisted row has `tenant_id = 'alice'`
-
-#### Scenario: Repository call without user fails closed
-
-- **WHEN** any repository method is called with neither a user option nor a context user
-- **THEN** it returns `ErrNoTenant` and performs no query
-
-## ADDED Requirements
 
 ### Requirement: User registry
 

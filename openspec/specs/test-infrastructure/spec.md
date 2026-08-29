@@ -3,9 +3,7 @@
 ## Purpose
 
 Define the testing standards and infrastructure requirements for the project, emphasizing a test-driven development (TDD) workflow, isolation between unit and integration tests, and the use of fakes/containers to ensure reliable, reproducible tests.
-
 ## Requirements
-
 ### Requirement: Test-driven development workflow
 
 Implementation SHALL proceed test-first: each behavioral requirement in this change's specs SHALL have at least one failing automated test written before the production code that satisfies it, and the full test suite SHALL pass before the change is considered complete.
@@ -65,3 +63,15 @@ Exactly one integration test SHALL exercise a real OpenAI-compatible LLM endpoin
 
 - **WHEN** the test suite runs with the opt-in variable set and valid real endpoint credentials configured
 - **THEN** the test uploads a fixture document to the real endpoint and asserts a successful classification and extraction
+
+### Requirement: Test user registration
+
+Supersedes "Test tenant convention": test tenants SHALL be test users, and the registry SHALL be the `tenants` table whose id space is user ids.
+
+Tests that exercise tenant-scoped behavior SHALL register their explicit test users (e.g., `test-user`, `test-user-b`) in the user registry (`tenants` table) as part of test setup, before seeding tenant-owned rows. Test helpers SHALL make this registration a single, reusable step.
+
+#### Scenario: Integration test setup registers its users
+
+- **WHEN** an integration test seeds data under `test-user` and `test-user-b`
+- **THEN** both identifiers exist in the user registry before the first tenant-owned row is inserted
+
