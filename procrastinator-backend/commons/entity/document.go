@@ -12,6 +12,11 @@ type Document struct {
 	ExtractedFields map[string]any
 	RawExtraction   string
 	CreatedAt       time.Time
+	// ScopeType is the scope_type column: "personal" or "household".
+	ScopeType string
+	// OwnerHouseholdID is the owner_household_id column; nil means NULL
+	// (a personal row has no household owner).
+	OwnerHouseholdID *string
 }
 
 // DocumentWithSource is a Document with joined source metadata for the documents list endpoint.

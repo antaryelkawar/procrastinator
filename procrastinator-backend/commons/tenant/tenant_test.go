@@ -50,6 +50,41 @@ func TestTenantFrom_NoTenant(t *testing.T) {
 	}
 }
 
+func TestValid(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{"valid simple", "acme", true},
+		{"valid hyphen and digits", "tenant-123", true},
+		{"valid underscore", "tenant_1", true},
+		{"valid mixed case", "Acme-Corp", true},
+		{"valid max length 64", strings.Repeat("a", 64), true},
+		{"valid single char", "a", true},
+		{"valid leading hyphen", "-leading", true},
+		{"valid trailing hyphen", "trailing-", true},
+		{"invalid empty", "", false},
+		{"invalid too long 65", strings.Repeat("a", 65), false},
+		{"invalid space", "has space", false},
+		{"invalid slash", "a/b", false},
+		{"invalid semicolon", "a;b", false},
+		{"invalid non-ascii", "über", false},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := Valid(tc.id); got != tc.want {
+				t.Fatalf("Valid(%q) = %v, want %v", tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWithTenant_InvalidIDRejected(t *testing.T) {
 	t.Parallel()
 

@@ -16,8 +16,11 @@ import (
 	"procrastinator-backend/api"
 	"procrastinator-backend/config"
 	"procrastinator-backend/core/ingest"
+	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/core/statement"
 	"procrastinator-backend/infra/filestorage"
 	"procrastinator-backend/infra/llm"
+	"procrastinator-backend/infra/pdftext"
 	"procrastinator-backend/infra/postgres"
 )
 
@@ -54,9 +57,15 @@ func main() {
 	client := llm.New(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, cfg.LLMTimeout)
 	extractor := llm.NewExtractor(client)
 	storage := filestorage.New(cfg.StorageDir)
+	statementStore := filestorage.NewStatement(cfg.StorageDir)
 	factory := postgres.NewFactory(store.Pool())
+	movRepo := postgres.NewMovementRepository(store.Pool())
+	docRepo := postgres.NewDocumentRepository(store.Pool())
+	pdfExtractor := pdftext.New()
+	ledgerSvc := ledger.New(factory, movRepo)
 	svc := ingest.New(factory, extractor, storage, cfg.MaxUploadBytes)
-	server := api.New(svc, factory, cfg.MaxUploadBytes)
+	statementSvc := statement.New(factory, statementStore, movRepo, docRepo, pdfExtractor, cfg.MaxStatementBytes, cfg.MaxStatementLines)
+	server := api.New(svc, factory, ledgerSvc, movRepo, cfg.MaxUploadBytes, statementSvc, cfg.MaxStatementBytes)
 
 	httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: server.Routes()}
 

@@ -3,12 +3,15 @@
 //	api.New(svc, assets, docs, maxBytes) *api.Server
 //	(*api.Server).Routes() http.Handler
 //
-// Endpoints (all require the X-Tenant-ID header):
+// Endpoints (user id comes from the /api/users/{userId}/... path):
 //
-//	POST /api/documents              multipart upload, field "file"
-//	GET  /api/assets                 list assets for the tenant
-//	GET  /api/assets/{id}            single asset
-//	GET  /api/assets/{id}/documents  documents for one asset
+//	POST /api/users/{userId}/documents              multipart upload, field "file"
+//	GET  /api/users/{userId}/assets                 list assets for the user
+//	GET  /api/users/{userId}/assets/{assetId}       single asset
+//	GET  /api/users/{userId}/assets/{assetId}/documents  documents for one asset
+//
+// The /api/finance/... endpoints still use the X-Tenant-ID header (transitional
+// fallback in the tenant middleware).
 //
 // Every test runs against a real Postgres database in a private schema and a
 // real llm.Client pointed at a per-test httptest fake, so the full stack
@@ -36,10 +39,14 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
 	"procrastinator-backend/core/ingest"
+	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/core/statement"
 	"procrastinator-backend/infra/filestorage"
 	"procrastinator-backend/infra/llm"
+	"procrastinator-backend/infra/pdftext"
 	"procrastinator-backend/infra/postgres"
 )
 
@@ -90,6 +97,7 @@ type testEnv struct {
 	handler http.Handler
 	schema  string
 	pool    *pgxpool.Pool
+	factory *repo.Factory
 	llm     *llmState
 }
 
@@ -105,6 +113,8 @@ type envOpts struct {
 	llmPayload string
 	// llmStatus is the HTTP status returned by the fake LLM (default 200).
 	llmStatus int
+	// maxStatementLines caps statement import lines (default 100000); 0 means default.
+	maxStatementLines int
 }
 
 // llmState is the mutable fake-LLM behavior shared with the per-test fake
@@ -179,7 +189,13 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 	if cfg.ConnConfig.RuntimeParams == nil {
 		cfg.ConnConfig.RuntimeParams = make(map[string]string)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
+	// Private-ONLY search_path (no ",public" fallback). With the fallback,
+	// goose.Up finds the pre-existing public.goose_db_version (migrated by the
+	// dev server), concludes the schema is already migrated, and skips creating
+	// tables in the private schema; every test then reads/writes the shared
+	// public tables, leaking data across runs. Private-only forces goose to
+	// migrate this schema in isolation (tables + the 00002 test tenants).
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema
 
 	// Drop any leftover schema with the same name (should not happen).
 	boot, err := pgxpool.New(ctx, cfg.ConnConfig.ConnString())
@@ -217,13 +233,28 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 	llmServer := httptest.NewServer(state.handler())
 
 	factory := postgres.NewFactory(pool)
+	movRepo := postgres.NewMovementRepository(pool)
+	ledgerSvc := ledger.New(factory, movRepo)
 	svc := ingest.New(
 		factory,
 		llm.NewExtractor(llm.New(llmServer.URL, "test-key", "test-model", 10*time.Second)),
 		filestorage.New(t.TempDir()),
 		maxBytes,
 	)
-	srv := New(svc, factory, maxBytes)
+	stmtMaxLines := opts.maxStatementLines
+	if stmtMaxLines == 0 {
+		stmtMaxLines = 100000
+	}
+	statementSvc := statement.New(
+		factory,
+		filestorage.NewStatement(t.TempDir()),
+		movRepo,
+		postgres.NewDocumentRepository(pool),
+		pdftext.New(),
+		maxBytes, // the statement size limit follows the env's upload limit (oversize tests use maxBytes: 64)
+		stmtMaxLines,
+	)
+	srv := New(svc, factory, ledgerSvc, movRepo, maxBytes, statementSvc, maxBytes)
 
 	t.Cleanup(func() {
 		llmServer.Close()
@@ -235,7 +266,7 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 		pool.Close()
 	})
 
-	return &testEnv{handler: srv.Routes(), schema: schema, pool: pool, llm: state}
+	return &testEnv{handler: srv.Routes(), schema: schema, pool: pool, factory: factory, llm: state}
 }
 
 // do performs an HTTP request against the handler via httptest.NewRecorder
@@ -289,12 +320,13 @@ func pdfBytes(n int) []byte {
 	return out
 }
 
-// uploadFile posts a multipart file to /api/documents and returns the
-// recorded response plus the decoded asset (when the response is asset JSON).
+// uploadFile posts a multipart file to /api/users/{tenant}/documents and
+// returns the recorded response plus the decoded asset (when the response is
+// asset JSON). The user id is in the path; no X-Tenant-ID header is sent.
 func (e *testEnv) uploadFile(t *testing.T, tenant string, filename string, contentType string, content []byte) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
 	body, ct := buildMultipart(t, "file", filename, contentType, content)
-	rec := do(t, e.handler, http.MethodPost, "/api/documents", tenant, body, ct)
+	rec := do(t, e.handler, http.MethodPost, "/api/users/"+tenant+"/documents", "", body, ct)
 
 	var asset map[string]any
 	if rec.Code == http.StatusCreated {
@@ -337,7 +369,7 @@ func assertErrorEnvelope(t *testing.T, rec *httptest.ResponseRecorder) {
 	}
 }
 
-// TestUpload exercises POST /api/documents end to end.
+// TestUpload exercises POST /api/users/{userId}/documents end to end.
 func TestUpload(t *testing.T) {
 	t.Parallel()
 
@@ -394,7 +426,7 @@ func TestUpload(t *testing.T) {
 			t.Fatalf("close writer: %v", err)
 		}
 
-		rec := do(t, e.handler, http.MethodPost, "/api/documents", "test-tenant", &buf, w.FormDataContentType())
+		rec := do(t, e.handler, http.MethodPost, "/api/users/test-tenant/documents", "", &buf, w.FormDataContentType())
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -407,6 +439,9 @@ func TestUpload(t *testing.T) {
 		uuid := "00000000-0000-4000-8000-000000000000"
 		body, ct := buildMultipart(t, "file", "invoice.pdf", "application/pdf", pdfBytes(16))
 
+		// Empty {userId} path segment: chi still routes these to the
+		// {userId} pattern, and the middleware must reject them with 400
+		// ("missing userId").
 		cases := []struct {
 			name   string
 			method string
@@ -414,16 +449,77 @@ func TestUpload(t *testing.T) {
 			body   *bytes.Buffer
 			cType  string
 		}{
-			{name: "POST /api/documents", method: http.MethodPost, path: "/api/documents", body: body, cType: ct},
-			{name: "GET /api/assets", method: http.MethodGet, path: "/api/assets"},
-			{name: "GET /api/assets/{id}", method: http.MethodGet, path: "/api/assets/" + uuid},
-			{name: "GET /api/assets/{id}/documents", method: http.MethodGet, path: "/api/assets/" + uuid + "/documents"},
+			{name: "POST /api/users//documents", method: http.MethodPost, path: "/api/users//documents", body: body, cType: ct},
+			{name: "GET /api/users//assets", method: http.MethodGet, path: "/api/users//assets"},
+			{name: "GET /api/users//assets/{id}", method: http.MethodGet, path: "/api/users//assets/" + uuid},
+			{name: "GET /api/users//assets/{id}/documents", method: http.MethodGet, path: "/api/users//assets/" + uuid + "/documents"},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				rec := do(t, e.handler, tc.method, tc.path, "", tc.body, tc.cType)
-				if rec.Code != http.StatusUnauthorized {
-					t.Fatalf("status = %d, want 401 (body: %s)", rec.Code, rec.Body.String())
+				if rec.Code != http.StatusBadRequest {
+					t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
+				}
+				assertErrorEnvelope(t, rec)
+			})
+		}
+	})
+
+	t.Run("MalformedTenant", func(t *testing.T) {
+		e := newEnv(t, envOpts{})
+
+		uuid := "00000000-0000-4000-8000-000000000000"
+		// Malformed {userId} path params (bad character sets are
+		// percent-encoded so they stay a single path segment).
+		cases := []struct {
+			name   string
+			userID string
+		}{
+			{name: "65 chars", userID: strings.Repeat("a", 65)},
+			{name: "bad char slash", userID: "bad%2Ftenant"},
+			{name: "bad char space", userID: "bad%20tenant"},
+		}
+		routes := []struct {
+			method string
+			path   string
+		}{
+			{http.MethodGet, "/api/users/{userId}/assets"},
+			{http.MethodGet, "/api/users/{userId}/assets/" + uuid},
+			{http.MethodGet, "/api/users/{userId}/assets/" + uuid + "/documents"},
+			{http.MethodPost, "/api/users/{userId}/documents"},
+		}
+		for _, tc := range cases {
+			for _, ep := range routes {
+				path := strings.ReplaceAll(ep.path, "/api/users/{userId}", "/api/users/"+tc.userID)
+				t.Run(tc.name+" "+ep.method+" "+ep.path, func(t *testing.T) {
+					rec := do(t, e.handler, ep.method, path, "", nil, "")
+					if rec.Code != http.StatusBadRequest {
+						t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
+					}
+					assertErrorEnvelope(t, rec)
+				})
+			}
+		}
+	})
+
+	t.Run("UnregisteredTenant", func(t *testing.T) {
+		e := newEnv(t, envOpts{})
+
+		uuid := "00000000-0000-4000-8000-000000000000"
+		routes := []struct {
+			method string
+			path   string
+		}{
+			{http.MethodGet, "/api/users/unknown-tenant/assets"},
+			{http.MethodGet, "/api/users/unknown-tenant/assets/" + uuid},
+			{http.MethodGet, "/api/users/unknown-tenant/assets/" + uuid + "/documents"},
+			{http.MethodPost, "/api/users/unknown-tenant/documents"},
+		}
+		for _, ep := range routes {
+			t.Run(ep.method+" "+ep.path, func(t *testing.T) {
+				rec := do(t, e.handler, ep.method, ep.path, "", nil, "")
+				if rec.Code != http.StatusNotFound {
+					t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 				}
 				assertErrorEnvelope(t, rec)
 			})
@@ -467,13 +563,13 @@ func TestUpload(t *testing.T) {
 	})
 }
 
-// TestListAssets exercises GET /api/assets.
+// TestListAssets exercises GET /api/users/{userId}/assets.
 func TestListAssets(t *testing.T) {
 	t.Parallel()
 
 	t.Run("Empty", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/assets", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets", "", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -489,7 +585,7 @@ func TestListAssets(t *testing.T) {
 			t.Fatalf("upload status = %d, want 201 (body: %s)", up.Code, up.Body.String())
 		}
 
-		rec := do(t, e.handler, http.MethodGet, "/api/assets", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets", "", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -510,7 +606,7 @@ func TestListAssets(t *testing.T) {
 	})
 }
 
-// TestGetAsset exercises GET /api/assets/{id}.
+// TestGetAsset exercises GET /api/users/{userId}/assets/{assetId}.
 func TestGetAsset(t *testing.T) {
 	t.Parallel()
 
@@ -521,7 +617,7 @@ func TestGetAsset(t *testing.T) {
 			t.Fatalf("upload status = %d, want 201 (body: %s)", up.Code, up.Body.String())
 		}
 
-		rec := do(t, e.handler, http.MethodGet, "/api/assets/"+strVal(asset, "id"), "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets/"+strVal(asset, "id"), "", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -539,7 +635,7 @@ func TestGetAsset(t *testing.T) {
 
 	t.Run("NotFound", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/assets/00000000-0000-4000-8000-000000000000", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets/00000000-0000-4000-8000-000000000000", "", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -547,7 +643,7 @@ func TestGetAsset(t *testing.T) {
 	})
 }
 
-// TestListDocuments exercises GET /api/assets/{id}/documents.
+// TestListDocuments exercises GET /api/users/{userId}/assets/{assetId}/documents.
 func TestListDocuments(t *testing.T) {
 	t.Parallel()
 
@@ -575,7 +671,7 @@ func TestListDocuments(t *testing.T) {
 			t.Fatalf("upload 2 asset id = %q, want same asset id %q (same serial links to one asset)", id2, strVal(asset, "id"))
 		}
 
-		rec := do(t, e.handler, http.MethodGet, "/api/assets/"+strVal(asset, "id")+"/documents", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets/"+strVal(asset, "id")+"/documents", "", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -608,7 +704,7 @@ func TestListDocuments(t *testing.T) {
 
 	t.Run("NotFound", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/assets/00000000-0000-4000-8000-000000000000/documents", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets/00000000-0000-4000-8000-000000000000/documents", "", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -637,7 +733,7 @@ func TestTenantIsolation(t *testing.T) {
 	}
 
 	// Tenant B sees no assets and cannot read tenant A's asset or documents.
-	rec := do(t, e.handler, http.MethodGet, "/api/assets", "test-tenant-b", nil, "")
+	rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant-b/assets", "", nil, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("tenant B list status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -645,12 +741,12 @@ func TestTenantIsolation(t *testing.T) {
 		t.Fatalf("tenant B list body = %q, want exactly %q (never null)", got, "[]")
 	}
 
-	rec = do(t, e.handler, http.MethodGet, "/api/assets/"+idA, "test-tenant-b", nil, "")
+	rec = do(t, e.handler, http.MethodGet, "/api/users/test-tenant-b/assets/"+idA, "", nil, "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("tenant B get asset status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 	}
 
-	rec = do(t, e.handler, http.MethodGet, "/api/assets/"+idA+"/documents", "test-tenant-b", nil, "")
+	rec = do(t, e.handler, http.MethodGet, "/api/users/test-tenant-b/assets/"+idA+"/documents", "", nil, "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("tenant B list documents status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -667,6 +763,101 @@ func TestTenantIsolation(t *testing.T) {
 	if idB == idA {
 		t.Fatalf("tenant B asset id %q equals tenant A asset id %q, want distinct assets across tenants", idB, idA)
 	}
+}
+
+// TestScopeAccess verifies the scope access contract: a user sees their
+// personal rows plus the rows of households they are a member of, and nothing
+// else.
+func TestScopeAccess(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	ctx := context.Background()
+
+	// Household owned by test-tenant, with test-tenant as a member.
+	hh, err := e.factory.Households.Create(ctx, entity.Household{DisplayName: "H1"}, repo.Tenant("test-tenant"))
+	if err != nil {
+		t.Fatalf("create household: %v", err)
+	}
+	if hh.ID == "" {
+		t.Fatal("household id is empty")
+	}
+	if err := e.factory.Households.AddMember(ctx, hh.ID, "test-tenant", repo.Tenant("test-tenant")); err != nil {
+		t.Fatalf("add household member: %v", err)
+	}
+
+	// Household-scoped asset owned by the household.
+	hhAsset, err := e.factory.Assets.Create(ctx, entity.Asset{
+		DocType:          "invoice",
+		ScopeType:        entity.ScopeHousehold,
+		OwnerHouseholdID: &hh.ID,
+	}, repo.Tenant("test-tenant"))
+	if err != nil {
+		t.Fatalf("create household asset: %v", err)
+	}
+	if hhAsset.ID == "" {
+		t.Fatal("household asset id is empty")
+	}
+
+	// Personal asset for test-tenant (via the HTTP upload).
+	up, personal := e.uploadFile(t, "test-tenant", "invoice.pdf", "application/pdf", pdfBytes(16))
+	if up.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201 (body: %s)", up.Code, up.Body.String())
+	}
+	personalID := strVal(personal, "id")
+	if personalID == "" {
+		t.Fatal("personal asset id is empty")
+	}
+
+	// listIDs decodes the asset list body and returns the set of asset ids.
+	listIDs := func(t *testing.T, path string) map[string]bool {
+		t.Helper()
+		rec := do(t, e.handler, http.MethodGet, path, "", nil, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d, want 200 (body: %s)", path, rec.Code, rec.Body.String())
+		}
+		var assets []map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &assets); err != nil {
+			t.Fatalf("unmarshal asset list: %v (body: %s)", err, rec.Body.String())
+		}
+		ids := make(map[string]bool, len(assets))
+		for _, a := range assets {
+			ids[strVal(a, "id")] = true
+		}
+		return ids
+	}
+
+	t.Run("PersonalVisible", func(t *testing.T) {
+		ids := listIDs(t, "/api/users/test-tenant/assets")
+		if !ids[personalID] {
+			t.Errorf("personal asset %q not visible to its owner (ids: %v)", personalID, ids)
+		}
+	})
+
+	t.Run("HouseholdVisibleWhenMember", func(t *testing.T) {
+		ids := listIDs(t, "/api/users/test-tenant/assets")
+		if !ids[hhAsset.ID] {
+			t.Errorf("household asset %q not visible to owner+member (ids: %v)", hhAsset.ID, ids)
+		}
+	})
+
+	t.Run("AnotherUsersPersonalInvisible", func(t *testing.T) {
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant-b/assets/"+personalID, "", nil, "")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("NonMemberHouseholdInvisible", func(t *testing.T) {
+		ids := listIDs(t, "/api/users/test-tenant-b/assets")
+		if ids[hhAsset.ID] {
+			t.Errorf("household asset %q visible to non-member (ids: %v)", hhAsset.ID, ids)
+		}
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant-b/assets/"+hhAsset.ID, "", nil, "")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
+		}
+	})
 }
 
 // Compile-time guards: these references must resolve so the RED failure is a

@@ -12,4 +12,9 @@ type Source struct {
 	Path        string
 	SHA256      string
 	UploadedAt  time.Time
+	// ScopeType is the scope_type column: "personal" or "household".
+	ScopeType string
+	// OwnerHouseholdID is the owner_household_id column; nil means NULL
+	// (a personal row has no household owner).
+	OwnerHouseholdID *string
 }

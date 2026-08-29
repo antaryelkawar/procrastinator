@@ -1,37 +1,54 @@
 package httpx
 
 import (
-	"context"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
+
+	"procrastinator-backend/commons/repo"
+	"procrastinator-backend/commons/tenant"
 )
 
-// ctxKey is an unexported type used for context value keys in this package,
-// preventing collisions with keys defined in other packages.
-type ctxKey int
-
-const tenantKey ctxKey = 0
-
-// TenantMiddleware returns an http.Handler that extracts the X-Tenant-ID header
-// from each request. If the header is missing or empty, it responds with
-// 400 Bad Request and a JSON error body; otherwise it stores the tenant ID
-// in the request context and delegates to next.
-func TenantMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tenantID := r.Header.Get("X-Tenant-ID")
-		if tenantID == "" {
-			WriteError(w, http.StatusBadRequest, "missing or empty X-Tenant-ID header")
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), tenantKey, tenantID)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// TenantFrom extracts the tenant ID stored in the context by TenantMiddleware.
-// The parameter is named r and is of type context.Context.
-// Returns the tenant ID and true when present, or "" and false when absent.
-func TenantFrom(r context.Context) (string, bool) {
-	v, ok := r.Value(tenantKey).(string)
-	return v, ok
+// TenantMiddleware returns middleware that resolves the active user (tenant)
+// for a request. The user ID is read from the {userId} URL path parameter.
+//
+// Transitional fallback: when the {userId} path parameter is empty, the
+// middleware falls back to the X-Tenant-ID header. This exists because the
+// /api/finance/... endpoints are a separate feature not yet migrated to
+// URL-path tenancy and identify the user via the header; they must keep
+// working until that migration lands.
+//
+// Decision table (semantics unchanged): empty/missing → 400, malformed → 400,
+// registry error → 500, unregistered → 404. Registered tenants are stored in
+// ctx via tenant.WithTenant.
+func TenantMiddleware(reg repo.TenantRegistry) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "userId")
+			if id == "" {
+				// Transitional: the finance endpoints are not yet on
+				// URL-path tenancy and still pass the user via the header.
+				id = r.Header.Get("X-Tenant-ID")
+			}
+			if id == "" {
+				WriteError(w, http.StatusBadRequest, "missing userId")
+				return
+			}
+			if !tenant.Valid(id) {
+				WriteError(w, http.StatusBadRequest, "malformed userId")
+				return
+			}
+			registered, err := reg.Has(r.Context(), id)
+			if err != nil {
+				WriteError(w, http.StatusInternalServerError, "tenant lookup failed")
+				return
+			}
+			if !registered {
+				WriteError(w, http.StatusNotFound, "unknown user")
+				return
+			}
+			ctx := tenant.WithTenant(r.Context(), id)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }

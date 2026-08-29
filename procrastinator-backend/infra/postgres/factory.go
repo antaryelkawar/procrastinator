@@ -13,9 +13,15 @@ import (
 // The InTx callback provides transactional scoping with tx-bound repositories.
 func NewFactory(pool *pgxpool.Pool) *repo.Factory {
 	return &repo.Factory{
-		Assets:    NewAssetRepository(pool),
-		Sources:   NewSourceRepository(pool),
-		Documents: NewDocumentRepository(pool),
+		Assets:        NewAssetRepository(pool),
+		Sources:       NewSourceRepository(pool),
+		Documents:     NewDocumentRepository(pool),
+		Accounts:      NewAccountRepository(pool),
+		Movements:     NewMovementRepository(pool),
+		ImportBatches: NewImportBatchRepository(pool),
+		ImportLines:   NewImportLineRepository(pool),
+		Households:    NewHouseholdRepository(pool),
+		Tenants:       NewTenantRegistry(pool),
 		InTx: func(ctx context.Context, fn func(ctx context.Context, repos *repo.Repos) error) error {
 			tx, err := pool.Begin(ctx)
 			if err != nil {
@@ -24,9 +30,14 @@ func NewFactory(pool *pgxpool.Pool) *repo.Factory {
 			defer tx.Rollback(ctx) // no-op if committed
 
 			repos := &repo.Repos{
-				Assets:    NewAssetRepository(tx),
-				Sources:   NewSourceRepository(tx),
-				Documents: NewDocumentRepository(tx),
+				Assets:        newAssetRepoForTx(tx),
+				Sources:       newSourceRepoForTx(tx),
+				Documents:     newDocumentRepoForTx(tx),
+				Accounts:      newAccountRepoForTx(tx),
+				Movements:     newMovementRepoForTx(tx),
+				ImportBatches: newImportBatchRepoForTx(tx),
+				ImportLines:   newImportLineRepoForTx(tx),
+				Households:    newHouseholdRepoForTx(tx),
 			}
 
 			if err := fn(ctx, repos); err != nil {

@@ -15,10 +15,16 @@ type tenantKey struct{}
 // tenantPattern validates tenant IDs: 1-64 characters, alphanumeric plus underscore and hyphen.
 var tenantPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
+// Valid reports whether id is a syntactically valid tenant ID:
+// 1-64 characters, alphanumeric plus underscore and hyphen.
+func Valid(id string) bool {
+	return tenantPattern.MatchString(id)
+}
+
 // WithTenant returns a child context carrying the given tenant ID.
 // If the ID is invalid (does not match the pattern), the original context is returned unchanged.
 func WithTenant(ctx context.Context, id string) context.Context {
-	if !tenantPattern.MatchString(id) {
+	if !Valid(id) {
 		return ctx
 	}
 	return context.WithValue(ctx, tenantKey{}, id)

@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
+	"procrastinator-backend/commons/tenant"
 	"procrastinator-backend/infra/postgres"
 )
 
@@ -32,6 +34,9 @@ var (
 // test binary run.
 func genericRepos(t *testing.T) (repo.Repository[entity.Asset], repo.Repository[entity.Source], repo.Repository[entity.Document]) {
 	t.Helper()
+	if os.Getenv("TESTPG_SKIP") == "1" {
+		t.Skip("no test database configured")
+	}
 	genericOnce.Do(func() {
 		genericPool, genericInitErr = openTestPool(t, testSchemaGeneric)
 		if genericInitErr != nil {
@@ -54,6 +59,14 @@ func genericFactoryRepo(t *testing.T) *repo.Factory {
 	t.Helper()
 	genericRepos(t) // ensure the pool is initialized
 	return genericFactory
+}
+
+// registryPool returns the p_generic pool bound to the tenant registry. It is
+// lazily initialized inside genericOnce alongside the repositories.
+func registryPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	genericRepos(t) // ensure the pool is initialized
+	return genericPool
 }
 
 // truncateGeneric clears all test data on the generic pool.
@@ -87,9 +100,14 @@ func TestGenericAssetListWithTenantAndWhere(t *testing.T) {
 	truncateGeneric(t)
 	ctx := context.Background()
 
-	for _, dt := range []string{entity.DocTypeInvoice, entity.DocTypeAMC, entity.DocTypeInvoice} {
+	serials := []string{"WM-2024-001", "WM-2024-002", "WM-2024-003"}
+	for i, dt := range []string{entity.DocTypeInvoice, entity.DocTypeAMC, entity.DocTypeInvoice} {
+		serial := serials[i]
+		// Distinct serial per row: 00001_init added the partial unique index
+		// uniq_assets_tenant_norm_serial on (tenant_id, norm_serial).
 		if _, err := assets.Create(ctx, testAsset(func(a *entity.Asset) {
 			a.DocType = dt
+			a.SerialNumber = &serial
 		}), repo.Tenant(tenantA)); err != nil {
 			t.Fatalf("Create(%s): %v", dt, err)
 		}
@@ -240,6 +258,8 @@ func TestGenericDocumentListOrderByLimit(t *testing.T) {
 			AssetID:         asset.ID,
 			DocType:         entity.DocTypeInvoice,
 			ExtractedFields: map[string]any{},
+			// 00001_init requires documents.raw_extraction NOT NULL.
+			RawExtraction: "raw extraction fixture",
 		}, repo.Tenant(tenantA)); err != nil {
 			t.Fatalf("Create document[%d]: %v", i, err)
 		}
@@ -340,4 +360,73 @@ func TestGenericFactoryInTx(t *testing.T) {
 			t.Errorf("List after rollback = %d rows, want 0 (rolled back)", len(list))
 		}
 	})
+}
+
+// TestGenericCtxFallback verifies that the repository resolves the tenant
+// from context when no explicit repo.Tenant option is provided.
+func TestGenericCtxFallback(t *testing.T) {
+	assets, _, _ := genericRepos(t)
+	truncateGeneric(t)
+
+	ctx := tenant.WithTenant(context.Background(), tenantA)
+
+	// Create via ctx tenant (no repo.Tenant option).
+	created, err := assets.Create(ctx, testAsset())
+	if err != nil {
+		t.Fatalf("Create (ctx tenant): %v", err)
+	}
+	if created.TenantID != tenantA {
+		t.Errorf("TenantID = %q, want %q", created.TenantID, tenantA)
+	}
+
+	// Get via ctx tenant.
+	got, err := assets.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get (ctx tenant): %v", err)
+	}
+	if got.ID != created.ID {
+		t.Errorf("Get ID = %q, want %q", got.ID, created.ID)
+	}
+
+	// List via ctx tenant.
+	list, err := assets.List(ctx)
+	if err != nil {
+		t.Fatalf("List (ctx tenant): %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("List = %d rows, want 1", len(list))
+	}
+
+	// Delete via ctx tenant.
+	if err := assets.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete (ctx tenant): %v", err)
+	}
+	if _, err := assets.Get(ctx, created.ID); !errors.Is(err, repo.ErrNotFound) {
+		t.Errorf("Get after Delete: err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestGenericNoTenantErr verifies that a repository call with neither an
+// explicit option nor a context tenant returns ErrNoTenant.
+func TestGenericNoTenantErr(t *testing.T) {
+	assets, _, _ := genericRepos(t)
+	truncateGeneric(t)
+
+	ctx := context.Background() // no tenant
+
+	if _, err := assets.Create(ctx, testAsset()); !errors.Is(err, tenant.ErrNoTenant) {
+		t.Errorf("Create: err = %v, want ErrNoTenant", err)
+	}
+	if _, err := assets.Get(ctx, "some-id"); !errors.Is(err, tenant.ErrNoTenant) {
+		t.Errorf("Get: err = %v, want ErrNoTenant", err)
+	}
+	if _, err := assets.List(ctx); !errors.Is(err, tenant.ErrNoTenant) {
+		t.Errorf("List: err = %v, want ErrNoTenant", err)
+	}
+	if _, err := assets.Update(ctx, entity.Asset{ID: "some-id"}); !errors.Is(err, tenant.ErrNoTenant) {
+		t.Errorf("Update: err = %v, want ErrNoTenant", err)
+	}
+	if err := assets.Delete(ctx, "some-id"); !errors.Is(err, tenant.ErrNoTenant) {
+		t.Errorf("Delete: err = %v, want ErrNoTenant", err)
+	}
 }

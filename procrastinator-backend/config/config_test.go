@@ -40,18 +40,31 @@ func TestLoad(t *testing.T) {
 		want        *Config
 	}{
 		{
-			name:    "all vars set non-default",
-			src:     base,
+			name: "all vars set non-default",
+			src: map[string]string{
+				"PROCRASTINATOR_DATABASE_URL":        "postgres://user:pass@localhost:5432/db",
+				"PROCRASTINATOR_LLM_API_KEY":         "api-key-123",
+				"PROCRASTINATOR_LLM_MODEL":           "gemma-4-26b-a4b-it",
+				"PROCRASTINATOR_HTTP_ADDR":           ":9090",
+				"PROCRASTINATOR_LLM_BASE_URL":        "https://example.invalid/v1",
+				"PROCRASTINATOR_STORAGE_DIR":         "/tmp/alt-storage",
+				"PROCRASTINATOR_MAX_UPLOAD_BYTES":    "1024",
+				"PROCRASTINATOR_MAX_STATEMENT_BYTES": "10485760",
+				"PROCRASTINATOR_MAX_STATEMENT_LINES": "2500",
+				"PROCRASTINATOR_LLM_TIMEOUT":         "45s",
+			},
 			wantErr: false,
 			want: &Config{
-				DatabaseURL:    "postgres://user:pass@localhost:5432/db",
-				HTTPAddr:       ":9090",
-				LLMBaseURL:     "https://example.invalid/v1",
-				LLMAPIKey:      "api-key-123",
-				LLMModel:       "gemma-4-26b-a4b-it",
-				StorageDir:     "/tmp/alt-storage",
-				MaxUploadBytes: 1024,
-				LLMTimeout:     45 * time.Second,
+				DatabaseURL:       "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:          ":9090",
+				LLMBaseURL:        "https://example.invalid/v1",
+				LLMAPIKey:         "api-key-123",
+				LLMModel:          "gemma-4-26b-a4b-it",
+				StorageDir:        "/tmp/alt-storage",
+				MaxUploadBytes:    1024,
+				MaxStatementBytes: 10485760,
+				MaxStatementLines: 2500,
+				LLMTimeout:        45 * time.Second,
 			},
 		},
 		{
@@ -63,14 +76,16 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr: false,
 			want: &Config{
-				DatabaseURL:    "postgres://user:pass@localhost:5432/db",
-				HTTPAddr:       ":8080",
-				LLMBaseURL:     "https://generativelanguage.googleapis.com/v1beta/openai/",
-				LLMAPIKey:      "api-key-123",
-				LLMModel:       "gemma-4-26b-a4b-it",
-				StorageDir:     "./storage",
-				MaxUploadBytes: 20971520,
-				LLMTimeout:     60 * time.Second,
+				DatabaseURL:       "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:          ":8080",
+				LLMBaseURL:        "https://generativelanguage.googleapis.com/v1beta/openai/",
+				LLMAPIKey:         "api-key-123",
+				LLMModel:          "gemma-4-26b-a4b-it",
+				StorageDir:        "./storage",
+				MaxUploadBytes:    20971520,
+				MaxStatementBytes: 52428800,
+				MaxStatementLines: 100000,
+				LLMTimeout:        60 * time.Second,
 			},
 		},
 		{
@@ -155,6 +170,34 @@ func TestLoad(t *testing.T) {
 			}(),
 			wantErr:     true,
 			errContains: "PROCRASTINATOR_MAX_UPLOAD_BYTES",
+			want:        nil,
+		},
+		{
+			name: "invalid PROCRASTINATOR_MAX_STATEMENT_BYTES",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_MAX_STATEMENT_BYTES"] = "not-a-number"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_MAX_STATEMENT_BYTES",
+			want:        nil,
+		},
+		{
+			name: "invalid PROCRASTINATOR_MAX_STATEMENT_LINES",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_MAX_STATEMENT_LINES"] = "also-bad"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_MAX_STATEMENT_LINES",
 			want:        nil,
 		},
 		{

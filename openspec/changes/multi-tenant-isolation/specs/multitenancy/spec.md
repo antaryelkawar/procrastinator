@@ -2,123 +2,101 @@
 
 Delta for change `multi-tenant-isolation`. Modifies the baseline in `openspec/specs/multitenancy`.
 
-This delta is written against the v3 target contract of `invoice-warranty-asset-flow` (explicit `repo.Tenant(id)` option with context fallback). The two MODIFIED requirements below incorporate that contract in full and add enforcement guarantees; they do not redefine the option-vs-context precedence, the header name/format, or the isolation and test-tenant conventions, which are unchanged.
+This delta redefines the tenancy model to be User-centric. A User is the isolation boundary (Tenant).
 
 ## MODIFIED Requirements
 
-### Requirement: Tenant identification on every request
+### Requirement: User-based tenant identification in URL
 
-Every API request SHALL carry a tenant identifier in the `X-Tenant-ID` header. Middleware SHALL validate the header format (non-empty, at most 64 characters from `[A-Za-z0-9_-]`) and SHALL validate that the identifier names a registered tenant (see "Tenant registry"). A request with a missing header SHALL be rejected with `400 Bad Request`; a request with a malformed header SHALL be rejected with `400 Bad Request`; a request with a well-formed but unregistered tenant SHALL be rejected with `404 Not Found`. In all rejection cases the rejection SHALL occur before any handler or repository code runs and no data SHALL be read or written. For accepted requests, middleware SHALL place the tenant identifier into the request `context.Context` before invoking any handler.
+Every API request SHALL identify the active user (tenant) via the `{userId}` parameter in the URL path. Middleware SHALL extract this ID using the router's parameter resolution (e.g., `chi.URLParam`). Middleware SHALL validate the ID format (non-empty, at most 64 characters from `[A-Za-z0-9_-]`) and SHALL validate that it names a registered user (see "User registry"). A request with a missing or malformed `{userId}` SHALL be rejected with `400 Bad Request`; a request with a well-formed but unregistered user SHALL be rejected with `404 Not Found`. Registry database errors SHALL result in `500 Internal Server Error`. In all rejection cases, the rejection SHALL occur before any handler or repository code runs and no data SHALL be read or written. For accepted requests, middleware SHALL place the user ID into the request `context.Context`.
 
-#### Scenario: Request without tenant header is rejected
+#### Scenario: Request with malformed userId is rejected with 400
 
-- **WHEN** a client sends any API request without an `X-Tenant-ID` header
+- **WHEN** a client sends a request with a `{userId}` that is empty, longer than 64 characters, or contains characters outside `[A-Za-z0-9_-]`
 - **THEN** the response is `400 Bad Request` and no data is read or written
 
-#### Scenario: Malformed tenant header is rejected with 400
+#### Scenario: Unregistered user is rejected with 404
 
-- **WHEN** a client sends a request with an `X-Tenant-ID` header that is empty, longer than 64 characters, or contains characters outside `[A-Za-z0-9_-]`
-- **THEN** the response is `400 Bad Request` and no data is read or written
-
-#### Scenario: Unregistered tenant is rejected with 404
-
-- **WHEN** a client sends a request with a well-formed `X-Tenant-ID` header naming a tenant that is not in the tenant registry
+- **WHEN** a client sends a request with a well-formed `{userId}` naming a user that is not in the user registry
 - **THEN** the response is `404 Not Found` and no data is read or written
 
-#### Scenario: Valid registered tenant header reaches the handler via context
+#### Scenario: Valid registered user ID reaches the handler via context
 
-- **WHEN** a client sends a request with header `X-Tenant-ID: acme` and `acme` is a registered tenant
-- **THEN** downstream handlers, services, and repositories observe tenant `acme` from the request context
+- **WHEN** a client sends a request to `/api/users/alice/documents` and `alice` is a registered user
+- **THEN** downstream handlers, services, and repositories observe user `alice` from the request context
 
 ### Requirement: Tenant-scoped persistence
 
-Every tenant-owned table (`sources`, `assets`, `documents`) SHALL carry a `tenant_id` column referencing the tenant registry. Every repository call SHALL pass the tenant explicitly via the `repo.Tenant(id)` option; when the option is absent the repository SHALL fall back to the tenant carried in the passed `context.Context`. The explicit option SHALL take precedence over the context when both are present. All reads and writes SHALL be restricted to rows of the resolved tenant. A repository method invoked with neither an explicit tenant option nor a context tenant SHALL return the sentinel error `ErrNoTenant` and SHALL NOT issue any SQL statement — tenant enforcement fails closed at the data layer, not merely by convention.
+Every tenant-owned table SHALL carry a `tenant_id` column (storing the User ID) referencing the user registry (`tenants.id`). Every repository call SHALL pass the user ID explicitly via the `repo.Tenant(id)` option; when the option is absent, the repository SHALL fall back to the user carried in the passed `context.Context`. The explicit option SHALL take precedence over the context. All reads and writes SHALL be restricted to rows of the resolved user. A repository method invoked with neither an explicit user option nor a context user SHALL return the sentinel error `ErrNoTenant` and SHALL NOT issue any SQL statement.
 
-#### Scenario: Repository writes stamp the context tenant
+#### Scenario: Repository writes stamp the context user
 
-- **WHEN** an Asset is created in a context carrying tenant `acme` (with no explicit tenant option)
-- **THEN** the persisted row has `tenant_id = 'acme'`
+- **WHEN** a Document is created in a context carrying user `alice`
+- **THEN** the persisted row has `tenant_id = 'alice'`
 
-#### Scenario: Explicit tenant option wins over context
+#### Scenario: Repository call without user fails closed
 
-- **WHEN** a repository method is called with option `repo.Tenant("acme")` in a context carrying tenant `globex`
-- **THEN** the operation reads or writes rows of tenant `acme` only
-
-#### Scenario: Repository call without tenant fails closed
-
-- **WHEN** any repository method is called with neither a tenant option nor a context tenant
+- **WHEN** any repository method is called with neither a user option nor a context user
 - **THEN** it returns `ErrNoTenant` and performs no query
-
-#### Scenario: Tenantless call issues no SQL
-
-- **WHEN** any repository method (Get, List, Create, Update, Delete) is called with neither a tenant option nor a context tenant, with a query-recording or panic-on-query executor
-- **THEN** the error is `ErrNoTenant` and zero SQL statements reach the database
 
 ## ADDED Requirements
 
-### Requirement: Tenant registry
+### Requirement: User registry
 
-The system SHALL maintain a tenant registry as a `tenants` table holding one row per valid tenant identifier. Every `tenant_id` value stored in a tenant-owned table (`sources`, `assets`, `documents`) SHALL reference a registry row via a foreign key. Tenants SHALL be created only by explicit provisioning (migrations or administrative seeding); a request header value SHALL never implicitly create a tenant. Deleting a registry row that still owns data SHALL be rejected by the database.
-
-#### Scenario: Unknown header value never becomes a tenant
-
-- **WHEN** a request arrives with a well-formed `X-Tenant-ID` naming no registry row
-- **THEN** the request is rejected and the registry contains no new row afterwards
+The system SHALL maintain a user registry as a `tenants` table (naming retained for stability) holding one row per valid user ID in the `id` column. Every `tenant_id` value stored in a tenant-owned table (`sources`, `assets`, `documents`) SHALL reference a registry row. Users SHALL be created only by explicit provisioning.
 
 #### Scenario: Tenant-owned rows require a registry row
 
 - **WHEN** a row is inserted into `assets` with a `tenant_id` that does not exist in `tenants`
 - **THEN** the insert fails with a foreign-key violation
 
-#### Scenario: Deleting a tenant that owns data is rejected
+### Requirement: Households and Membership
 
-- **WHEN** a `tenants` row is deleted while `sources`, `assets`, or `documents` rows still carry its identifier
-- **THEN** the delete fails with a foreign-key violation and the tenant's data is untouched
+The system SHALL maintain `households` (id, tenant_id, display_name, created_at) and `household_members` (household_id, user_id) tables. A user_id in `household_members` SHALL reference the user registry. Membership is a many-to-many relationship: a user may belong to multiple households, and a household may have multiple users.
 
-#### Scenario: Existing data is backfilled into the registry
+#### Scenario: User is member of multiple households
 
-- **WHEN** the registry migration runs on a database containing tenant-owned rows
-- **THEN** every distinct pre-existing `tenant_id` has a corresponding registry row before the foreign keys are enforced
+- **WHEN** user `alice` is added to `household_members` for household `h1` and `h2`
+- **THEN** both memberships are recorded and active
+
+### Requirement: Scoped Access
+
+Tenant-owned rows (`sources`, `assets`, `documents`) SHALL carry a `scope` dimension. This SHALL be implemented as a `scope_type` column (enum: `personal`, `household`) and an optional `owner_household_id` column.
+- Rows with `scope_type = 'personal'` are owned by the user identified by `tenant_id`.
+- Rows with `scope_type = 'household'` are owned by the household identified by `owner_household_id`.
+A user SHALL have read/write access to a row IF:
+1. The row's `tenant_id` matches the user ID AND its `scope_type` is `personal`.
+2. OR the row's `owner_household_id` identifies a household where the user is a member.
+
+#### Scenario: User can read their personal document
+
+- **WHEN** user `alice` requests a document where `tenant_id = 'alice'` and `scope_type = 'personal'`
+- **THEN** the document is returned
+
+#### Scenario: User can read household document
+
+- **WHEN** user `alice` is a member of household `h1`, and requests a document where `owner_household_id = 'h1'` and `scope_type = 'household'`
+- **THEN** the document is returned
+
+#### Scenario: User cannot read another user's personal document
+
+- **WHEN** user `alice` requests a document where `tenant_id = 'bob'` and `scope_type = 'personal'`, and `alice` != `bob`
+- **THEN** the request is rejected or the document is not found
 
 ### Requirement: Row-level security defense-in-depth
 
-Every tenant-owned table SHALL have PostgreSQL row-level security enabled and forced, with a policy restricting visibility and writes to rows whose `tenant_id` matches the tenant bound to the current transaction. The application SHALL bind the resolved tenant to a transaction-scoped database setting (never a session-scoped one) at the start of every transaction that touches tenant-owned tables, so pooled connections can never carry a stale tenant. The application database role SHALL NOT be a superuser and SHALL NOT hold `BYPASSRLS`. Row-level security is defense-in-depth: application-level `WHERE tenant_id = ...` scoping remains the primary mechanism and SHALL NOT be removed.
+Every tenant-owned table SHALL have PostgreSQL row-level security enabled. The policy SHALL restrict visibility and writes to rows whose `tenant_id` matches the user ID bound to the current transaction. Household-based scope filtering is enforced at the application level; RLS provides a hard boundary at the User/Tenant level.
 
-#### Scenario: Unscoped query returns only the bound tenant's rows
+#### Scenario: Unscoped query returns only the bound user's rows
 
-- **WHEN** a transaction bound to tenant `acme` executes a raw `SELECT` on `assets` with no `WHERE tenant_id` clause
-- **THEN** only rows with `tenant_id = 'acme'` are returned
+- **WHEN** a transaction bound to user `alice` executes a raw `SELECT` on `assets` with no `WHERE tenant_id` clause
+- **THEN** only rows with `tenant_id = 'alice'` are returned
 
-#### Scenario: Cross-tenant write is rejected by policy
+### Requirement: User-scoped file storage
 
-- **WHEN** a transaction bound to tenant `acme` attempts to insert or update a row with `tenant_id = 'globex'`
-- **THEN** the statement fails and no `globex` row is created or modified
+Stored file content SHALL be laid out under a per-user key prefix of the form `{userId}/{fileID}`. The storage layer SHALL resolve the user from the context.
 
-#### Scenario: Unbound transaction sees nothing
+#### Scenario: Uploaded file lands under the user prefix
 
-- **WHEN** a transaction that has not bound any tenant queries a tenant-owned table
-- **THEN** zero rows are returned and no rows can be written
-
-#### Scenario: Tenant binding does not leak across pooled connections
-
-- **WHEN** a transaction bound to tenant `acme` commits and its connection is reused from the pool for a transaction bound to tenant `globex`
-- **THEN** the second transaction observes only `globex` rows, with no residue of `acme`'s binding
-
-### Requirement: Tenant-scoped file storage
-
-Stored file content SHALL be laid out under a per-tenant key prefix of the form `{tenantID}/{fileID}`. The storage layer SHALL resolve the tenant from the passed `context.Context`; a storage operation invoked with no tenant in context SHALL return `ErrNoTenant` and store nothing. Client-supplied paths or filenames SHALL never reach the storage layer as storage keys. The tenant-scoped reference row (`sources`) remains the authoritative record linking a stored object to its tenant.
-
-#### Scenario: Uploaded file lands under the tenant prefix
-
-- **WHEN** a document is uploaded in a context carrying tenant `acme`
-- **THEN** the file bytes are stored under a key beginning with `acme/` and the `sources` row records `tenant_id = 'acme'`
-
-#### Scenario: Files of two tenants never share a key prefix
-
-- **WHEN** tenant `acme` and tenant `globex` each upload files
-- **THEN** every stored object key begins with its own tenant's prefix and no object is reachable under another tenant's prefix
-
-#### Scenario: Storage call without tenant fails closed
-
-- **WHEN** the file storage is invoked with a context carrying no tenant
-- **THEN** it returns `ErrNoTenant` and writes no file
+- **WHEN** a document is uploaded in a context carrying user `alice`
+- **THEN** the file bytes are stored under a key beginning with `alice/`

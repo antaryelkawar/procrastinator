@@ -2,8 +2,8 @@ services:
   postgres:
     image: postgres:18
     environment:
-      POSTGRES_USER: procrastinator
-      POSTGRES_PASSWORD: procrastinator
+      POSTGRES_USER: pgadmin
+      POSTGRES_PASSWORD: pgadmin
       POSTGRES_DB: procrastinator
     ports:
       - "5432:5432"
@@ -13,6 +13,7 @@ services:
       timeout: 5s
       retries: 12
     volumes:
+      - ./initdb:/docker-entrypoint-initdb.d:ro
       # postgres:18+ stores data in version-specific subdirs under
       # /var/lib/postgresql (see docker-library/postgres#1259); mount there.
       - pgdata:/var/lib/postgresql

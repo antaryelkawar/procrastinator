@@ -1,5 +1,6 @@
 // Package filestorage implements repo.FileStorage as a local-filesystem
-// storage backed by content-type sniffing and UUID-named files.
+// storage backed by content-type sniffing and tenant-scoped, UUID-named
+// files under {tenantID}/{uuid}{ext}.
 package filestorage
 
 import (
@@ -16,6 +17,7 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
+	"procrastinator-backend/commons/tenant"
 )
 
 // ErrUnsupportedType is returned when the content type is not PDF, PNG, or JPEG.
@@ -28,13 +30,23 @@ type Storage struct {
 
 var _ repo.FileStorage = (*Storage)(nil)
 
-// New creates a Storage that writes files under dir.
+// New creates a Storage that writes files under dir/<tenant>/ for each
+// tenant present in the context.
 func New(dir string) *Storage {
 	return &Storage{dir: dir}
 }
 
-// Put stores the given bytes on disk under a UUID-named file and returns the Source record.
+// Put stores the given bytes on disk under the tenant-scoped key
+// <tenant>/<uuid><ext> and returns the Source record. The tenant ID must be
+// present in ctx (see tenant.WithTenant); otherwise Put fails closed with
+// tenant.ErrNoTenant before sniffing or any I/O. Source.Path is the
+// tenant-relative key, not an absolute path.
 func (s *Storage) Put(ctx context.Context, payload []byte) (entity.Source, error) {
+	tid, err := tenant.TenantFrom(ctx)
+	if err != nil {
+		return entity.Source{}, err
+	}
+
 	contentType := sniffType(payload)
 	if contentType == "" {
 		return entity.Source{}, fmt.Errorf("%w: %q", ErrUnsupportedType, payload[:min(10, len(payload))])
@@ -43,7 +55,11 @@ func (s *Storage) Put(ctx context.Context, payload []byte) (entity.Source, error
 	uuid := generateUUID()
 	ext := extForType(contentType)
 
-	path := filepath.Join(s.dir, uuid+ext)
+	key := tid + "/" + uuid + ext
+	path := filepath.Join(s.dir, key)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return entity.Source{}, fmt.Errorf("create dir: %w", err)
+	}
 	if err := os.WriteFile(path, payload, 0o644); err != nil {
 		return entity.Source{}, fmt.Errorf("write file: %w", err)
 	}
@@ -55,7 +71,7 @@ func (s *Storage) Put(ctx context.Context, payload []byte) (entity.Source, error
 		Filename:    uuid,
 		ContentType: contentType,
 		Size:        int64(len(payload)),
-		Path:        path,
+		Path:        key,
 		SHA256:      hex.EncodeToString(sum[:]),
 		UploadedAt:  time.Now(),
 	}, nil

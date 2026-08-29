@@ -33,6 +33,7 @@ func scanAsset(row rowScanner) (entity.Asset, error) {
 		&id, &a.TenantID, &a.Brand, &a.Model, &a.SerialNumber, &a.NormSerial,
 		&a.NormBrand, &a.NormModel, &a.PurchaseDate, &a.WarrantyEnd, &a.Price,
 		&a.Currency, &a.DocType, &metadataJSON, &a.CreatedAt, &a.UpdatedAt,
+		&a.ScopeType, &a.OwnerHouseholdID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -56,6 +57,7 @@ func scanSource(row rowScanner) (entity.Source, error) {
 	err := row.Scan(
 		&id, &s.TenantID, &s.Filename, &s.ContentType, &s.Size,
 		&s.Path, &s.SHA256, &s.UploadedAt,
+		&s.ScopeType, &s.OwnerHouseholdID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -75,6 +77,7 @@ func scanDocument(row rowScanner) (entity.Document, error) {
 	err := row.Scan(
 		&id, &d.TenantID, &d.AssetID, &d.SourceID, &d.DocType,
 		&fieldsJSON, &rawJSON, &d.CreatedAt,
+		&d.ScopeType, &d.OwnerHouseholdID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

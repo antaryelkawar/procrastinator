@@ -3,38 +3,109 @@ package postgres
 import (
 	"encoding/json"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"procrastinator-backend/commons"
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
 )
 
-// NewAssetRepository returns a generic repository for entity.Asset.
-func NewAssetRepository(q Querier) repo.Repository[entity.Asset] {
-	return &pgRepository[entity.Asset]{
-		q:       q,
-		table:   "assets",
-		scanRow: scanAsset,
-		toMap:   assetToMap,
+// Compile-time guards: the concrete asset/source repositories satisfy the
+// generic repository interface for their entity.
+var (
+	_ repo.Repository[entity.Asset]  = (*AssetRepository)(nil)
+	_ repo.Repository[entity.Source] = (*SourceRepository)(nil)
+)
+
+// AssetRepository is the generic repository engine for entity.Asset, carrying
+// the scope-aware ListScoped method.
+type AssetRepository struct {
+	*pgRepository[entity.Asset]
+}
+
+// SourceRepository is the generic repository engine for entity.Source,
+// carrying the scope-aware ListScoped method.
+type SourceRepository struct {
+	*pgRepository[entity.Source]
+}
+
+// NewAssetRepository returns a repository for entity.Asset.
+func NewAssetRepository(pool *pgxpool.Pool) *AssetRepository {
+	return &AssetRepository{
+		pgRepository: &pgRepository[entity.Asset]{
+			scope:   &poolScope{pool: pool},
+			table:   "assets",
+			scanRow: scanAsset,
+			toMap:   assetToMap,
+			filters: assetFilters,
+		},
 	}
 }
 
-// NewSourceRepository returns a generic repository for entity.Source.
-func NewSourceRepository(q Querier) repo.Repository[entity.Source] {
-	return &pgRepository[entity.Source]{
-		q:       q,
-		table:   "sources",
-		scanRow: scanSource,
-		toMap:   sourceToMap,
+// NewSourceRepository returns a repository for entity.Source.
+func NewSourceRepository(pool *pgxpool.Pool) *SourceRepository {
+	return &SourceRepository{
+		pgRepository: &pgRepository[entity.Source]{
+			scope:   &poolScope{pool: pool},
+			table:   "sources",
+			scanRow: scanSource,
+			toMap:   sourceToMap,
+			filters: sourceFilters,
+		},
 	}
 }
 
-// NewDocumentRepository returns a generic repository for entity.Document.
-func NewDocumentRepository(q Querier) repo.Repository[entity.Document] {
-	return &pgRepository[entity.Document]{
-		q:       q,
-		table:   "documents",
-		scanRow: scanDocument,
-		toMap:   documentToMap,
+// NewDocumentRepository returns a repository for entity.Document, carrying the
+// document-specific aggregate queries (e.g. LinkCandidates).
+func NewDocumentRepository(pool *pgxpool.Pool) *DocumentRepository {
+	return &DocumentRepository{
+		pgRepository: &pgRepository[entity.Document]{
+			scope:   &poolScope{pool: pool},
+			table:   "documents",
+			scanRow: scanDocument,
+			toMap:   documentToMap,
+			filters: documentFilters,
+		},
+	}
+}
+
+// newAssetRepoForTx returns an asset repository bound to an ambient transaction.
+func newAssetRepoForTx(tx pgx.Tx) *AssetRepository {
+	return &AssetRepository{
+		pgRepository: &pgRepository[entity.Asset]{
+			scope:   &txScopeImpl{tx: tx},
+			table:   "assets",
+			scanRow: scanAsset,
+			toMap:   assetToMap,
+			filters: assetFilters,
+		},
+	}
+}
+
+// newSourceRepoForTx returns a source repository bound to an ambient transaction.
+func newSourceRepoForTx(tx pgx.Tx) *SourceRepository {
+	return &SourceRepository{
+		pgRepository: &pgRepository[entity.Source]{
+			scope:   &txScopeImpl{tx: tx},
+			table:   "sources",
+			scanRow: scanSource,
+			toMap:   sourceToMap,
+			filters: sourceFilters,
+		},
+	}
+}
+
+// newDocumentRepoForTx returns a document repository bound to an ambient transaction.
+func newDocumentRepoForTx(tx pgx.Tx) *DocumentRepository {
+	return &DocumentRepository{
+		pgRepository: &pgRepository[entity.Document]{
+			scope:   &txScopeImpl{tx: tx},
+			table:   "documents",
+			scanRow: scanDocument,
+			toMap:   documentToMap,
+			filters: documentFilters,
+		},
 	}
 }
 
@@ -104,6 +175,12 @@ func assetToMap(a entity.Asset) map[string]any {
 			m["metadata"] = meta
 		}
 	}
+	if a.ScopeType != "" {
+		m["scope_type"] = a.ScopeType
+	}
+	if a.OwnerHouseholdID != nil {
+		m["owner_household_id"] = a.OwnerHouseholdID
+	}
 	return m
 }
 
@@ -132,6 +209,12 @@ func sourceToMap(s entity.Source) map[string]any {
 	}
 	if !s.UploadedAt.IsZero() {
 		m["uploaded_at"] = s.UploadedAt
+	}
+	if s.ScopeType != "" {
+		m["scope_type"] = s.ScopeType
+	}
+	if s.OwnerHouseholdID != nil {
+		m["owner_household_id"] = s.OwnerHouseholdID
 	}
 	return m
 }
@@ -165,5 +248,88 @@ func documentToMap(d entity.Document) map[string]any {
 			m["raw_extraction"] = raw
 		}
 	}
+	if d.ScopeType != "" {
+		m["scope_type"] = d.ScopeType
+	}
+	if d.OwnerHouseholdID != nil {
+		m["owner_household_id"] = d.OwnerHouseholdID
+	}
 	return m
 }
+
+// filterConfig holds the per-entity whitelists for dynamic query names:
+// fieldCols maps filterable field names to SQL columns for WHERE clauses,
+// orderCols maps orderable field names to SQL columns for ORDER BY clauses.
+// Every caller-influenced name is validated against these maps before SQL
+// assembly; unknown names are rejected, never interpolated.
+type filterConfig struct {
+	fieldCols map[string]string
+	orderCols map[string]string
+}
+
+var assetFieldCols = map[string]string{
+	"id":                 "id",
+	"brand":              "brand",
+	"model":              "model",
+	"serial_number":      "serial_number",
+	"norm_serial":        "norm_serial",
+	"norm_brand":         "norm_brand",
+	"norm_model":         "norm_model",
+	"purchase_date":      "purchase_date",
+	"warranty_end":       "warranty_end",
+	"price":              "price",
+	"currency":           "currency",
+	"doc_type":           "doc_type",
+	"created_at":         "created_at",
+	"updated_at":         "updated_at",
+	"scope_type":         "scope_type",
+	"owner_household_id": "owner_household_id",
+}
+
+var assetOrderCols = map[string]string{
+	"id":            "id",
+	"created_at":    "created_at",
+	"updated_at":    "updated_at",
+	"brand":         "brand",
+	"model":         "model",
+	"doc_type":      "doc_type",
+	"purchase_date": "purchase_date",
+	"warranty_end":  "warranty_end",
+}
+
+var sourceFieldCols = map[string]string{
+	"filename":           "filename",
+	"content_type":       "content_type",
+	"byte_size":          "byte_size",
+	"sha256":             "sha256",
+	"uploaded_at":        "uploaded_at",
+	"scope_type":         "scope_type",
+	"owner_household_id": "owner_household_id",
+}
+
+var sourceOrderCols = map[string]string{
+	"id":          "id",
+	"uploaded_at": "uploaded_at",
+	"byte_size":   "byte_size",
+}
+
+var documentFieldCols = map[string]string{
+	"asset_id":           "asset_id",
+	"source_id":          "source_id",
+	"doc_type":           "doc_type",
+	"created_at":         "created_at",
+	"scope_type":         "scope_type",
+	"owner_household_id": "owner_household_id",
+}
+
+var documentOrderCols = map[string]string{
+	"id":         "id",
+	"created_at": "created_at",
+	"doc_type":   "doc_type",
+}
+
+var (
+	assetFilters    = filterConfig{fieldCols: assetFieldCols, orderCols: assetOrderCols}
+	sourceFilters   = filterConfig{fieldCols: sourceFieldCols, orderCols: sourceOrderCols}
+	documentFilters = filterConfig{fieldCols: documentFieldCols, orderCols: documentOrderCols}
+)

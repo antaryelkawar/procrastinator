@@ -25,8 +25,9 @@ var dsn string
 func TestMain(m *testing.M) {
 	dsn = os.Getenv("PROCRASTINATOR_TEST_DATABASE_URL")
 	if dsn == "" {
-		// No test database configured: skip all tests.
-		os.Exit(0)
+		// No test database configured: skip the database-backed
+		// integration tests; pure unit tests still run.
+		os.Setenv("TESTPG_SKIP", "1")
 	}
 	os.Exit(m.Run())
 }
@@ -71,6 +72,18 @@ func openTestPool(t *testing.T, schema string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return pool, nil
+}
+
+// ensureTenants idempotently registers the given tenant IDs in the tenants
+// table. Every multi-tenant test that needs additional tenants beyond the
+// migration-seeded test-tenant/test-tenant-b calls this before seeding.
+func ensureTenants(ctx context.Context, pool *pgxpool.Pool, ids ...string) error {
+	for _, id := range ids {
+		if _, err := pool.Exec(ctx, `INSERT INTO tenants (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, id); err != nil {
+			return fmt.Errorf("ensureTenants: insert %q: %w", id, err)
+		}
+	}
+	return nil
 }
 
 func strPtr(s string) *string { return &s }

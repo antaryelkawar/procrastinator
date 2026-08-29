@@ -16,7 +16,13 @@ type Config struct {
 	LLMModel       string
 	StorageDir     string
 	MaxUploadBytes int64
-	LLMTimeout     time.Duration
+	// MaxStatementBytes is the maximum size in bytes of a bank statement file
+	// accepted for ingestion.
+	MaxStatementBytes int64
+	// MaxStatementLines is the maximum number of lines of a bank statement
+	// file accepted for ingestion.
+	MaxStatementLines int
+	LLMTimeout        time.Duration
 }
 
 // Load populates a Config from the provided source map.
@@ -32,6 +38,8 @@ func Load(src map[string]string) (*Config, error) {
 			"PROCRASTINATOR_LLM_MODEL",
 			"PROCRASTINATOR_STORAGE_DIR",
 			"PROCRASTINATOR_MAX_UPLOAD_BYTES",
+			"PROCRASTINATOR_MAX_STATEMENT_BYTES",
+			"PROCRASTINATOR_MAX_STATEMENT_LINES",
 			"PROCRASTINATOR_LLM_TIMEOUT",
 		}
 		for _, v := range vars {
@@ -70,6 +78,20 @@ func Load(src map[string]string) (*Config, error) {
 		return nil, fmt.Errorf("config: invalid PROCRASTINATOR_MAX_UPLOAD_BYTES: %w", err)
 	}
 	cfg.MaxUploadBytes = maxUpload
+
+	maxStatementBytesStr := getOrDefault(src, "PROCRASTINATOR_MAX_STATEMENT_BYTES", "52428800")
+	maxStatementBytes, err := strconv.ParseInt(maxStatementBytesStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("config: invalid PROCRASTINATOR_MAX_STATEMENT_BYTES: %w", err)
+	}
+	cfg.MaxStatementBytes = maxStatementBytes
+
+	maxStatementLinesStr := getOrDefault(src, "PROCRASTINATOR_MAX_STATEMENT_LINES", "100000")
+	maxStatementLines, err := strconv.ParseInt(maxStatementLinesStr, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("config: invalid PROCRASTINATOR_MAX_STATEMENT_LINES: %w", err)
+	}
+	cfg.MaxStatementLines = int(maxStatementLines)
 
 	timeoutStr := getOrDefault(src, "PROCRASTINATOR_LLM_TIMEOUT", "60s")
 	timeout, err := time.ParseDuration(timeoutStr)

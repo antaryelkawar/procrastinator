@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -8,11 +9,48 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"procrastinator-backend/api/httpx"
+	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
 	"procrastinator-backend/core/identity"
 	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/infra/filestorage"
 )
+
+// scopedAssetLister and scopedDocumentLister are narrow views over the
+// concrete repositories that expose the scope-aware ListScoped method. The
+// generic repo.Repository[T] interface intentionally omits ListScoped, so the
+// handlers reach it through these assertions. The real postgres repositories
+// always satisfy them; a failed assertion is a wiring bug mapped to 500.
+type scopedAssetLister interface {
+	ListScoped(ctx context.Context, opts ...repo.Option) ([]entity.Asset, error)
+}
+
+type scopedDocumentLister interface {
+	ListScoped(ctx context.Context, opts ...repo.Option) ([]entity.Document, error)
+}
+
+// errDocumentsNotScopeAware reports a factory whose documents repository does
+// not expose ListScoped. It is a programming error surfaced as a 500.
+var errDocumentsNotScopeAware = errors.New("documents repository is not scope-aware")
+
+// findAssetScoped returns the single asset with id visible to the user under
+// the scope access rule, or nil when the user cannot see it (unknown or
+// foreign-tenant assets both surface as not-found).
+func (s *Server) findAssetScoped(ctx context.Context, tid, id string) (*entity.Asset, error) {
+	scoped, ok := s.factory.Assets.(scopedAssetLister)
+	if !ok {
+		return nil, errors.New("assets repository is not scope-aware")
+	}
+	assets, err := scoped.ListScoped(ctx, repo.Tenant(tid), repo.Where("id", "=", id))
+	if err != nil {
+		return nil, err
+	}
+	if len(assets) == 0 {
+		return nil, nil
+	}
+	a := assets[0]
+	return &a, nil
+}
 
 // handleUpload processes a multipart document upload: it enforces the size
 // limit, reads the "file" part, and runs the full ingest pipeline.
@@ -71,13 +109,19 @@ func (s *Server) writeProcessError(w http.ResponseWriter, err error) {
 	}
 }
 
-// handleListAssets returns all assets visible to the requesting tenant.
+// handleListAssets returns all assets visible to the requesting user under the
+// scope access rule.
 func (s *Server) handleListAssets(w http.ResponseWriter, r *http.Request) {
 	tid, ok := tenantFromCtx(w, r.Context())
 	if !ok {
 		return
 	}
-	assets, err := s.factory.Assets.List(r.Context(), repo.Tenant(tid))
+	scoped, ok := s.factory.Assets.(scopedAssetLister)
+	if !ok {
+		httpx.WriteError(w, http.StatusInternalServerError, "asset list: internal error")
+		return
+	}
+	assets, err := scoped.ListScoped(r.Context(), repo.Tenant(tid))
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "asset list: internal error")
 		return
@@ -90,24 +134,26 @@ func (s *Server) handleListAssets(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-// handleGetAsset returns a single asset by ID.
+// handleGetAsset returns a single asset by ID when the requesting user can
+// see it under the scope access rule; an asset the user can't see (unknown or
+// foreign-tenant) fails with 404.
 func (s *Server) handleGetAsset(w http.ResponseWriter, r *http.Request) {
 	tid, ok := tenantFromCtx(w, r.Context())
 	if !ok {
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id := chi.URLParam(r, "assetId")
 
-	asset, err := s.factory.Assets.Get(r.Context(), id, repo.Tenant(tid))
-	if errors.Is(err, repo.ErrNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "asset not found")
-		return
-	}
+	asset, err := s.findAssetScoped(r.Context(), tid, id)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "asset: internal error")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toAssetJSON(asset))
+	if asset == nil {
+		httpx.WriteError(w, http.StatusNotFound, "asset not found")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toAssetJSON(*asset))
 }
 
 // handleListDocuments returns all documents attached to one asset. The asset
@@ -118,13 +164,13 @@ func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id := chi.URLParam(r, "assetId")
 
-	if _, err := s.factory.Assets.Get(r.Context(), id, repo.Tenant(tid)); errors.Is(err, repo.ErrNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "asset not found")
-		return
-	} else if err != nil {
+	if asset, err := s.findAssetScoped(r.Context(), tid, id); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "asset: internal error")
+		return
+	} else if asset == nil {
+		httpx.WriteError(w, http.StatusNotFound, "asset not found")
 		return
 	}
 
