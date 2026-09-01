@@ -1,0 +1,335 @@
+﻿=== RUN   TestCreateImportBatch
+=== PAUSE TestCreateImportBatch
+=== RUN   TestGetImportBatch
+=== PAUSE TestGetImportBatch
+=== RUN   TestListImportBatches
+=== PAUSE TestListImportBatches
+=== RUN   TestCommitImportBatch
+=== PAUSE TestCommitImportBatch
+=== RUN   TestDiscardImportBatch
+=== PAUSE TestDiscardImportBatch
+=== RUN   TestImportTenantScoping
+=== PAUSE TestImportTenantScoping
+=== RUN   TestAutoLinkObservable
+=== PAUSE TestAutoLinkObservable
+=== CONT  TestCreateImportBatch
+=== CONT  TestDiscardImportBatch
+=== RUN   TestCreateImportBatch/HappyPathCSV
+=== PAUSE TestCreateImportBatch/HappyPathCSV
+=== CONT  TestCommitImportBatch
+=== CONT  TestListImportBatches
+=== CONT  TestGetImportBatch
+=== CONT  TestAutoLinkObservable
+=== RUN   TestDiscardImportBatch/PreviewDiscarded
+=== PAUSE TestDiscardImportBatch/PreviewDiscarded
+=== RUN   TestDiscardImportBatch/CommittedConflict
+=== PAUSE TestDiscardImportBatch/CommittedConflict
+=== RUN   TestDiscardImportBatch/NotFound
+=== PAUSE TestDiscardImportBatch/NotFound
+=== CONT  TestDiscardImportBatch/PreviewDiscarded
+=== CONT  TestImportTenantScoping
+=== RUN   TestImportTenantScoping/ForeignBatchNotVisible
+=== PAUSE TestImportTenantScoping/ForeignBatchNotVisible
+=== RUN   TestImportTenantScoping/DuplicateDetectionIgnoresOtherTenants
+=== PAUSE TestImportTenantScoping/DuplicateDetectionIgnoresOtherTenants
+=== CONT  TestImportTenantScoping/ForeignBatchNotVisible
+=== CONT  TestDiscardImportBatch/NotFound
+=== RUN   TestCreateImportBatch/HappyPathPDF
+=== PAUSE TestCreateImportBatch/HappyPathPDF
+=== RUN   TestCreateImportBatch/UnsupportedType
+=== PAUSE TestCreateImportBatch/UnsupportedType
+=== RUN   TestCreateImportBatch/Oversize
+=== PAUSE TestCreateImportBatch/Oversize
+=== RUN   TestCreateImportBatch/UnknownAccount
+=== PAUSE TestCreateImportBatch/UnknownAccount
+=== RUN   TestCreateImportBatch/MissingFileField
+=== PAUSE TestCreateImportBatch/MissingFileField
+=== RUN   TestCreateImportBatch/MissingAccountID
+=== PAUSE TestCreateImportBatch/MissingAccountID
+=== RUN   TestCreateImportBatch/BlankAccountID
+=== PAUSE TestCreateImportBatch/BlankAccountID
+=== RUN   TestCreateImportBatch/ImageOnlyPDF
+=== PAUSE TestCreateImportBatch/ImageOnlyPDF
+=== RUN   TestCreateImportBatch/LineLimitExceededSmall
+=== PAUSE TestCreateImportBatch/LineLimitExceededSmall
+=== RUN   TestCreateImportBatch/LineLimitExceededDefault
+=== PAUSE TestCreateImportBatch/LineLimitExceededDefault
+=== CONT  TestCreateImportBatch/HappyPathCSV
+=== RUN   TestCommitImportBatch/HappyPath
+=== RUN   TestListImportBatches/Empty
+=== PAUSE TestListImportBatches/Empty
+=== RUN   TestListImportBatches/WithBatches
+=== PAUSE TestCommitImportBatch/HappyPath
+=== RUN   TestCommitImportBatch/ZeroValidLines
+=== PAUSE TestCommitImportBatch/ZeroValidLines
+=== RUN   TestCommitImportBatch/DiscardedConflict
+=== PAUSE TestCommitImportBatch/DiscardedConflict
+=== RUN   TestCommitImportBatch/NotFound
+=== PAUSE TestCommitImportBatch/NotFound
+=== CONT  TestImportTenantScoping/DuplicateDetectionIgnoresOtherTenants
+=== PAUSE TestListImportBatches/WithBatches
+=== RUN   TestGetImportBatch/PreviewRereadable
+=== PAUSE TestGetImportBatch/PreviewRereadable
+=== RUN   TestGetImportBatch/NotFound
+=== PAUSE TestGetImportBatch/NotFound
+=== RUN   TestGetImportBatch/CrossTenant
+=== PAUSE TestGetImportBatch/CrossTenant
+=== CONT  TestDiscardImportBatch/CommittedConflict
+=== CONT  TestCreateImportBatch/MissingAccountID
+2026/08/29 01:08:09 OK   00001_init.sql (14.49ms)
+2026/08/29 01:08:09 OK   00001_init.sql (17.1ms)
+2026/08/29 01:08:09 OK   00001_init.sql (19.12ms)
+2026/08/29 01:08:09 OK   00001_init.sql (12.65ms)
+2026/08/29 01:08:09 OK   00001_init.sql (22.09ms)
+2026/08/29 01:08:09 OK   00001_init.sql (20.94ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (22.15ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (24.18ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (23.66ms)
+2026/08/29 01:08:09 OK   00001_init.sql (26.72ms)
+2026/08/29 01:08:09 OK   00001_init.sql (22.87ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (25.6ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (20.52ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (16.57ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (14.66ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (20.9ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (19.68ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (22.38ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (25.21ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (19.25ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (22.19ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (23.71ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (22.39ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (25.94ms)
+2026/08/29 01:08:09 OK   00004_finance.sql (41.29ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+2026/08/29 01:08:09 OK   00004_finance.sql (34.55ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+2026/08/29 01:08:09 OK   00004_finance.sql (43.16ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+2026/08/29 01:08:09 OK   00004_finance.sql (42.34ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+2026/08/29 01:08:09 OK   00004_finance.sql (48.72ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestImportTenantScoping/ForeignBatchNotVisible
+    finance_import_test.go:870: upload status = 404, want 201 (body: 404 page not found
+        )
+=== NAME  TestDiscardImportBatch/CommittedConflict
+    finance_import_test.go:828: upload status = 404, want 201 (body: 404 page not found
+        )
+2026/08/29 01:08:09 OK   00004_finance.sql (55.7ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestCreateImportBatch/HappyPathCSV
+    finance_import_test.go:175: upload status = 404, want 201 (body: 404 page not found
+        )
+=== NAME  TestDiscardImportBatch/PreviewDiscarded
+    finance_import_test.go:790: upload status = 404, want 201 (body: 404 page not found
+        )
+=== CONT  TestCreateImportBatch/Oversize
+=== NAME  TestDiscardImportBatch/NotFound
+    finance_import_test.go:858: error body is not a JSON object: invalid character 'p' after top-level value (body: "404 page not found\n")
+2026/08/29 01:08:09 OK   00004_finance.sql (54.42ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== CONT  TestCreateImportBatch/MissingFileField
+=== CONT  TestCreateImportBatch/UnknownAccount
+=== CONT  TestCreateImportBatch/UnsupportedType
+--- FAIL: TestDiscardImportBatch (0.00s)
+    --- FAIL: TestDiscardImportBatch/CommittedConflict (0.21s)
+    --- FAIL: TestDiscardImportBatch/PreviewDiscarded (0.22s)
+    --- FAIL: TestDiscardImportBatch/NotFound (0.22s)
+=== CONT  TestCreateImportBatch/LineLimitExceededSmall
+2026/08/29 01:08:09 OK   00004_finance.sql (58.2ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestCreateImportBatch/MissingAccountID
+    finance_import_test.go:355: status = 404, want 400 (body: 404 page not found
+        )
+=== NAME  TestAutoLinkObservable
+    finance_import_test.go:969: upload status = 404, want 201 (body: 404 page not found
+        )
+=== CONT  TestCreateImportBatch/LineLimitExceededDefault
+=== NAME  TestImportTenantScoping/DuplicateDetectionIgnoresOtherTenants
+    finance_import_test.go:912: upload status = 404, want 201 (body: 404 page not found
+        )
+--- FAIL: TestAutoLinkObservable (0.25s)
+=== CONT  TestCreateImportBatch/HappyPathPDF
+--- FAIL: TestImportTenantScoping (0.00s)
+    --- FAIL: TestImportTenantScoping/ForeignBatchNotVisible (0.21s)
+    --- FAIL: TestImportTenantScoping/DuplicateDetectionIgnoresOtherTenants (0.26s)
+=== CONT  TestCreateImportBatch/ImageOnlyPDF
+2026/08/29 01:08:09 OK   00001_init.sql (15.2ms)
+2026/08/29 01:08:09 OK   00001_init.sql (13.21ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (16.91ms)
+2026/08/29 01:08:09 OK   00001_init.sql (18.99ms)
+2026/08/29 01:08:09 OK   00001_init.sql (13.21ms)
+2026/08/29 01:08:09 OK   00001_init.sql (14.54ms)
+2026/08/29 01:08:09 OK   00001_init.sql (14.54ms)
+2026/08/29 01:08:09 OK   00001_init.sql (14.15ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (11.46ms)
+2026/08/29 01:08:09 OK   00001_init.sql (13.64ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (10.62ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (14.13ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (14.63ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (12.19ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (18.3ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (10.71ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (13.8ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (17.07ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (17.1ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (17.1ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (20.88ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (19.3ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (17.2ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (14.16ms)
+2026/08/29 01:08:09 OK   00004_finance.sql (25.43ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestCreateImportBatch/Oversize
+    finance_import_test.go:312: status = 404, want 413 (body: 404 page not found
+        )
+=== CONT  TestCreateImportBatch/BlankAccountID
+2026/08/29 01:08:09 OK   00004_finance.sql (37.52ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+2026/08/29 01:08:09 OK   00004_finance.sql (35.98ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestCreateImportBatch/UnknownAccount
+    finance_import_test.go:325: error body is not a JSON object: invalid character 'p' after top-level value (body: "404 page not found\n")
+2026/08/29 01:08:09 OK   00004_finance.sql (33.23ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+2026/08/29 01:08:09 OK   00004_finance.sql (33.77ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+2026/08/29 01:08:09 OK   00004_finance.sql (39.09ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestCreateImportBatch/UnsupportedType
+    finance_import_test.go:291: status = 404, want 415 (body: 404 page not found
+        )
+2026/08/29 01:08:09 OK   00004_finance.sql (41.13ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== CONT  TestCommitImportBatch/HappyPath
+=== NAME  TestCreateImportBatch/MissingFileField
+    finance_import_test.go:343: status = 404, want 400 (body: 404 page not found
+        )
+2026/08/29 01:08:09 OK   00004_finance.sql (41.29ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestCreateImportBatch/LineLimitExceededSmall
+    finance_import_test.go:417: status = 404, want 422 (body: 404 page not found
+        )
+=== NAME  TestCreateImportBatch/LineLimitExceededDefault
+    finance_import_test.go:437: status = 404, want 422 (body: 404 page not found
+        )
+=== NAME  TestCreateImportBatch/HappyPathPDF
+    finance_import_test.go:250: upload status = 404, want 201 (body: 404 page not found
+        )
+=== CONT  TestListImportBatches/Empty
+=== NAME  TestCreateImportBatch/ImageOnlyPDF
+    finance_import_test.go:396: status = 404, want 422 (body: 404 page not found
+        )
+=== CONT  TestGetImportBatch/PreviewRereadable
+=== CONT  TestCommitImportBatch/DiscardedConflict
+=== CONT  TestCommitImportBatch/NotFound
+=== CONT  TestCommitImportBatch/ZeroValidLines
+=== CONT  TestListImportBatches/WithBatches
+2026/08/29 01:08:09 OK   00001_init.sql (6.81ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (6.66ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (7.17ms)
+2026/08/29 01:08:09 OK   00004_finance.sql (16.27ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestCreateImportBatch/BlankAccountID
+    finance_import_test.go:384: status = 404, want 400 (body: 404 page not found
+        )
+=== CONT  TestGetImportBatch/CrossTenant
+--- FAIL: TestCreateImportBatch (0.00s)
+    --- FAIL: TestCreateImportBatch/HappyPathCSV (0.22s)
+    --- FAIL: TestCreateImportBatch/MissingAccountID (0.24s)
+    --- FAIL: TestCreateImportBatch/Oversize (0.18s)
+    --- FAIL: TestCreateImportBatch/UnknownAccount (0.18s)
+    --- FAIL: TestCreateImportBatch/UnsupportedType (0.19s)
+    --- FAIL: TestCreateImportBatch/LineLimitExceededSmall (0.20s)
+    --- FAIL: TestCreateImportBatch/MissingFileField (0.21s)
+    --- FAIL: TestCreateImportBatch/LineLimitExceededDefault (0.19s)
+    --- FAIL: TestCreateImportBatch/HappyPathPDF (0.18s)
+    --- FAIL: TestCreateImportBatch/ImageOnlyPDF (0.18s)
+    --- FAIL: TestCreateImportBatch/BlankAccountID (0.11s)
+2026/08/29 01:08:09 OK   00001_init.sql (17.95ms)
+2026/08/29 01:08:09 OK   00001_init.sql (14.54ms)
+2026/08/29 01:08:09 OK   00001_init.sql (7.73ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (9.98ms)
+2026/08/29 01:08:09 OK   00001_init.sql (13.36ms)
+2026/08/29 01:08:09 OK   00001_init.sql (13.67ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (13.14ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (12.48ms)
+2026/08/29 01:08:09 OK   00001_init.sql (13.82ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (14.17ms)
+2026/08/29 01:08:09 OK   00001_init.sql (12.9ms)
+2026/08/29 01:08:09 OK   00001_init.sql (15.45ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (11.71ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (12.54ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (13.61ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (13.08ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (11.83ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (12.11ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (16.09ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (16.49ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (14.94ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (10.46ms)
+2026/08/29 01:08:09 OK   00004_finance.sql (23.11ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (10.21ms)
+=== NAME  TestCommitImportBatch/HappyPath
+    finance_import_test.go:609: upload status = 404, want 201 (body: 404 page not found
+        )
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (12.63ms)
+2026/08/29 01:08:09 OK   00004_finance.sql (26.52ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestListImportBatches/Empty
+    finance_import_test.go:530: status = 404, want 200 (body: 404 page not found
+        )
+2026/08/29 01:08:09 OK   00004_finance.sql (28.31ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== CONT  TestGetImportBatch/NotFound
+=== NAME  TestCommitImportBatch/DiscardedConflict
+    finance_import_test.go:748: upload status = 404, want 201 (body: 404 page not found
+        )
+2026/08/29 01:08:09 OK   00004_finance.sql (28.42ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+2026/08/29 01:08:09 OK   00004_finance.sql (27.8ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestGetImportBatch/CrossTenant
+    finance_import_test.go:510: upload status = 404, want 201 (body: 404 page not found
+        )
+2026/08/29 01:08:09 OK   00004_finance.sql (40.14ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+2026/08/29 01:08:09 OK   00004_finance.sql (40.65ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestCommitImportBatch/ZeroValidLines
+    finance_import_test.go:706: upload status = 404, want 201 (body: 404 page not found
+        )
+=== NAME  TestCommitImportBatch/NotFound
+    finance_import_test.go:778: error body is not a JSON object: invalid character 'p' after top-level value (body: "404 page not found\n")
+2026/08/29 01:08:09 OK   00004_finance.sql (32.06ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestGetImportBatch/PreviewRereadable
+    finance_import_test.go:459: upload status = 404, want 201 (body: 404 page not found
+        )
+=== NAME  TestListImportBatches/WithBatches
+    finance_import_test.go:541: upload status = 404, want 201 (body: 404 page not found
+        )
+--- FAIL: TestCommitImportBatch (0.00s)
+    --- FAIL: TestCommitImportBatch/HappyPath (0.21s)
+    --- FAIL: TestCommitImportBatch/DiscardedConflict (0.20s)
+    --- FAIL: TestCommitImportBatch/NotFound (0.21s)
+    --- FAIL: TestCommitImportBatch/ZeroValidLines (0.21s)
+--- FAIL: TestListImportBatches (0.00s)
+    --- FAIL: TestListImportBatches/Empty (0.20s)
+    --- FAIL: TestListImportBatches/WithBatches (0.21s)
+2026/08/29 01:08:09 OK   00001_init.sql (8.54ms)
+2026/08/29 01:08:09 OK   00002_tenant_registry.sql (5.96ms)
+2026/08/29 01:08:09 OK   00003_row_level_security.sql (6.63ms)
+2026/08/29 01:08:09 OK   00004_finance.sql (15.25ms)
+2026/08/29 01:08:09 goose: successfully migrated database to version: 4
+=== NAME  TestGetImportBatch/NotFound
+    finance_import_test.go:503: error body is not a JSON object: invalid character 'p' after top-level value (body: "404 page not found\n")
+--- FAIL: TestGetImportBatch (0.00s)
+    --- FAIL: TestGetImportBatch/CrossTenant (0.15s)
+    --- FAIL: TestGetImportBatch/PreviewRereadable (0.22s)
+    --- FAIL: TestGetImportBatch/NotFound (0.08s)
+FAIL
+FAIL	procrastinator-backend/api	1.498s
+FAIL
