@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// txScope abstracts the tenant-bound execution context. Every repository
-// operation runs inside scope.run, which guarantees app.tenant_id is set
+// txScope abstracts the user-bound execution context. Every repository
+// operation runs inside scope.run, which guarantees app.user_id is set
 // transaction-locally before the statement executes.
 type txScope interface {
 	run(ctx context.Context, tid string, fn func(q Querier) error) error
@@ -30,7 +30,7 @@ func (s *poolScope) run(ctx context.Context, tid string, fn func(q Querier) erro
 	}
 	defer tx.Rollback(ctx) // no-op if committed
 
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tid); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, tid); err != nil {
 		return fmt.Errorf("postgres: scope bind: %w", err)
 	}
 
@@ -51,7 +51,7 @@ type txScopeImpl struct {
 }
 
 func (s *txScopeImpl) run(ctx context.Context, tid string, fn func(q Querier) error) error {
-	if _, err := s.tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tid); err != nil {
+	if _, err := s.tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, tid); err != nil {
 		return fmt.Errorf("postgres: scope rebind: %w", err)
 	}
 	return fn(s.tx)

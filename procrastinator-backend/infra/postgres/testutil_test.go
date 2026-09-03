@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,18 +16,19 @@ import (
 )
 
 const (
-	tenantA       = "test-tenant"
-	tenantB       = "test-tenant-b"
+	userA         = "test-user"
+	userB         = "test-user-b"
 	migrationsDir = "../../migrations"
 )
 
-var dsn string
+var (
+	dsn       string
+	migrateMu sync.Mutex
+)
 
 func TestMain(m *testing.M) {
 	dsn = os.Getenv("PROCRASTINATOR_TEST_DATABASE_URL")
 	if dsn == "" {
-		// No test database configured: skip the database-backed
-		// integration tests; pure unit tests still run.
 		os.Setenv("TESTPG_SKIP", "1")
 	}
 	os.Exit(m.Run())
@@ -57,14 +59,28 @@ func openTestPool(t *testing.T, schema string) (*pgxpool.Pool, error) {
 		pool.Close()
 		return nil, fmt.Errorf("ping: %w", err)
 	}
-	if _, err := pool.Exec(ctx, `CREATE SCHEMA IF NOT EXISTS `+schema); err != nil {
+	// Drop any stale schema first. 00004 creates fn_visible_households with
+	// CREATE OR REPLACE and re-owns it to rls_bypass; a leftover schema from a
+	// crashed run holds the function under a different owner and the replace
+	// fails with 42501. A clean slate makes every run deterministic.
+	if _, err := pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+schema+` CASCADE`); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("drop stale schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
+
+	migrateMu.Lock()
+	defer migrateMu.Unlock()
 	if err := goose.SetDialect("postgres"); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("set dialect: %w", err)
 	}
+	// Isolate goose version tracking to this schema so test packages with
+	// different schemas never read each other's migration state.
+	goose.SetTableName(schema + ".goose_db_version")
 	stdDB := stdlib.OpenDBFromPool(pool)
 	defer stdDB.Close()
 	if err := goose.Up(stdDB, migrationsDir); err != nil {
@@ -74,13 +90,13 @@ func openTestPool(t *testing.T, schema string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// ensureTenants idempotently registers the given tenant IDs in the tenants
-// table. Every multi-tenant test that needs additional tenants beyond the
-// migration-seeded test-tenant/test-tenant-b calls this before seeding.
-func ensureTenants(ctx context.Context, pool *pgxpool.Pool, ids ...string) error {
+// ensureUsers idempotently registers the given user IDs in the Users
+// table. Every multi-user test that needs additional Users beyond the
+// migration-seeded test-user/test-user-b calls this before seeding.
+func ensureUsers(ctx context.Context, pool *pgxpool.Pool, ids ...string) error {
 	for _, id := range ids {
-		if _, err := pool.Exec(ctx, `INSERT INTO tenants (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, id); err != nil {
-			return fmt.Errorf("ensureTenants: insert %q: %w", id, err)
+		if _, err := pool.Exec(ctx, `INSERT INTO Users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, id); err != nil {
+			return fmt.Errorf("ensureUsers: insert %q: %w", id, err)
 		}
 	}
 	return nil
@@ -90,7 +106,7 @@ func strPtr(s string) *string { return &s }
 
 func testAsset(overrides ...func(*entity.Asset)) entity.Asset {
 	a := entity.Asset{
-		TenantID:     tenantA,
+		OwnerID:      userA,
 		Brand:        strPtr("Samsung"),
 		Model:        strPtr("WF80A"),
 		SerialNumber: strPtr("WM-2024-001"),
@@ -118,8 +134,8 @@ func assertSourceEqual(t *testing.T, name string, got, want entity.Source) {
 	if got.ID != want.ID {
 		t.Errorf("%s: ID = %q, want %q", name, got.ID, want.ID)
 	}
-	if got.TenantID != want.TenantID {
-		t.Errorf("%s: TenantID = %q, want %q", name, got.TenantID, want.TenantID)
+	if got.OwnerID != want.OwnerID {
+		t.Errorf("%s: OwnerID = %q, want %q", name, got.OwnerID, want.OwnerID)
 	}
 	if got.Filename != want.Filename {
 		t.Errorf("%s: Filename = %q, want %q", name, got.Filename, want.Filename)
@@ -146,8 +162,8 @@ func assertAssetEqual(t *testing.T, name string, got, want entity.Asset) {
 	if got.ID != want.ID {
 		t.Errorf("%s: ID = %q, want %q", name, got.ID, want.ID)
 	}
-	if got.TenantID != want.TenantID {
-		t.Errorf("%s: TenantID = %q, want %q", name, got.TenantID, want.TenantID)
+	if got.OwnerID != want.OwnerID {
+		t.Errorf("%s: OwnerID = %q, want %q", name, got.OwnerID, want.OwnerID)
 	}
 	assertPtrEqual(t, name+".Brand", got.Brand, want.Brand)
 	assertPtrEqual(t, name+".Model", got.Model, want.Model)

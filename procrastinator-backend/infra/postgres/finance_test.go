@@ -13,7 +13,7 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 	"procrastinator-backend/infra/postgres"
 )
 
@@ -77,8 +77,8 @@ func truncateFinance(t *testing.T) {
 
 // seedFinanceDocument creates a source, an asset (no serial number, to keep
 // the partial unique index on norm_serial unconcerned), and a document
-// linking them, all under the given tenant. Returns the created document.
-func seedFinanceDocument(t *testing.T, tenantID, filename, price, currency string) entity.Document {
+// linking them, all under the given user. Returns the created document.
+func seedFinanceDocument(t *testing.T, OwnerID, filename, price, currency string) entity.Document {
 	t.Helper()
 	truncateFinance(t) // subtests share the schema; keep each case in isolation
 	ctx := context.Background()
@@ -88,14 +88,14 @@ func seedFinanceDocument(t *testing.T, tenantID, filename, price, currency strin
 		Size:        1024,
 		Path:        "storage/" + filename,
 		SHA256:      "aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999",
-	}, repo.Tenant(tenantID))
+	}, repo.Owner(OwnerID))
 	if err != nil {
 		t.Fatalf("seed source: %v", err)
 	}
 	asset, err := finAssets.Create(ctx, entity.Asset{
 		Brand:   strPtr("Samsung"),
 		DocType: entity.DocTypeInvoice,
-	}, repo.Tenant(tenantID))
+	}, repo.Owner(OwnerID))
 	if err != nil {
 		t.Fatalf("seed asset: %v", err)
 	}
@@ -105,21 +105,21 @@ func seedFinanceDocument(t *testing.T, tenantID, filename, price, currency strin
 		DocType:         entity.DocTypeInvoice,
 		ExtractedFields: map[string]any{"price": price, "currency": currency},
 		RawExtraction:   "raw fixture",
-	}, repo.Tenant(tenantID))
+	}, repo.Owner(OwnerID))
 	if err != nil {
 		t.Fatalf("seed document: %v", err)
 	}
 	return doc
 }
 
-// seedAccount creates a bank account under the given tenant.
-func seedAccount(t *testing.T, tenantID, name string) entity.FinancialAccount {
+// seedAccount creates a bank account under the given user.
+func seedAccount(t *testing.T, OwnerID, name string) entity.FinancialAccount {
 	t.Helper()
 	acc, err := finAccounts.Create(context.Background(), entity.FinancialAccount{
 		Name:     name,
 		Type:     entity.AccountTypeBank,
 		Currency: "EUR",
-	}, repo.Tenant(tenantID))
+	}, repo.Owner(OwnerID))
 	if err != nil {
 		t.Fatalf("seed account %s: %v", name, err)
 	}
@@ -137,15 +137,15 @@ func TestFinanceAccountRoundTrip(t *testing.T) {
 		Currency:           "EUR",
 		Institution:        strPtr("Bank V"),
 		ExternalDescriptor: strPtr("DE89 3704 0044 0532 0130 00"),
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if created.ID == "" {
 		t.Error("Create returned empty ID, want DB-generated uuid")
 	}
-	if created.TenantID != tenantA {
-		t.Errorf("TenantID = %q, want %q", created.TenantID, tenantA)
+	if created.OwnerID != userA {
+		t.Errorf("OwnerID = %q, want %q", created.OwnerID, userA)
 	}
 	if created.CreatedAt.IsZero() {
 		t.Error("CreatedAt is zero, want DB default now()")
@@ -154,15 +154,15 @@ func TestFinanceAccountRoundTrip(t *testing.T) {
 		t.Error("UpdatedAt is zero, want DB default now()")
 	}
 
-	got, err := accounts.Get(ctx, created.ID, repo.Tenant(tenantA))
+	got, err := accounts.Get(ctx, created.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.ID != created.ID {
 		t.Errorf("ID = %q, want %q", got.ID, created.ID)
 	}
-	if got.TenantID != tenantA {
-		t.Errorf("TenantID = %q, want %q", got.TenantID, tenantA)
+	if got.OwnerID != userA {
+		t.Errorf("OwnerID = %q, want %q", got.OwnerID, userA)
 	}
 	if got.Name != "Salary Account" {
 		t.Errorf("Name = %q, want %q", got.Name, "Salary Account")
@@ -192,7 +192,7 @@ func TestFinanceMovementRoundTrip(t *testing.T) {
 		Name:     "Source A",
 		Type:     entity.AccountTypeBank,
 		Currency: "EUR",
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("seed source account: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestFinanceMovementRoundTrip(t *testing.T) {
 		Name:     "Dest B",
 		Type:     entity.AccountTypeBank,
 		Currency: "EUR",
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("seed destination account: %v", err)
 	}
@@ -216,20 +216,20 @@ func TestFinanceMovementRoundTrip(t *testing.T) {
 		Origin:               entity.OriginManual,
 		SourceAccountID:      &srcAcc.ID,
 		DestinationAccountID: &dstAcc.ID,
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := movements.Get(ctx, created.ID, repo.Tenant(tenantA))
+	got, err := movements.Get(ctx, created.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.ID != created.ID {
 		t.Errorf("ID = %q, want %q", got.ID, created.ID)
 	}
-	if got.TenantID != tenantA {
-		t.Errorf("TenantID = %q, want %q", got.TenantID, tenantA)
+	if got.OwnerID != userA {
+		t.Errorf("OwnerID = %q, want %q", got.OwnerID, userA)
 	}
 	if got.Kind != entity.KindTransfer {
 		t.Errorf("Kind = %q, want %q", got.Kind, entity.KindTransfer)
@@ -284,12 +284,12 @@ func TestFinanceMovementRoundTrip(t *testing.T) {
 		LinkedDocumentID:  &linkedDocID,
 		LinkCreator:       strPtr(entity.LinkCreatorManual),
 		LinkConflicting:   true,
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create linked movement: %v", err)
 	}
 
-	got2, err := movements.Get(ctx, created2.ID, repo.Tenant(tenantA))
+	got2, err := movements.Get(ctx, created2.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Get linked movement: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestFinanceImportBatchRoundTrip(t *testing.T) {
 		Name:     "Batch Account",
 		Type:     entity.AccountTypeBank,
 		Currency: "EUR",
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("seed account: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestFinanceImportBatchRoundTrip(t *testing.T) {
 		Size:        1024,
 		Path:        "storage/batch-src.pdf",
 		SHA256:      "aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999",
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("seed source: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestFinanceImportBatchRoundTrip(t *testing.T) {
 		LineCountDuplicate:   1,
 		LineCountPossibleDup: 1,
 		LineCountError:       1,
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -363,15 +363,15 @@ func TestFinanceImportBatchRoundTrip(t *testing.T) {
 		t.Error("timestamps zero, want DB defaults")
 	}
 
-	got, err := batches.Get(ctx, created.ID, repo.Tenant(tenantA))
+	got, err := batches.Get(ctx, created.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.ID != created.ID {
 		t.Errorf("ID = %q, want %q", got.ID, created.ID)
 	}
-	if got.TenantID != tenantA {
-		t.Errorf("TenantID = %q, want %q", got.TenantID, tenantA)
+	if got.OwnerID != userA {
+		t.Errorf("OwnerID = %q, want %q", got.OwnerID, userA)
 	}
 	if got.State != entity.BatchStatePreview {
 		t.Errorf("State = %q, want %q", got.State, entity.BatchStatePreview)
@@ -411,7 +411,7 @@ func TestFinanceImportLineRoundTrip(t *testing.T) {
 		Name:     "Line Account",
 		Type:     entity.AccountTypeBank,
 		Currency: "EUR",
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("seed account: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestFinanceImportLineRoundTrip(t *testing.T) {
 		Size:        1024,
 		Path:        "storage/lines-src.pdf",
 		SHA256:      "aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999",
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("seed source: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestFinanceImportLineRoundTrip(t *testing.T) {
 		SourceID:  src.ID,
 		Filename:  "stmt.csv",
 		Format:    "csv",
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("seed batch: %v", err)
 	}
@@ -449,20 +449,20 @@ func TestFinanceImportLineRoundTrip(t *testing.T) {
 		Description:       strPtr("  Reliance   Digital "),
 		ExternalReference: strPtr("REF-1"),
 		Status:            entity.LineStatusValid,
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := lines.Get(ctx, created.ID, repo.Tenant(tenantA))
+	got, err := lines.Get(ctx, created.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.ID != created.ID {
 		t.Errorf("ID = %q, want %q", got.ID, created.ID)
 	}
-	if got.TenantID != tenantA {
-		t.Errorf("TenantID = %q, want %q", got.TenantID, tenantA)
+	if got.OwnerID != userA {
+		t.Errorf("OwnerID = %q, want %q", got.OwnerID, userA)
 	}
 	if got.BatchID != batch.ID {
 		t.Errorf("BatchID = %q, want %q", got.BatchID, batch.ID)
@@ -496,11 +496,11 @@ func TestFinanceImportLineRoundTrip(t *testing.T) {
 		Direction:   strPtr("in"),
 		Status:      entity.LineStatusError,
 		ErrorReason: strPtr("missing amount"),
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create error line: %v", err)
 	}
-	got2, err := lines.Get(ctx, created2.ID, repo.Tenant(tenantA))
+	got2, err := lines.Get(ctx, created2.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Get error line: %v", err)
 	}
@@ -535,19 +535,19 @@ func TestFinanceGetDeleteNotFound(t *testing.T) {
 		get  func(id string) error
 	}{
 		{"account", func(id string) error {
-			_, err := accounts.Get(ctx, id, repo.Tenant(tenantA))
+			_, err := accounts.Get(ctx, id, repo.Owner(userA))
 			return err
 		}},
 		{"movement", func(id string) error {
-			_, err := movements.Get(ctx, id, repo.Tenant(tenantA))
+			_, err := movements.Get(ctx, id, repo.Owner(userA))
 			return err
 		}},
 		{"batch", func(id string) error {
-			_, err := batches.Get(ctx, id, repo.Tenant(tenantA))
+			_, err := batches.Get(ctx, id, repo.Owner(userA))
 			return err
 		}},
 		{"line", func(id string) error {
-			_, err := lines.Get(ctx, id, repo.Tenant(tenantA))
+			_, err := lines.Get(ctx, id, repo.Owner(userA))
 			return err
 		}},
 	}
@@ -565,14 +565,14 @@ func TestFinanceGetDeleteNotFound(t *testing.T) {
 			Name:     "Doomed",
 			Type:     entity.AccountTypeWallet,
 			Currency: "EUR",
-		}, repo.Tenant(tenantA))
+		}, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		if err := accounts.Delete(ctx, created.ID, repo.Tenant(tenantA)); err != nil {
+		if err := accounts.Delete(ctx, created.ID, repo.Owner(userA)); err != nil {
 			t.Fatalf("Delete: %v", err)
 		}
-		if _, err := accounts.Get(ctx, created.ID, repo.Tenant(tenantA)); !errors.Is(err, repo.ErrNotFound) {
+		if _, err := accounts.Get(ctx, created.ID, repo.Owner(userA)); !errors.Is(err, repo.ErrNotFound) {
 			t.Errorf("Get after Delete: err = %v, want ErrNotFound", err)
 		}
 	})
@@ -585,7 +585,7 @@ func TestFinanceListStableOrderNonNil(t *testing.T) {
 
 	// Empty schema: List returns a non-nil, empty slice.
 	t.Run("empty account", func(t *testing.T) {
-		l, err := accounts.List(ctx, repo.Tenant(tenantA))
+		l, err := accounts.List(ctx, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("List: %v", err)
 		}
@@ -597,7 +597,7 @@ func TestFinanceListStableOrderNonNil(t *testing.T) {
 		}
 	})
 	t.Run("empty movement", func(t *testing.T) {
-		l, err := movements.List(ctx, repo.Tenant(tenantA))
+		l, err := movements.List(ctx, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("List: %v", err)
 		}
@@ -609,7 +609,7 @@ func TestFinanceListStableOrderNonNil(t *testing.T) {
 		}
 	})
 	t.Run("empty batch", func(t *testing.T) {
-		l, err := batches.List(ctx, repo.Tenant(tenantA))
+		l, err := batches.List(ctx, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("List: %v", err)
 		}
@@ -621,7 +621,7 @@ func TestFinanceListStableOrderNonNil(t *testing.T) {
 		}
 	})
 	t.Run("empty line", func(t *testing.T) {
-		l, err := lines.List(ctx, repo.Tenant(tenantA))
+		l, err := lines.List(ctx, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("List: %v", err)
 		}
@@ -638,13 +638,13 @@ func TestFinanceListStableOrderNonNil(t *testing.T) {
 			Name:     "Order Account",
 			Type:     entity.AccountTypeBank,
 			Currency: "EUR",
-		}, repo.Tenant(tenantA)); err != nil {
+		}, repo.Owner(userA)); err != nil {
 			t.Fatalf("Create account[%d]: %v", i, err)
 		}
 		time.Sleep(time.Millisecond) // distinct created_at values
 	}
 
-	got, err := accounts.List(ctx, repo.Tenant(tenantA), repo.OrderBy("created_at, id"))
+	got, err := accounts.List(ctx, repo.Owner(userA), repo.OrderBy("created_at, id"))
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -660,7 +660,7 @@ func TestFinanceListStableOrderNonNil(t *testing.T) {
 	}
 }
 
-func TestFinanceTenantScoping(t *testing.T) {
+func TestFinanceUserScoping(t *testing.T) {
 	accounts, movements, _, _ := finRepos(t)
 	truncateFinance(t)
 	ctx := context.Background()
@@ -670,22 +670,22 @@ func TestFinanceTenantScoping(t *testing.T) {
 		Name:     "Scoped Account",
 		Type:     entity.AccountTypeBank,
 		Currency: "EUR",
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create account: %v", err)
 	}
-	if _, err := accounts.Get(ctx, acc.ID, repo.Tenant(tenantB)); !errors.Is(err, repo.ErrNotFound) {
-		t.Errorf("account Get(other tenant): err = %v, want ErrNotFound", err)
+	if _, err := accounts.Get(ctx, acc.ID, repo.Owner(userB)); !errors.Is(err, repo.ErrNotFound) {
+		t.Errorf("account Get(other user): err = %v, want ErrNotFound", err)
 	}
-	list, err := accounts.List(ctx, repo.Tenant(tenantB))
+	list, err := accounts.List(ctx, repo.Owner(userB))
 	if err != nil {
-		t.Fatalf("account List(other tenant): %v", err)
+		t.Fatalf("account List(other user): %v", err)
 	}
 	if len(list) != 0 {
-		t.Errorf("account List(other tenant) = %d rows, want 0", len(list))
+		t.Errorf("account List(other user) = %d rows, want 0", len(list))
 	}
 
-	// Movement scoping: seed an expense movement under tenantA.
+	// Movement scoping: seed an expense movement under userA.
 	occurredOn := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
 	mov, err := movements.Create(ctx, entity.MoneyMovement{
 		Kind:            entity.KindExpense,
@@ -695,110 +695,110 @@ func TestFinanceTenantScoping(t *testing.T) {
 		Description:     "Scoped",
 		Origin:          entity.OriginManual,
 		SourceAccountID: &acc.ID,
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create movement: %v", err)
 	}
-	if _, err := movements.Get(ctx, mov.ID, repo.Tenant(tenantB)); !errors.Is(err, repo.ErrNotFound) {
-		t.Errorf("movement Get(other tenant): err = %v, want ErrNotFound", err)
+	if _, err := movements.Get(ctx, mov.ID, repo.Owner(userB)); !errors.Is(err, repo.ErrNotFound) {
+		t.Errorf("movement Get(other user): err = %v, want ErrNotFound", err)
 	}
-	movList, err := movements.List(ctx, repo.Tenant(tenantB))
+	movList, err := movements.List(ctx, repo.Owner(userB))
 	if err != nil {
-		t.Fatalf("movement List(other tenant): %v", err)
+		t.Fatalf("movement List(other user): %v", err)
 	}
 	if len(movList) != 0 {
-		t.Errorf("movement List(other tenant) = %d rows, want 0", len(movList))
+		t.Errorf("movement List(other user) = %d rows, want 0", len(movList))
 	}
 }
 
-func TestFinanceNoTenantErr(t *testing.T) {
+func TestFinanceNoUserErr(t *testing.T) {
 	accounts, movements, batches, lines := finRepos(t)
 	truncateFinance(t)
-	ctx := context.Background() // no tenant
+	ctx := context.Background() // no user
 
 	if _, err := accounts.Create(ctx, entity.FinancialAccount{
 		Name: "X", Type: entity.AccountTypeBank, Currency: "EUR",
-	}); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("account Create: err = %v, want ErrNoTenant", err)
+	}); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("account Create: err = %v, want ErrNoUser", err)
 	}
-	if _, err := accounts.Get(ctx, financeMissingID); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("account Get: err = %v, want ErrNoTenant", err)
+	if _, err := accounts.Get(ctx, financeMissingID); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("account Get: err = %v, want ErrNoUser", err)
 	}
-	if _, err := accounts.List(ctx); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("account List: err = %v, want ErrNoTenant", err)
+	if _, err := accounts.List(ctx); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("account List: err = %v, want ErrNoUser", err)
 	}
 	if _, err := accounts.Update(ctx, entity.FinancialAccount{
 		ID: financeMissingID, Name: "X", Type: entity.AccountTypeBank, Currency: "EUR",
-	}); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("account Update: err = %v, want ErrNoTenant", err)
+	}); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("account Update: err = %v, want ErrNoUser", err)
 	}
-	if err := accounts.Delete(ctx, financeMissingID); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("account Delete: err = %v, want ErrNoTenant", err)
+	if err := accounts.Delete(ctx, financeMissingID); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("account Delete: err = %v, want ErrNoUser", err)
 	}
 
 	if _, err := movements.Create(ctx, entity.MoneyMovement{
 		Kind: entity.KindExpense, Amount: "1", Currency: "EUR",
 		OccurredOn: time.Now(), Description: "d", Origin: entity.OriginManual,
-	}); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("movement Create: err = %v, want ErrNoTenant", err)
+	}); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("movement Create: err = %v, want ErrNoUser", err)
 	}
-	if _, err := movements.Get(ctx, financeMissingID); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("movement Get: err = %v, want ErrNoTenant", err)
+	if _, err := movements.Get(ctx, financeMissingID); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("movement Get: err = %v, want ErrNoUser", err)
 	}
-	if _, err := movements.List(ctx); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("movement List: err = %v, want ErrNoTenant", err)
+	if _, err := movements.List(ctx); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("movement List: err = %v, want ErrNoUser", err)
 	}
 	if _, err := movements.Update(ctx, entity.MoneyMovement{
 		ID: financeMissingID, Kind: entity.KindExpense, Amount: "1", Currency: "EUR",
 		OccurredOn: time.Now(), Description: "d", Origin: entity.OriginManual,
-	}); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("movement Update: err = %v, want ErrNoTenant", err)
+	}); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("movement Update: err = %v, want ErrNoUser", err)
 	}
-	if err := movements.Delete(ctx, financeMissingID); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("movement Delete: err = %v, want ErrNoTenant", err)
+	if err := movements.Delete(ctx, financeMissingID); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("movement Delete: err = %v, want ErrNoUser", err)
 	}
 
 	if _, err := batches.Create(ctx, entity.ImportBatch{
 		State: entity.BatchStatePreview, AccountID: financeMissingID,
 		SourceID: financeMissingID, Filename: "f", Format: "csv",
-	}); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("batch Create: err = %v, want ErrNoTenant", err)
+	}); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("batch Create: err = %v, want ErrNoUser", err)
 	}
-	if _, err := batches.Get(ctx, financeMissingID); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("batch Get: err = %v, want ErrNoTenant", err)
+	if _, err := batches.Get(ctx, financeMissingID); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("batch Get: err = %v, want ErrNoUser", err)
 	}
-	if _, err := batches.List(ctx); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("batch List: err = %v, want ErrNoTenant", err)
+	if _, err := batches.List(ctx); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("batch List: err = %v, want ErrNoUser", err)
 	}
 	if _, err := batches.Update(ctx, entity.ImportBatch{
 		ID: financeMissingID, State: entity.BatchStatePreview,
 		AccountID: financeMissingID, SourceID: financeMissingID, Filename: "f", Format: "csv",
-	}); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("batch Update: err = %v, want ErrNoTenant", err)
+	}); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("batch Update: err = %v, want ErrNoUser", err)
 	}
-	if err := batches.Delete(ctx, financeMissingID); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("batch Delete: err = %v, want ErrNoTenant", err)
+	if err := batches.Delete(ctx, financeMissingID); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("batch Delete: err = %v, want ErrNoUser", err)
 	}
 
 	if _, err := lines.Create(ctx, entity.ImportLine{
 		BatchID: financeMissingID, LineRef: 1, RawLine: "raw", Status: entity.LineStatusValid,
-	}); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("line Create: err = %v, want ErrNoTenant", err)
+	}); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("line Create: err = %v, want ErrNoUser", err)
 	}
-	if _, err := lines.Get(ctx, financeMissingID); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("line Get: err = %v, want ErrNoTenant", err)
+	if _, err := lines.Get(ctx, financeMissingID); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("line Get: err = %v, want ErrNoUser", err)
 	}
-	if _, err := lines.List(ctx); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("line List: err = %v, want ErrNoTenant", err)
+	if _, err := lines.List(ctx); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("line List: err = %v, want ErrNoUser", err)
 	}
 	if _, err := lines.Update(ctx, entity.ImportLine{
 		ID: financeMissingID, BatchID: financeMissingID, LineRef: 1,
 		RawLine: "raw", Status: entity.LineStatusValid,
-	}); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("line Update: err = %v, want ErrNoTenant", err)
+	}); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("line Update: err = %v, want ErrNoUser", err)
 	}
-	if err := lines.Delete(ctx, financeMissingID); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("line Delete: err = %v, want ErrNoTenant", err)
+	if err := lines.Delete(ctx, financeMissingID); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("line Delete: err = %v, want ErrNoUser", err)
 	}
 }
 
@@ -809,7 +809,7 @@ func TestFinanceBalanceForAccount(t *testing.T) {
 	occurredOn := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
 
 	type movementSeed struct {
-		tenant      string
+		userID      string
 		kind        string
 		amount      string
 		source      *string
@@ -826,14 +826,14 @@ func TestFinanceBalanceForAccount(t *testing.T) {
 			Origin:               entity.OriginManual,
 			SourceAccountID:      s.source,
 			DestinationAccountID: s.destination,
-		}, repo.Tenant(s.tenant)); err != nil {
+		}, repo.Owner(s.userID)); err != nil {
 			t.Fatalf("seed movement (%s): %v", s.kind, err)
 		}
 	}
 
 	t.Run("no movements", func(t *testing.T) {
-		acc := seedAccount(t, tenantA, "Empty")
-		got, err := movements.BalanceForAccount(ctx, acc.ID, repo.Tenant(tenantA))
+		acc := seedAccount(t, userA, "Empty")
+		got, err := movements.BalanceForAccount(ctx, acc.ID, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("BalanceForAccount: %v", err)
 		}
@@ -843,9 +843,9 @@ func TestFinanceBalanceForAccount(t *testing.T) {
 	})
 
 	t.Run("income adds", func(t *testing.T) {
-		acc := seedAccount(t, tenantA, "Income")
-		addMovement(movementSeed{tenant: tenantA, kind: entity.KindIncome, amount: "19999.99", destination: &acc.ID})
-		got, err := movements.BalanceForAccount(ctx, acc.ID, repo.Tenant(tenantA))
+		acc := seedAccount(t, userA, "Income")
+		addMovement(movementSeed{userID: userA, kind: entity.KindIncome, amount: "19999.99", destination: &acc.ID})
+		got, err := movements.BalanceForAccount(ctx, acc.ID, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("BalanceForAccount: %v", err)
 		}
@@ -855,9 +855,9 @@ func TestFinanceBalanceForAccount(t *testing.T) {
 	})
 
 	t.Run("expense subtracts", func(t *testing.T) {
-		acc := seedAccount(t, tenantA, "Expense")
-		addMovement(movementSeed{tenant: tenantA, kind: entity.KindExpense, amount: "500.50", source: &acc.ID})
-		got, err := movements.BalanceForAccount(ctx, acc.ID, repo.Tenant(tenantA))
+		acc := seedAccount(t, userA, "Expense")
+		addMovement(movementSeed{userID: userA, kind: entity.KindExpense, amount: "500.50", source: &acc.ID})
+		got, err := movements.BalanceForAccount(ctx, acc.ID, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("BalanceForAccount: %v", err)
 		}
@@ -867,13 +867,13 @@ func TestFinanceBalanceForAccount(t *testing.T) {
 	})
 
 	t.Run("transfer in adds / transfer out subtracts", func(t *testing.T) {
-		a := seedAccount(t, tenantA, "Transfer A")
-		b := seedAccount(t, tenantA, "Transfer B")
+		a := seedAccount(t, userA, "Transfer A")
+		b := seedAccount(t, userA, "Transfer B")
 		// A's balance = in - out, where "in" means the movement that has A as
 		// destination and "out" the one that has A as source.
-		addMovement(movementSeed{tenant: tenantA, kind: entity.KindTransfer, amount: "100.01", source: &b.ID, destination: &a.ID}) // in to A
-		addMovement(movementSeed{tenant: tenantA, kind: entity.KindTransfer, amount: "200.00", source: &a.ID, destination: &b.ID}) // out of A
-		got, err := movements.BalanceForAccount(ctx, a.ID, repo.Tenant(tenantA))
+		addMovement(movementSeed{userID: userA, kind: entity.KindTransfer, amount: "100.01", source: &b.ID, destination: &a.ID}) // in to A
+		addMovement(movementSeed{userID: userA, kind: entity.KindTransfer, amount: "200.00", source: &a.ID, destination: &b.ID}) // out of A
+		got, err := movements.BalanceForAccount(ctx, a.ID, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("BalanceForAccount: %v", err)
 		}
@@ -883,13 +883,13 @@ func TestFinanceBalanceForAccount(t *testing.T) {
 	})
 
 	t.Run("combined", func(t *testing.T) {
-		a := seedAccount(t, tenantA, "Combined A")
-		b := seedAccount(t, tenantA, "Combined B")
-		addMovement(movementSeed{tenant: tenantA, kind: entity.KindIncome, amount: "19999.99", destination: &a.ID})
-		addMovement(movementSeed{tenant: tenantA, kind: entity.KindExpense, amount: "500.50", source: &a.ID})
-		addMovement(movementSeed{tenant: tenantA, kind: entity.KindTransfer, amount: "100.01", source: &b.ID, destination: &a.ID})
-		addMovement(movementSeed{tenant: tenantA, kind: entity.KindTransfer, amount: "200.00", source: &a.ID, destination: &b.ID})
-		got, err := movements.BalanceForAccount(ctx, a.ID, repo.Tenant(tenantA))
+		a := seedAccount(t, userA, "Combined A")
+		b := seedAccount(t, userA, "Combined B")
+		addMovement(movementSeed{userID: userA, kind: entity.KindIncome, amount: "19999.99", destination: &a.ID})
+		addMovement(movementSeed{userID: userA, kind: entity.KindExpense, amount: "500.50", source: &a.ID})
+		addMovement(movementSeed{userID: userA, kind: entity.KindTransfer, amount: "100.01", source: &b.ID, destination: &a.ID})
+		addMovement(movementSeed{userID: userA, kind: entity.KindTransfer, amount: "200.00", source: &a.ID, destination: &b.ID})
+		got, err := movements.BalanceForAccount(ctx, a.ID, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("BalanceForAccount: %v", err)
 		}
@@ -898,16 +898,16 @@ func TestFinanceBalanceForAccount(t *testing.T) {
 		}
 	})
 
-	t.Run("foreign tenant excluded", func(t *testing.T) {
-		accA := seedAccount(t, tenantA, "Foreign A")
-		accB := seedAccount(t, tenantB, "Foreign B")
-		addMovement(movementSeed{tenant: tenantB, kind: entity.KindIncome, amount: "7777.77", destination: &accB.ID})
-		got, err := movements.BalanceForAccount(ctx, accA.ID, repo.Tenant(tenantA))
+	t.Run("foreign user excluded", func(t *testing.T) {
+		accA := seedAccount(t, userA, "Foreign A")
+		accB := seedAccount(t, userB, "Foreign B")
+		addMovement(movementSeed{userID: userB, kind: entity.KindIncome, amount: "7777.77", destination: &accB.ID})
+		got, err := movements.BalanceForAccount(ctx, accA.ID, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("BalanceForAccount: %v", err)
 		}
 		if got != "0" {
-			t.Errorf("balance = %q, want %q (tenantB movement must not count)", got, "0")
+			t.Errorf("balance = %q, want %q (userB movement must not count)", got, "0")
 		}
 	})
 }
@@ -922,7 +922,7 @@ func TestFinanceMovementsForAccount(t *testing.T) {
 		Name:     "MFA A",
 		Type:     entity.AccountTypeBank,
 		Currency: "EUR",
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("seed account A: %v", err)
 	}
@@ -930,7 +930,7 @@ func TestFinanceMovementsForAccount(t *testing.T) {
 		Name:     "MFA B",
 		Type:     entity.AccountTypeBank,
 		Currency: "EUR",
-	}, repo.Tenant(tenantA))
+	}, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("seed account B: %v", err)
 	}
@@ -945,7 +945,7 @@ func TestFinanceMovementsForAccount(t *testing.T) {
 			Origin:               entity.OriginManual,
 			SourceAccountID:      source,
 			DestinationAccountID: destination,
-		}, repo.Tenant(tenantA))
+		}, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("seed movement %s: %v", kind, err)
 		}
@@ -972,20 +972,20 @@ func TestFinanceMovementsForAccount(t *testing.T) {
 		}
 	}
 
-	got, err := movements.MovementsForAccount(ctx, accA.ID, repo.Tenant(tenantA))
+	got, err := movements.MovementsForAccount(ctx, accA.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("MovementsForAccount(A): %v", err)
 	}
 	assertIDs(t, "A", got, expA.ID, incA.ID)
 
-	gotB, err := movements.MovementsForAccount(ctx, accB.ID, repo.Tenant(tenantA))
+	gotB, err := movements.MovementsForAccount(ctx, accB.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("MovementsForAccount(B): %v", err)
 	}
 	assertIDs(t, "B", gotB, expB.ID)
 
-	emptyAcc := seedAccount(t, tenantA, "MFA Empty")
-	gotEmpty, err := movements.MovementsForAccount(ctx, emptyAcc.ID, repo.Tenant(tenantA))
+	emptyAcc := seedAccount(t, userA, "MFA Empty")
+	gotEmpty, err := movements.MovementsForAccount(ctx, emptyAcc.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("MovementsForAccount(empty): %v", err)
 	}
@@ -996,15 +996,15 @@ func TestFinanceMovementsForAccount(t *testing.T) {
 		t.Errorf("MovementsForAccount(empty) = %d rows, want 0", len(gotEmpty))
 	}
 
-	gotOther, err := movements.MovementsForAccount(ctx, accA.ID, repo.Tenant(tenantB))
+	gotOther, err := movements.MovementsForAccount(ctx, accA.ID, repo.Owner(userB))
 	if err != nil {
-		t.Fatalf("MovementsForAccount(A, tenantB): %v", err)
+		t.Fatalf("MovementsForAccount(A, userB): %v", err)
 	}
 	if gotOther == nil {
-		t.Error("MovementsForAccount(A, tenantB) = nil, want non-nil empty slice")
+		t.Error("MovementsForAccount(A, userB) = nil, want non-nil empty slice")
 	}
 	if len(gotOther) != 0 {
-		t.Errorf("MovementsForAccount(A, tenantB) = %d rows, want 0 (tenant-scoped)", len(gotOther))
+		t.Errorf("MovementsForAccount(A, userB) = %d rows, want 0 (user-scoped)", len(gotOther))
 	}
 }
 
@@ -1015,8 +1015,8 @@ func TestFinanceLinkCandidates(t *testing.T) {
 	occurredOn := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
 
 	t.Run("exact match returns the doc", func(t *testing.T) {
-		doc := seedFinanceDocument(t, tenantA, "match.pdf", "19999.99", "EUR")
-		got, err := finDocs.LinkCandidates(ctx, "19999.99", "EUR", repo.Tenant(tenantA))
+		doc := seedFinanceDocument(t, userA, "match.pdf", "19999.99", "EUR")
+		got, err := finDocs.LinkCandidates(ctx, "19999.99", "EUR", repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("LinkCandidates: %v", err)
 		}
@@ -1029,10 +1029,10 @@ func TestFinanceLinkCandidates(t *testing.T) {
 	})
 
 	t.Run("no match is empty", func(t *testing.T) {
-		doc := seedFinanceDocument(t, tenantA, "nomatch.pdf", "19999.99", "EUR")
+		doc := seedFinanceDocument(t, userA, "nomatch.pdf", "19999.99", "EUR")
 		_ = doc
 
-		got, err := finDocs.LinkCandidates(ctx, "1.00", "EUR", repo.Tenant(tenantA))
+		got, err := finDocs.LinkCandidates(ctx, "1.00", "EUR", repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("LinkCandidates(price mismatch): %v", err)
 		}
@@ -1043,7 +1043,7 @@ func TestFinanceLinkCandidates(t *testing.T) {
 			t.Errorf("LinkCandidates(price mismatch) = %d docs, want 0", len(got))
 		}
 
-		got, err = finDocs.LinkCandidates(ctx, "19999.99", "USD", repo.Tenant(tenantA))
+		got, err = finDocs.LinkCandidates(ctx, "19999.99", "USD", repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("LinkCandidates(currency mismatch): %v", err)
 		}
@@ -1056,8 +1056,8 @@ func TestFinanceLinkCandidates(t *testing.T) {
 	})
 
 	t.Run("already-linked doc excluded", func(t *testing.T) {
-		doc := seedFinanceDocument(t, tenantA, "linked.pdf", "19999.99", "EUR")
-		acc := seedAccount(t, tenantA, "Linked")
+		doc := seedFinanceDocument(t, userA, "linked.pdf", "19999.99", "EUR")
+		acc := seedAccount(t, userA, "Linked")
 		if _, err := movements.Create(ctx, entity.MoneyMovement{
 			Kind:             entity.KindExpense,
 			Amount:           "19999.99",
@@ -1067,10 +1067,10 @@ func TestFinanceLinkCandidates(t *testing.T) {
 			Origin:           entity.OriginManual,
 			SourceAccountID:  &acc.ID,
 			LinkedDocumentID: &doc.ID,
-		}, repo.Tenant(tenantA)); err != nil {
+		}, repo.Owner(userA)); err != nil {
 			t.Fatalf("seed linked movement: %v", err)
 		}
-		got, err := finDocs.LinkCandidates(ctx, "19999.99", "EUR", repo.Tenant(tenantA))
+		got, err := finDocs.LinkCandidates(ctx, "19999.99", "EUR", repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("LinkCandidates: %v", err)
 		}
@@ -1082,12 +1082,12 @@ func TestFinanceLinkCandidates(t *testing.T) {
 		}
 	})
 
-	t.Run("foreign tenant invisible", func(t *testing.T) {
+	t.Run("foreign user invisible", func(t *testing.T) {
 		// Distinct price so this subtest's query cannot see docs left behind
 		// by the earlier subtests (the schema is only truncated once, at the
 		// top of the test).
-		seedFinanceDocument(t, tenantB, "foreign.pdf", "8888.88", "EUR")
-		got, err := finDocs.LinkCandidates(ctx, "19999.99", "EUR", repo.Tenant(tenantA))
+		seedFinanceDocument(t, userB, "foreign.pdf", "8888.88", "EUR")
+		got, err := finDocs.LinkCandidates(ctx, "19999.99", "EUR", repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("LinkCandidates: %v", err)
 		}
@@ -1095,7 +1095,7 @@ func TestFinanceLinkCandidates(t *testing.T) {
 			t.Error("LinkCandidates = nil, want non-nil empty slice")
 		}
 		if len(got) != 0 {
-			t.Errorf("LinkCandidates = %d docs, want 0 (foreign tenant must not appear)", len(got))
+			t.Errorf("LinkCandidates = %d docs, want 0 (foreign user must not appear)", len(got))
 		}
 	})
 }
@@ -1114,7 +1114,7 @@ func TestFinanceFactoryInTx(t *testing.T) {
 				Name:     "Tx Account",
 				Type:     entity.AccountTypeBank,
 				Currency: "EUR",
-			}, repo.Tenant(tenantA))
+			}, repo.Owner(userA))
 			if err != nil {
 				return err
 			}
@@ -1132,12 +1132,12 @@ func TestFinanceFactoryInTx(t *testing.T) {
 				Description:          "Tx income",
 				Origin:               entity.OriginManual,
 				DestinationAccountID: &account.ID,
-			}, repo.Tenant(tenantA)); err != nil {
+			}, repo.Owner(userA)); err != nil {
 				return err
 			}
 
 			// The tx sees its own uncommitted writes...
-			txBalance, err := txMovements.BalanceForAccount(ctx, account.ID, repo.Tenant(tenantA))
+			txBalance, err := txMovements.BalanceForAccount(ctx, account.ID, repo.Owner(userA))
 			if err != nil {
 				return err
 			}
@@ -1146,7 +1146,7 @@ func TestFinanceFactoryInTx(t *testing.T) {
 			}
 
 			// ...but the separate pool connection must NOT see them.
-			poolBalance, err := finMovements.BalanceForAccount(ctx, account.ID, repo.Tenant(tenantA))
+			poolBalance, err := finMovements.BalanceForAccount(ctx, account.ID, repo.Owner(userA))
 			if err != nil {
 				return err
 			}
@@ -1160,7 +1160,7 @@ func TestFinanceFactoryInTx(t *testing.T) {
 		}
 
 		// After commit, the pool-bound repo sees the committed movement.
-		committed, err := finMovements.BalanceForAccount(ctx, accountID, repo.Tenant(tenantA))
+		committed, err := finMovements.BalanceForAccount(ctx, accountID, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("BalanceForAccount after commit: %v", err)
 		}
@@ -1180,7 +1180,7 @@ func TestFinanceFactoryInTx(t *testing.T) {
 				Name:     "Committed Account",
 				Type:     entity.AccountTypeBank,
 				Currency: "EUR",
-			}, repo.Tenant(tenantA))
+			}, repo.Owner(userA))
 			if err != nil {
 				return err
 			}
@@ -1192,7 +1192,7 @@ func TestFinanceFactoryInTx(t *testing.T) {
 		}
 
 		// Committed: visible after the transaction via the pool-bound repo.
-		got, err := finAccounts.Get(ctx, createdID, repo.Tenant(tenantA))
+		got, err := finAccounts.Get(ctx, createdID, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("Get after commit: %v, want visible row", err)
 		}
@@ -1210,7 +1210,7 @@ func TestFinanceFactoryInTx(t *testing.T) {
 				Name:     "Doomed Account",
 				Type:     entity.AccountTypeBank,
 				Currency: "EUR",
-			}, repo.Tenant(tenantA))
+			}, repo.Owner(userA))
 			if err != nil {
 				return err
 			}
@@ -1222,7 +1222,7 @@ func TestFinanceFactoryInTx(t *testing.T) {
 				Description:          "Doomed income",
 				Origin:               entity.OriginManual,
 				DestinationAccountID: &account.ID,
-			}, repo.Tenant(tenantA)); err != nil {
+			}, repo.Owner(userA)); err != nil {
 				return err
 			}
 			return forcedErr
@@ -1232,14 +1232,14 @@ func TestFinanceFactoryInTx(t *testing.T) {
 		}
 
 		// Rolled back: no rows visible after the transaction.
-		accounts, err := finAccounts.List(ctx, repo.Tenant(tenantA))
+		accounts, err := finAccounts.List(ctx, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("List accounts after rollback: %v", err)
 		}
 		if len(accounts) != 0 {
 			t.Errorf("account List after rollback = %d rows, want 0 (rolled back)", len(accounts))
 		}
-		movs, err := finMovements.List(ctx, repo.Tenant(tenantA))
+		movs, err := finMovements.List(ctx, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("List movements after rollback: %v", err)
 		}

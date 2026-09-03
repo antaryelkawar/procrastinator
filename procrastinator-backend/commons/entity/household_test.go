@@ -1,54 +1,52 @@
 package entity
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
-func TestValidScopeType(t *testing.T) {
+func TestHouseholdFields(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name string
-		in   string
-		want bool
-	}{
-		{"personal", "personal", true},
-		{"household", "household", true},
-		{"empty", "", false},
-		{"shared", "shared", false},
-		{"PERSONAL-uppercase", "PERSONAL", false},
-		{"Personal-capitalized", "Personal", false},
+	now := time.Now().UTC().Truncate(time.Second)
+	h := Household{
+		ID:          "hh-1",
+		OwnerID:     "user-1",
+		DisplayName: "The Smiths",
+		CreatedAt:   now,
 	}
 
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := ValidScopeType(tc.in)
-			if got != tc.want {
-				t.Fatalf("ValidScopeType(%q) = %v, want %v", tc.in, got, tc.want)
-			}
-		})
+	if h.ID != "hh-1" {
+		t.Fatalf("ID = %q, want %q", h.ID, "hh-1")
+	}
+	if h.OwnerID != "user-1" {
+		t.Fatalf("OwnerID = %q, want %q", h.OwnerID, "user-1")
+	}
+	if h.DisplayName != "The Smiths" {
+		t.Fatalf("DisplayName = %q, want %q", h.DisplayName, "The Smiths")
+	}
+	if !h.CreatedAt.Equal(now) {
+		t.Fatalf("CreatedAt = %v, want %v", h.CreatedAt, now)
 	}
 }
 
-func TestScopeConstantValues(t *testing.T) {
+func TestHouseholdMemberFields(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name string
-		got  string
-		want string
-	}{
-		{"ScopePersonal", ScopePersonal, "personal"},
-		{"ScopeHousehold", ScopeHousehold, "household"},
+	now := time.Now().UTC().Truncate(time.Second)
+	m := HouseholdMember{
+		HouseholdID: "hh-1",
+		UserID:      "user-1",
+		CreatedAt:   now,
 	}
 
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if tc.got != tc.want {
-				t.Fatalf("constant %s = %q, want %q", tc.name, tc.got, tc.want)
-			}
-		})
+	if m.HouseholdID != "hh-1" {
+		t.Fatalf("HouseholdID = %q, want %q", m.HouseholdID, "hh-1")
+	}
+	if m.UserID != "user-1" {
+		t.Fatalf("UserID = %q, want %q", m.UserID, "user-1")
+	}
+	if !m.CreatedAt.Equal(now) {
+		t.Fatalf("CreatedAt = %v, want %v", m.CreatedAt, now)
 	}
 }

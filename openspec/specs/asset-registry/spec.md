@@ -8,7 +8,7 @@ Define the canonical data model for assets, ensure data integrity (specifically 
 
 ### Requirement: Canonical asset model
 
-The system SHALL persist Assets in PostgreSQL, scoped per tenant, with a **structured core** — unique opaque identifier, `tenant_id`, brand, model, serial number, purchase date, warranty end, price, currency, and document type (`invoice`, `warranty`, `amc`, or `other`) — **plus a generic `metadata` JSONB object** holding arbitrary key-value pairs extracted from documents. All structured fields except the identifier, tenant, document type, and timestamps SHALL be optional (nullable) so partially extracted documents can still establish an Asset. `metadata` SHALL default to an empty object and SHALL NOT be used for identity resolution.
+The system SHALL persist Assets in PostgreSQL, scoped per owner, with a **structured core** — unique opaque identifier, `owner_id`, brand, model, serial number, purchase date, warranty end, price, currency, and document type (`invoice`, `warranty`, `amc`, or `other`) — **plus a generic `metadata` JSONB object** holding arbitrary key-value pairs extracted from documents. All structured fields except the identifier, owner (`owner_id`), document type, and timestamps SHALL be optional (nullable) so partially extracted documents can still establish an Asset. `metadata` SHALL default to an empty object and SHALL NOT be used for identity resolution.
 
 #### Scenario: Asset persists the full extracted field set
 
@@ -40,44 +40,44 @@ Asset price SHALL be stored and transmitted as an exact decimal value with an IS
 
 ### Requirement: List assets endpoint
 
-The system SHALL expose `GET /api/assets` returning `200 OK` with a JSON array of all Assets in a stable, deterministic order. An empty registry SHALL return an empty array, not an error.
+The system SHALL expose `GET /api/users/{userId}/assets` returning `200 OK` with a JSON array of all Assets in a stable, deterministic order. An empty registry SHALL return an empty array, not an error.
 
 #### Scenario: Lists all assets
 
-- **WHEN** two Assets exist and a client requests `GET /api/assets`
+- **WHEN** two Assets exist and a client requests `GET /api/users/{userId}/assets`
 - **THEN** the response is `200 OK` with a JSON array containing both Assets
 
 #### Scenario: Empty registry returns an empty array
 
-- **WHEN** no Assets exist and a client requests `GET /api/assets`
+- **WHEN** no Assets exist and a client requests `GET /api/users/{userId}/assets`
 - **THEN** the response is `200 OK` with body `[]`
 
 ### Requirement: Get asset endpoint
 
-The system SHALL expose `GET /api/assets/{id}` returning `200 OK` with the Asset JSON for an existing identifier, and `404 Not Found` for an unknown identifier.
+The system SHALL expose `GET /api/users/{userId}/assets/{assetId}` returning `200 OK` with the Asset JSON for an existing identifier, and `404 Not Found` for an unknown identifier.
 
 #### Scenario: Existing asset is returned
 
-- **WHEN** a client requests `GET /api/assets/{id}` for an existing Asset
+- **WHEN** a client requests `GET /api/users/{userId}/assets/{assetId}` for an existing Asset
 - **THEN** the response is `200 OK` with that Asset's JSON representation
 
 #### Scenario: Unknown asset returns 404
 
-- **WHEN** a client requests `GET /api/assets/{id}` for an identifier that does not exist
+- **WHEN** a client requests `GET /api/users/{userId}/assets/{assetId}` for an identifier that does not exist
 - **THEN** the response is `404 Not Found`
 
 ### Requirement: Asset documents endpoint
 
-The system SHALL expose `GET /api/assets/{id}/documents` returning `200 OK` with a JSON array of the Asset's Documents. Each entry SHALL include the document identifier, document type, classified/extracted fields, the originating Source's filename and upload timestamp. Requesting documents for an unknown Asset identifier SHALL return `404 Not Found`.
+The system SHALL expose `GET /api/users/{userId}/assets/{assetId}/documents` returning `200 OK` with a JSON array of the Asset's Documents. Each entry SHALL include the document identifier, document type, classified/extracted fields, the originating Source's filename and upload timestamp. Requesting documents for an unknown Asset identifier SHALL return `404 Not Found`.
 
 #### Scenario: Documents are listed in ingestion order
 
-- **WHEN** an Asset has an invoice Document and a later warranty Document, and a client requests `GET /api/assets/{id}/documents`
+- **WHEN** an Asset has an invoice Document and a later warranty Document, and a client requests `GET /api/users/{userId}/assets/{assetId}/documents`
 - **THEN** the response is `200 OK` with both entries, each showing its type, source filename, and upload timestamp
 
 #### Scenario: Unknown asset returns 404
 
-- **WHEN** a client requests `GET /api/assets/{id}/documents` for an identifier that does not exist
+- **WHEN** a client requests `GET /api/users/{userId}/assets/{assetId}/documents` for an identifier that does not exist
 - **THEN** the response is `404 Not Found`
 
 ### Requirement: Versioned schema migrations

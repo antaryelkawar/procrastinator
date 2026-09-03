@@ -19,13 +19,13 @@ var (
 )
 
 // AssetRepository is the generic repository engine for entity.Asset, carrying
-// the scope-aware ListScoped method.
+// the scope-aware (owner + household membership) visibility behavior.
 type AssetRepository struct {
 	*pgRepository[entity.Asset]
 }
 
 // SourceRepository is the generic repository engine for entity.Source,
-// carrying the scope-aware ListScoped method.
+// carrying the scope-aware (owner + household membership) visibility behavior.
 type SourceRepository struct {
 	*pgRepository[entity.Source]
 }
@@ -34,11 +34,12 @@ type SourceRepository struct {
 func NewAssetRepository(pool *pgxpool.Pool) *AssetRepository {
 	return &AssetRepository{
 		pgRepository: &pgRepository[entity.Asset]{
-			scope:   &poolScope{pool: pool},
-			table:   "assets",
-			scanRow: scanAsset,
-			toMap:   assetToMap,
-			filters: assetFilters,
+			scope:     &poolScope{pool: pool},
+			table:     "assets",
+			scanRow:   scanAsset,
+			toMap:     assetToMap,
+			filters:   assetFilters,
+			shareable: true,
 		},
 	}
 }
@@ -47,11 +48,12 @@ func NewAssetRepository(pool *pgxpool.Pool) *AssetRepository {
 func NewSourceRepository(pool *pgxpool.Pool) *SourceRepository {
 	return &SourceRepository{
 		pgRepository: &pgRepository[entity.Source]{
-			scope:   &poolScope{pool: pool},
-			table:   "sources",
-			scanRow: scanSource,
-			toMap:   sourceToMap,
-			filters: sourceFilters,
+			scope:     &poolScope{pool: pool},
+			table:     "sources",
+			scanRow:   scanSource,
+			toMap:     sourceToMap,
+			filters:   sourceFilters,
+			shareable: true,
 		},
 	}
 }
@@ -61,11 +63,12 @@ func NewSourceRepository(pool *pgxpool.Pool) *SourceRepository {
 func NewDocumentRepository(pool *pgxpool.Pool) *DocumentRepository {
 	return &DocumentRepository{
 		pgRepository: &pgRepository[entity.Document]{
-			scope:   &poolScope{pool: pool},
-			table:   "documents",
-			scanRow: scanDocument,
-			toMap:   documentToMap,
-			filters: documentFilters,
+			scope:     &poolScope{pool: pool},
+			table:     "documents",
+			scanRow:   scanDocument,
+			toMap:     documentToMap,
+			filters:   documentFilters,
+			shareable: true,
 		},
 	}
 }
@@ -74,11 +77,12 @@ func NewDocumentRepository(pool *pgxpool.Pool) *DocumentRepository {
 func newAssetRepoForTx(tx pgx.Tx) *AssetRepository {
 	return &AssetRepository{
 		pgRepository: &pgRepository[entity.Asset]{
-			scope:   &txScopeImpl{tx: tx},
-			table:   "assets",
-			scanRow: scanAsset,
-			toMap:   assetToMap,
-			filters: assetFilters,
+			scope:     &txScopeImpl{tx: tx},
+			table:     "assets",
+			scanRow:   scanAsset,
+			toMap:     assetToMap,
+			filters:   assetFilters,
+			shareable: true,
 		},
 	}
 }
@@ -87,11 +91,12 @@ func newAssetRepoForTx(tx pgx.Tx) *AssetRepository {
 func newSourceRepoForTx(tx pgx.Tx) *SourceRepository {
 	return &SourceRepository{
 		pgRepository: &pgRepository[entity.Source]{
-			scope:   &txScopeImpl{tx: tx},
-			table:   "sources",
-			scanRow: scanSource,
-			toMap:   sourceToMap,
-			filters: sourceFilters,
+			scope:     &txScopeImpl{tx: tx},
+			table:     "sources",
+			scanRow:   scanSource,
+			toMap:     sourceToMap,
+			filters:   sourceFilters,
+			shareable: true,
 		},
 	}
 }
@@ -100,11 +105,12 @@ func newSourceRepoForTx(tx pgx.Tx) *SourceRepository {
 func newDocumentRepoForTx(tx pgx.Tx) *DocumentRepository {
 	return &DocumentRepository{
 		pgRepository: &pgRepository[entity.Document]{
-			scope:   &txScopeImpl{tx: tx},
-			table:   "documents",
-			scanRow: scanDocument,
-			toMap:   documentToMap,
-			filters: documentFilters,
+			scope:     &txScopeImpl{tx: tx},
+			table:     "documents",
+			scanRow:   scanDocument,
+			toMap:     documentToMap,
+			filters:   documentFilters,
+			shareable: true,
 		},
 	}
 }
@@ -114,8 +120,8 @@ func assetToMap(a entity.Asset) map[string]any {
 	if a.ID != "" {
 		m["id"] = a.ID
 	}
-	if a.TenantID != "" {
-		m["tenant_id"] = a.TenantID
+	if a.OwnerID != "" {
+		m["owner_id"] = a.OwnerID
 	}
 	if a.Brand != nil {
 		m["brand"] = a.Brand
@@ -175,9 +181,6 @@ func assetToMap(a entity.Asset) map[string]any {
 			m["metadata"] = meta
 		}
 	}
-	if a.ScopeType != "" {
-		m["scope_type"] = a.ScopeType
-	}
 	if a.OwnerHouseholdID != nil {
 		m["owner_household_id"] = a.OwnerHouseholdID
 	}
@@ -189,8 +192,8 @@ func sourceToMap(s entity.Source) map[string]any {
 	if s.ID != "" {
 		m["id"] = s.ID
 	}
-	if s.TenantID != "" {
-		m["tenant_id"] = s.TenantID
+	if s.OwnerID != "" {
+		m["owner_id"] = s.OwnerID
 	}
 	if s.Filename != "" {
 		m["filename"] = s.Filename
@@ -210,9 +213,6 @@ func sourceToMap(s entity.Source) map[string]any {
 	if !s.UploadedAt.IsZero() {
 		m["uploaded_at"] = s.UploadedAt
 	}
-	if s.ScopeType != "" {
-		m["scope_type"] = s.ScopeType
-	}
 	if s.OwnerHouseholdID != nil {
 		m["owner_household_id"] = s.OwnerHouseholdID
 	}
@@ -224,8 +224,8 @@ func documentToMap(d entity.Document) map[string]any {
 	if d.ID != "" {
 		m["id"] = d.ID
 	}
-	if d.TenantID != "" {
-		m["tenant_id"] = d.TenantID
+	if d.OwnerID != "" {
+		m["owner_id"] = d.OwnerID
 	}
 	if d.AssetID != "" {
 		m["asset_id"] = d.AssetID
@@ -247,9 +247,6 @@ func documentToMap(d entity.Document) map[string]any {
 		if err == nil {
 			m["raw_extraction"] = raw
 		}
-	}
-	if d.ScopeType != "" {
-		m["scope_type"] = d.ScopeType
 	}
 	if d.OwnerHouseholdID != nil {
 		m["owner_household_id"] = d.OwnerHouseholdID
@@ -282,7 +279,6 @@ var assetFieldCols = map[string]string{
 	"doc_type":           "doc_type",
 	"created_at":         "created_at",
 	"updated_at":         "updated_at",
-	"scope_type":         "scope_type",
 	"owner_household_id": "owner_household_id",
 }
 
@@ -298,12 +294,12 @@ var assetOrderCols = map[string]string{
 }
 
 var sourceFieldCols = map[string]string{
+	"id":                 "id",
 	"filename":           "filename",
 	"content_type":       "content_type",
 	"byte_size":          "byte_size",
 	"sha256":             "sha256",
 	"uploaded_at":        "uploaded_at",
-	"scope_type":         "scope_type",
 	"owner_household_id": "owner_household_id",
 }
 
@@ -318,7 +314,6 @@ var documentFieldCols = map[string]string{
 	"source_id":          "source_id",
 	"doc_type":           "doc_type",
 	"created_at":         "created_at",
-	"scope_type":         "scope_type",
 	"owner_household_id": "owner_household_id",
 }
 

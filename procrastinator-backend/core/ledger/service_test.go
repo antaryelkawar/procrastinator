@@ -14,21 +14,21 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 )
 
-// testTenant / testTenantB are the two tenants used across ledger tests.
+// testUser / testUserB are the two Users used across ledger tests.
 const (
-	testTenant  = "test-tenant"
-	testTenantB = "test-tenant-b"
+	testUser  = "test-user"
+	testUserB = "test-user-b"
 )
 
 // testBase is the deterministic creation timestamp base. The nth created row
 // gets base + n seconds, so creation order == (created_at, id) order.
 var testBase = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-func ctxWithTenant(id string) context.Context {
-	return tenant.WithTenant(context.Background(), id)
+func ctxWithOwner(id string) context.Context {
+	return user.WithUser(context.Background(), id)
 }
 
 func strPtr(s string) *string {
@@ -112,7 +112,7 @@ func (r *fakeAccountRepo) Get(ctx context.Context, id string, opts ...repo.Optio
 	if !ok {
 		return entity.FinancialAccount{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && a.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && a.OwnerID != tid {
 		return entity.FinancialAccount{}, repo.ErrNotFound
 	}
 	return a, nil
@@ -125,7 +125,7 @@ func (r *fakeAccountRepo) List(ctx context.Context, opts ...repo.Option) ([]enti
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.FinancialAccount, 0, len(r.rows))
 	for _, a := range r.rows {
-		if o.TenantID != "" && a.TenantID != o.TenantID {
+		if o.OwnerID != "" && a.OwnerID != o.OwnerID {
 			continue
 		}
 		if !matchAccountFilter(a, o.Filters) {
@@ -172,8 +172,8 @@ func (r *fakeAccountRepo) Create(ctx context.Context, a entity.FinancialAccount,
 	ts := testBase.Add(time.Duration(r.nextID) * time.Second)
 	a.CreatedAt = ts
 	a.UpdatedAt = ts
-	if tid := tenantFromOpts(opts); tid != "" {
-		a.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		a.OwnerID = tid
 	}
 	r.rows[a.ID] = a
 	return a, nil
@@ -186,7 +186,7 @@ func (r *fakeAccountRepo) Update(ctx context.Context, a entity.FinancialAccount,
 	if _, ok := r.rows[a.ID]; !ok {
 		return entity.FinancialAccount{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && a.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && a.OwnerID != tid {
 		return entity.FinancialAccount{}, repo.ErrNotFound
 	}
 	r.rows[a.ID] = a
@@ -201,7 +201,7 @@ func (r *fakeAccountRepo) Delete(ctx context.Context, id string, opts ...repo.Op
 	if !ok {
 		return repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && a.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && a.OwnerID != tid {
 		return repo.ErrNotFound
 	}
 	delete(r.rows, id)
@@ -261,7 +261,7 @@ func (r *fakeMovementRepo) Get(ctx context.Context, id string, opts ...repo.Opti
 	if !ok {
 		return entity.MoneyMovement{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && m.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && m.OwnerID != tid {
 		return entity.MoneyMovement{}, repo.ErrNotFound
 	}
 	return m, nil
@@ -274,7 +274,7 @@ func (r *fakeMovementRepo) List(ctx context.Context, opts ...repo.Option) ([]ent
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.MoneyMovement, 0, len(r.rows))
 	for _, m := range r.rows {
-		if o.TenantID != "" && m.TenantID != o.TenantID {
+		if o.OwnerID != "" && m.OwnerID != o.OwnerID {
 			continue
 		}
 		if !matchMovementFilter(m, o.Filters) {
@@ -335,8 +335,8 @@ func (r *fakeMovementRepo) Create(ctx context.Context, m entity.MoneyMovement, o
 	m.CreatedAt = ts
 	m.UpdatedAt = ts
 	m.RecordedAt = ts
-	if tid := tenantFromOpts(opts); tid != "" {
-		m.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		m.OwnerID = tid
 	}
 	r.rows[m.ID] = m
 	return m, nil
@@ -349,7 +349,7 @@ func (r *fakeMovementRepo) Update(ctx context.Context, m entity.MoneyMovement, o
 	if _, ok := r.rows[m.ID]; !ok {
 		return entity.MoneyMovement{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && m.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && m.OwnerID != tid {
 		return entity.MoneyMovement{}, repo.ErrNotFound
 	}
 	r.rows[m.ID] = m
@@ -364,7 +364,7 @@ func (r *fakeMovementRepo) Delete(ctx context.Context, id string, opts ...repo.O
 	if !ok {
 		return repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && m.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && m.OwnerID != tid {
 		return repo.ErrNotFound
 	}
 	delete(r.rows, id)
@@ -424,7 +424,7 @@ func (r *fakeDocumentRepo) Get(ctx context.Context, id string, opts ...repo.Opti
 	if !ok {
 		return entity.Document{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && d.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && d.OwnerID != tid {
 		return entity.Document{}, repo.ErrNotFound
 	}
 	return d, nil
@@ -437,7 +437,7 @@ func (r *fakeDocumentRepo) List(ctx context.Context, opts ...repo.Option) ([]ent
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.Document, 0, len(r.rows))
 	for _, d := range r.rows {
-		if o.TenantID != "" && d.TenantID != o.TenantID {
+		if o.OwnerID != "" && d.OwnerID != o.OwnerID {
 			continue
 		}
 		out = append(out, d)
@@ -457,8 +457,8 @@ func (r *fakeDocumentRepo) Create(ctx context.Context, d entity.Document, opts .
 		r.nextID++
 		d.ID = "doc-" + strconv.Itoa(r.nextID)
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		d.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		d.OwnerID = tid
 	}
 	d.ExtractedFields = copyMapAny(d.ExtractedFields)
 	d.CreatedAt = testBase.Add(time.Duration(r.nextID) * time.Second)
@@ -473,7 +473,7 @@ func (r *fakeDocumentRepo) Update(ctx context.Context, d entity.Document, opts .
 	if _, ok := r.rows[d.ID]; !ok {
 		return entity.Document{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && d.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && d.OwnerID != tid {
 		return entity.Document{}, repo.ErrNotFound
 	}
 	d.ExtractedFields = copyMapAny(d.ExtractedFields)
@@ -489,7 +489,7 @@ func (r *fakeDocumentRepo) Delete(ctx context.Context, id string, opts ...repo.O
 	if !ok {
 		return repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && d.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && d.OwnerID != tid {
 		return repo.ErrNotFound
 	}
 	delete(r.rows, id)
@@ -534,7 +534,7 @@ type fakeBalancer struct {
 }
 
 func (b *fakeBalancer) BalanceForAccount(ctx context.Context, accountID string, opts ...repo.Option) (string, error) {
-	// Tenant scoping flows through opts into the movements list.
+	// User scoping flows through opts into the movements list.
 	all, err := b.movements.List(ctx, opts...)
 	if err != nil {
 		return "", err
@@ -606,9 +606,9 @@ func scaledToString(v *big.Int) string {
 // shared helpers
 // ---------------------------------------------------------------------------
 
-// tenantFromOpts extracts the tenant ID from options ("" if absent).
-func tenantFromOpts(opts []repo.Option) string {
-	return repo.ApplyOptions(opts...).TenantID
+// ownerFromOpts extracts the user ID from options ("" if absent).
+func ownerFromOpts(opts []repo.Option) string {
+	return repo.ApplyOptions(opts...).OwnerID
 }
 
 // copyMapAny shallow-copies a map (nil-safe).
@@ -634,15 +634,15 @@ func (e *testEnv) createAccount(t *testing.T, ctx context.Context, name, typ, cu
 }
 
 // createDoc is a test helper: create a document directly in the fake and
-// return its ID. The tenant option mirrors how document ingestion persists
+// return its ID. The user option mirrors how document ingestion persists
 // documents (the repo scopes by option, not context).
 func (e *testEnv) createDoc(t *testing.T, ctx context.Context, fields map[string]any) string {
 	t.Helper()
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
-		t.Fatalf("createDoc: ctx has no tenant: %v", err)
+		t.Fatalf("createDoc: ctx has no user: %v", err)
 	}
-	d, err := e.docs.Create(ctx, entity.Document{ExtractedFields: fields}, repo.Tenant(tid))
+	d, err := e.docs.Create(ctx, entity.Document{ExtractedFields: fields}, repo.Owner(tid))
 	if err != nil {
 		t.Fatalf("doc Create failed: %v", err)
 	}
@@ -742,7 +742,7 @@ func ptrEq(a, b *string) bool {
 func TestCreateAccountPersistsFullFieldSet(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 
 	acc, err := e.svc.CreateAccount(ctx, AccountInput{
 		Name:               "HDFC Savings",
@@ -802,7 +802,7 @@ func TestCreateAccountRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			e := newTestEnv()
-			ctx := ctxWithTenant(testTenant)
+			ctx := ctxWithOwner(testUser)
 			_, err := e.svc.CreateAccount(ctx, tc.input)
 			if !errors.Is(err, ErrInvalid) {
 				t.Fatalf("CreateAccount returned %v, want ErrInvalid", err)
@@ -848,7 +848,7 @@ func TestAccountCurrencyImmutableByConstruction(t *testing.T) {
 
 	// Also: create an INR account, assert currency is still INR via GetAccount.
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	accID := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 	gotAcc, _, err := e.svc.GetAccount(ctx, accID)
 	if err != nil {
@@ -864,7 +864,7 @@ func TestAccountCurrencyImmutableByConstruction(t *testing.T) {
 func TestDuplicateAccountNamesAllowed(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 
 	id1 := e.createAccount(t, ctx, "Cash", entity.AccountTypeCash, "INR")
 	id2 := e.createAccount(t, ctx, "Cash", entity.AccountTypeCash, "INR")
@@ -884,7 +884,7 @@ func TestDuplicateAccountNamesAllowed(t *testing.T) {
 func TestCreateExpenseMovementPersisted(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	occurred := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
@@ -941,7 +941,7 @@ func TestCreateTransferRequiresDistinctSameCurrencyAccounts(t *testing.T) {
 	t.Run("same account source and dest", func(t *testing.T) {
 		t.Parallel()
 		e := newTestEnv()
-		ctx := ctxWithTenant(testTenant)
+		ctx := ctxWithOwner(testUser)
 		a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 		_, err := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -964,7 +964,7 @@ func TestCreateTransferRequiresDistinctSameCurrencyAccounts(t *testing.T) {
 	t.Run("different currency", func(t *testing.T) {
 		t.Parallel()
 		e := newTestEnv()
-		ctx := ctxWithTenant(testTenant)
+		ctx := ctxWithOwner(testUser)
 		a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 		b := e.createAccount(t, ctx, "B", entity.AccountTypeBank, "USD")
 
@@ -1012,7 +1012,7 @@ func TestCreateMovementRejectedInvalidFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			e := newTestEnv()
-			ctx := ctxWithTenant(testTenant)
+			ctx := ctxWithOwner(testUser)
 			a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 			in := MovementInput{
@@ -1040,7 +1040,7 @@ func TestCreateMovementRejectedInvalidFields(t *testing.T) {
 func TestCreateIncomeMovementDestinationOnly(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	mv, err := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -1070,7 +1070,7 @@ func TestCreateIncomeMovementDestinationOnly(t *testing.T) {
 func TestCreateMovementUnknownAccount(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 
 	_, err := e.svc.CreateManualMovement(ctx, MovementInput{
 		Kind:            entity.KindExpense,
@@ -1092,7 +1092,7 @@ func TestCreateMovementUnknownAccount(t *testing.T) {
 func TestListMovementsFilterByAccount(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 	b := e.createAccount(t, ctx, "B", entity.AccountTypeBank, "INR")
 
@@ -1169,7 +1169,7 @@ func TestListMovementsFilterByAccount(t *testing.T) {
 func TestListMovementsFilterByOccurredRange(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	mvEarly, err := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -1235,7 +1235,7 @@ func TestListMovementsFilterByOccurredRange(t *testing.T) {
 func TestListMovementsOrdering(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 	occ := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
@@ -1269,7 +1269,7 @@ func TestListMovementsOrdering(t *testing.T) {
 func TestListAccountsOrdering(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 
 	id1 := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 	id2 := e.createAccount(t, ctx, "B", entity.AccountTypeBank, "INR")
@@ -1292,7 +1292,7 @@ func TestListAccountsOrdering(t *testing.T) {
 func TestListEmptyResults(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 
 	accs, err := e.svc.ListAccounts(ctx)
 	if err != nil {
@@ -1321,7 +1321,7 @@ func TestListEmptyResults(t *testing.T) {
 func TestBalanceAccumulates(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 	occ := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
@@ -1350,7 +1350,7 @@ func TestBalanceAccumulates(t *testing.T) {
 func TestTransferMovesValue(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 	b := e.createAccount(t, ctx, "B", entity.AccountTypeBank, "INR")
 
@@ -1375,7 +1375,7 @@ func TestTransferMovesValue(t *testing.T) {
 func TestBalanceZeroWhenEmpty(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 	if bal := e.balanceOf(t, ctx, a); bal != "0" {
 		t.Fatalf("balance = %q, want %q", bal, "0")
@@ -1387,12 +1387,12 @@ func TestBalanceZeroWhenEmpty(t *testing.T) {
 func TestImportedMovementProvenance(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	line := 3
 	importedID := e.seedMovement(t, entity.MoneyMovement{
-		TenantID:          testTenant,
+		OwnerID:           testUser,
 		Kind:              entity.KindExpense,
 		Amount:            "500",
 		Currency:          "INR",
@@ -1448,7 +1448,7 @@ func TestImportedMovementProvenance(t *testing.T) {
 func TestLinkCreatedAndVisible(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	mv, err := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -1496,7 +1496,7 @@ func TestLinkCreatedAndVisible(t *testing.T) {
 func TestLinkIdempotentSameLink(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	mv, _ := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -1528,7 +1528,7 @@ func TestLinkIdempotentSameLink(t *testing.T) {
 func TestLinkAlreadyLinkedMovementConflicts(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	mv, _ := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -1559,7 +1559,7 @@ func TestLinkAlreadyLinkedMovementConflicts(t *testing.T) {
 func TestLinkAlreadyLinkedDocumentConflicts(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 	occ := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
@@ -1594,12 +1594,12 @@ func TestLinkAlreadyLinkedDocumentConflicts(t *testing.T) {
 	}
 }
 
-// TestLinkCrossTenantDocumentNotFound — cross-tenant and unknown IDs.
-func TestLinkCrossTenantDocumentNotFound(t *testing.T) {
+// TestLinkCrossUserDocumentNotFound — cross-user and unknown IDs.
+func TestLinkCrossUserDocumentNotFound(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctxA := ctxWithTenant(testTenant)
-	ctxB := ctxWithTenant(testTenantB)
+	ctxA := ctxWithOwner(testUser)
+	ctxB := ctxWithOwner(testUserB)
 
 	a := e.createAccount(t, ctxA, "A", entity.AccountTypeBank, "INR")
 	mv, _ := e.svc.CreateManualMovement(ctxA, MovementInput{
@@ -1608,13 +1608,13 @@ func TestLinkCrossTenantDocumentNotFound(t *testing.T) {
 		Description: "test", SourceAccountID: a,
 	})
 
-	// doc created under tenant B
+	// doc created under user B
 	docB := e.createDoc(t, ctxB, nil)
 
-	// cross-tenant doc → ErrNotFound
+	// cross-user doc → ErrNotFound
 	err := e.svc.Link(ctxA, mv.ID, docB, "manual")
 	if !errors.Is(err, repo.ErrNotFound) {
-		t.Fatalf("Link cross-tenant doc returned %v, want ErrNotFound", err)
+		t.Fatalf("Link cross-user doc returned %v, want ErrNotFound", err)
 	}
 
 	// unknown document → ErrNotFound
@@ -1640,7 +1640,7 @@ func TestLinkCrossTenantDocumentNotFound(t *testing.T) {
 func TestUnlinkRemovesLink(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 	occ := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
@@ -1686,7 +1686,7 @@ func TestUnlinkRemovesLink(t *testing.T) {
 func TestUnlinkIdempotentNoOp(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	mv, _ := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -1710,7 +1710,7 @@ func TestUnlinkIdempotentNoOp(t *testing.T) {
 func TestLinkConflictRetentionDisagreeing(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	mv, _ := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -1759,7 +1759,7 @@ func TestLinkAgreeingNoConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			e := newTestEnv()
-			ctx := ctxWithTenant(testTenant)
+			ctx := ctxWithOwner(testUser)
 			a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 			mv, _ := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -1786,7 +1786,7 @@ func TestLinkAgreeingNoConflict(t *testing.T) {
 func TestMovementCoreFieldsImmutable(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	mv, _ := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -1824,7 +1824,7 @@ func TestPatchDescriptionSucceeds(t *testing.T) {
 	run := func(t *testing.T, origin string) {
 		t.Helper()
 		e := newTestEnv()
-		ctx := ctxWithTenant(testTenant)
+		ctx := ctxWithOwner(testUser)
 		a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 		var mv entity.MoneyMovement
@@ -1840,7 +1840,7 @@ func TestPatchDescriptionSucceeds(t *testing.T) {
 			}
 		} else {
 			mv.ID = e.seedMovement(t, entity.MoneyMovement{
-				TenantID:        testTenant,
+				OwnerID:         testUser,
 				Kind:            entity.KindExpense,
 				Amount:          "100",
 				Currency:        "INR",
@@ -1900,8 +1900,8 @@ func assertOtherFieldsUnchanged(t *testing.T, before, after entity.MoneyMovement
 	if before.ID != after.ID {
 		t.Errorf("ID changed: %q -> %q", before.ID, after.ID)
 	}
-	if before.TenantID != after.TenantID {
-		t.Errorf("TenantID changed: %q -> %q", before.TenantID, after.TenantID)
+	if before.OwnerID != after.OwnerID {
+		t.Errorf("OwnerID changed: %q -> %q", before.OwnerID, after.OwnerID)
 	}
 	if before.Kind != after.Kind {
 		t.Errorf("Kind changed: %q -> %q", before.Kind, after.Kind)
@@ -1960,7 +1960,7 @@ func TestPatchDescriptionBlankRejected(t *testing.T) {
 		t.Run("desc="+strconv.Quote(desc), func(t *testing.T) {
 			t.Parallel()
 			e := newTestEnv()
-			ctx := ctxWithTenant(testTenant)
+			ctx := ctxWithOwner(testUser)
 			a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 			mv, _ := e.svc.CreateManualMovement(ctx, MovementInput{
 				Kind: entity.KindExpense, Amount: "100", Currency: "INR",
@@ -1989,7 +1989,7 @@ func TestPatchDescriptionBlankRejected(t *testing.T) {
 func TestDeleteManualMovement(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	mv, _ := e.svc.CreateManualMovement(ctx, MovementInput{
@@ -2013,7 +2013,7 @@ func TestDeleteManualMovement(t *testing.T) {
 func TestDeleteUnknownMovementNotFound(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	if err := e.svc.DeleteMovement(ctx, "ghost"); !errors.Is(err, repo.ErrNotFound) {
 		t.Fatalf("DeleteMovement(ghost) returned %v, want ErrNotFound", err)
 	}
@@ -2024,12 +2024,12 @@ func TestDeleteUnknownMovementNotFound(t *testing.T) {
 func TestDeleteImportedMovementConflict(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	a := e.createAccount(t, ctx, "A", entity.AccountTypeBank, "INR")
 
 	line := 3
 	importedID := e.seedMovement(t, entity.MoneyMovement{
-		TenantID:          testTenant,
+		OwnerID:           testUser,
 		Kind:              entity.KindExpense,
 		Amount:            "500",
 		Currency:          "INR",
@@ -2059,17 +2059,17 @@ func TestDeleteImportedMovementConflict(t *testing.T) {
 	}
 }
 
-// TestTenantSameNameTwoTenants — same account name in two tenants.
-func TestTenantSameNameTwoTenants(t *testing.T) {
+// TestOwnerSameNameTwoOwners — same account name in two Users.
+func TestOwnerSameNameTwoOwners(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctxA := ctxWithTenant(testTenant)
-	ctxB := ctxWithTenant(testTenantB)
+	ctxA := ctxWithOwner(testUser)
+	ctxB := ctxWithOwner(testUserB)
 
 	idA := e.createAccount(t, ctxA, "Cash", entity.AccountTypeCash, "INR")
 	idB := e.createAccount(t, ctxB, "Cash", entity.AccountTypeCash, "INR")
 	if idA == idB {
-		t.Fatalf("same ID %q for both tenants", idA)
+		t.Fatalf("same ID %q for both Users", idA)
 	}
 
 	listA, err := e.svc.ListAccounts(ctxA)
@@ -2089,12 +2089,12 @@ func TestTenantSameNameTwoTenants(t *testing.T) {
 	}
 }
 
-// TestTenantForeignIDNotFound — foreign-tenant IDs are not found.
-func TestTenantForeignIDNotFound(t *testing.T) {
+// TestUserForeignIDNotFound — foreign-user IDs are not found.
+func TestUserForeignIDNotFound(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctxA := ctxWithTenant(testTenant)
-	ctxB := ctxWithTenant(testTenantB)
+	ctxA := ctxWithOwner(testUser)
+	ctxB := ctxWithOwner(testUserB)
 
 	accB := e.createAccount(t, ctxB, "B-acc", entity.AccountTypeBank, "INR")
 	mvB, _ := e.svc.CreateManualMovement(ctxB, MovementInput{
@@ -2129,63 +2129,63 @@ func TestTenantForeignIDNotFound(t *testing.T) {
 	}
 }
 
-// TestNoTenantFailsClosed — no tenant in ctx → ErrNoTenant, zero repo calls.
-func TestNoTenantFailsClosed(t *testing.T) {
+// TestNoUserFailsClosed — no user in ctx → ErrNoUser, zero repo calls.
+func TestNoUserFailsClosed(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	noTenantCtx := context.Background()
+	noOwnerCtx := context.Background()
 
-	a := e.createAccount(t, ctxWithTenant(testTenant), "A", entity.AccountTypeBank, "INR")
-	mv, _ := e.svc.CreateManualMovement(ctxWithTenant(testTenant), MovementInput{
+	a := e.createAccount(t, ctxWithOwner(testUser), "A", entity.AccountTypeBank, "INR")
+	mv, _ := e.svc.CreateManualMovement(ctxWithOwner(testUser), MovementInput{
 		Kind: entity.KindExpense, Amount: "100", Currency: "INR",
 		OccurredOn:  time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
 		Description: "test", SourceAccountID: a,
 	})
-	docID := e.createDoc(t, ctxWithTenant(testTenant), nil)
+	docID := e.createDoc(t, ctxWithOwner(testUser), nil)
 
 	calls := []struct {
 		name string
 		fn   func() error
 	}{
 		{"CreateAccount", func() error {
-			_, err := e.svc.CreateAccount(noTenantCtx, AccountInput{Name: "X", Type: "bank", Currency: "INR"})
+			_, err := e.svc.CreateAccount(noOwnerCtx, AccountInput{Name: "X", Type: "bank", Currency: "INR"})
 			return err
 		}},
 		{"ListAccounts", func() error {
-			_, err := e.svc.ListAccounts(noTenantCtx)
+			_, err := e.svc.ListAccounts(noOwnerCtx)
 			return err
 		}},
 		{"GetAccount", func() error {
-			_, _, err := e.svc.GetAccount(noTenantCtx, a)
+			_, _, err := e.svc.GetAccount(noOwnerCtx, a)
 			return err
 		}},
 		{"CreateManualMovement", func() error {
-			_, err := e.svc.CreateManualMovement(noTenantCtx, MovementInput{
+			_, err := e.svc.CreateManualMovement(noOwnerCtx, MovementInput{
 				Kind: entity.KindExpense, Amount: "1", Currency: "INR",
 				OccurredOn: time.Now(), Description: "x", SourceAccountID: a,
 			})
 			return err
 		}},
 		{"ListMovements", func() error {
-			_, err := e.svc.ListMovements(noTenantCtx, MovementListFilter{})
+			_, err := e.svc.ListMovements(noOwnerCtx, MovementListFilter{})
 			return err
 		}},
 		{"GetMovement", func() error {
-			_, err := e.svc.GetMovement(noTenantCtx, mv.ID)
+			_, err := e.svc.GetMovement(noOwnerCtx, mv.ID)
 			return err
 		}},
 		{"PatchDescription", func() error {
-			_, err := e.svc.PatchDescription(noTenantCtx, mv.ID, "x")
+			_, err := e.svc.PatchDescription(noOwnerCtx, mv.ID, "x")
 			return err
 		}},
 		{"DeleteMovement", func() error {
-			return e.svc.DeleteMovement(noTenantCtx, mv.ID)
+			return e.svc.DeleteMovement(noOwnerCtx, mv.ID)
 		}},
 		{"Link", func() error {
-			return e.svc.Link(noTenantCtx, mv.ID, docID, "manual")
+			return e.svc.Link(noOwnerCtx, mv.ID, docID, "manual")
 		}},
 		{"Unlink", func() error {
-			return e.svc.Unlink(noTenantCtx, mv.ID)
+			return e.svc.Unlink(noOwnerCtx, mv.ID)
 		}},
 	}
 
@@ -2194,8 +2194,8 @@ func TestNoTenantFailsClosed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			before := e.totalCalls()
 			err := tc.fn()
-			if !errors.Is(err, tenant.ErrNoTenant) {
-				t.Fatalf("%s returned %v, want ErrNoTenant", tc.name, err)
+			if !errors.Is(err, user.ErrNoUser) {
+				t.Fatalf("%s returned %v, want ErrNoUser", tc.name, err)
 			}
 			if got := e.totalCalls(); got != before {
 				t.Fatalf("%s: repo calls changed %d -> %d, want 0 new", tc.name, before, got)
@@ -2208,7 +2208,7 @@ func TestNoTenantFailsClosed(t *testing.T) {
 func TestGetAccountUnknown(t *testing.T) {
 	t.Parallel()
 	e := newTestEnv()
-	ctx := ctxWithTenant(testTenant)
+	ctx := ctxWithOwner(testUser)
 	if _, _, err := e.svc.GetAccount(ctx, "ghost"); !errors.Is(err, repo.ErrNotFound) {
 		t.Fatalf("GetAccount(ghost) returned %v, want ErrNotFound", err)
 	}

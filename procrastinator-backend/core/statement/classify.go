@@ -19,8 +19,8 @@ type fingerprint struct {
 // lines are new and which are duplicates.
 //
 // It is pure and deterministic: it performs no I/O, reads no clock, and
-// contains no tenant logic. The caller pre-scopes existing to the target
-// account AND the uploading tenant; the same lines and the same existing
+// contains no user-scoping logic. The caller pre-scopes existing to the target
+// account AND the uploading user; the same lines and the same existing
 // ledger state always produce the same per-line statuses. Re-importing a
 // previously committed statement therefore classifies every line as
 // duplicate.

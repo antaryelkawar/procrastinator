@@ -11,10 +11,10 @@ import (
 )
 
 // createAccount posts a finance account and returns its id.
-func createAccount(t *testing.T, e *testEnv, tenant, name, typ, currency string) string {
+func createAccount(t *testing.T, e *testEnv, userID, name, typ, currency string) string {
 	t.Helper()
 	body := bytes.NewBufferString(`{"name":"` + name + `","type":"` + typ + `","currency":"` + currency + `"}`)
-	rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", tenant, body, "application/json")
+	rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", userID, body, "application/json")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create account %q status = %d, want 201 (body: %s)", name, rec.Code, rec.Body.String())
 	}
@@ -30,9 +30,9 @@ func createAccount(t *testing.T, e *testEnv, tenant, name, typ, currency string)
 }
 
 // getBalance returns the derived balance of accountID as an exact-decimal string.
-func getBalance(t *testing.T, e *testEnv, tenant, accountID string) string {
+func getBalance(t *testing.T, e *testEnv, userID, accountID string) string {
 	t.Helper()
-	rec := do(t, e.handler, http.MethodGet, "/api/finance/accounts/"+accountID, tenant, nil, "")
+	rec := do(t, e.handler, http.MethodGet, "/api/finance/accounts/"+accountID, userID, nil, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get account status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -50,10 +50,10 @@ func TestCreateMovement(t *testing.T) {
 	t.Run("ExpenseHappyPath", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "HDFC", "bank", "INR")
+		a := createAccount(t, e, "test-user", "HDFC", "bank", "INR")
 
 		body := `{"kind":"expense","amount":"1250.50","currency":"INR","occurred_on":"2026-08-20","description":"Reliance Digital","source_account_id":"` + a + `"}`
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -89,7 +89,7 @@ func TestCreateMovement(t *testing.T) {
 			t.Errorf("raw body missing %q (amount must be a JSON string): %s", `"amount":"1250.50"`, rec.Body.String())
 		}
 
-		if bal := getBalance(t, e, "test-tenant", a); bal != "-1250.50" {
+		if bal := getBalance(t, e, "test-user", a); bal != "-1250.50" {
 			t.Errorf("balance = %q, want %q", bal, "-1250.50")
 		}
 	})
@@ -97,10 +97,10 @@ func TestCreateMovement(t *testing.T) {
 	t.Run("IncomeHappyPath", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "HDFC", "bank", "INR")
+		a := createAccount(t, e, "test-user", "HDFC", "bank", "INR")
 
 		body := `{"kind":"income","amount":"75000","currency":"INR","occurred_on":"2026-08-20","description":"salary","destination_account_id":"` + a + `"}`
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -116,7 +116,7 @@ func TestCreateMovement(t *testing.T) {
 			t.Errorf("source_account_id present for income, want absent: %s", rec.Body.String())
 		}
 
-		if bal := getBalance(t, e, "test-tenant", a); bal != "75000" {
+		if bal := getBalance(t, e, "test-user", a); bal != "75000" {
 			t.Errorf("balance = %q, want %q", bal, "75000")
 		}
 	})
@@ -124,19 +124,19 @@ func TestCreateMovement(t *testing.T) {
 	t.Run("Transfer", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
-		b := createAccount(t, e, "test-tenant", "B", "cash", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
+		b := createAccount(t, e, "test-user", "B", "cash", "INR")
 
 		body := `{"kind":"transfer","amount":"100","currency":"INR","occurred_on":"2026-08-20","description":"move","source_account_id":"` + a + `","destination_account_id":"` + b + `"}`
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		if bal := getBalance(t, e, "test-tenant", a); bal != "-100" {
+		if bal := getBalance(t, e, "test-user", a); bal != "-100" {
 			t.Errorf("balance A = %q, want %q", bal, "-100")
 		}
-		if bal := getBalance(t, e, "test-tenant", b); bal != "100" {
+		if bal := getBalance(t, e, "test-user", b); bal != "100" {
 			t.Errorf("balance B = %q, want %q", bal, "100")
 		}
 	})
@@ -146,13 +146,13 @@ func TestCreateMovement(t *testing.T) {
 		e := newEnv(t, envOpts{})
 
 		body := `{"kind":"expense","amount":"100","currency":"INR","occurred_on":"2026-08-20","description":"x","source_account_id":"` + unknownUUID + `"}`
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		list := do(t, e.handler, http.MethodGet, "/api/finance/movements", "test-tenant", nil, "")
+		list := do(t, e.handler, http.MethodGet, "/api/finance/movements", "test-user", nil, "")
 		if list.Code != http.StatusOK {
 			t.Fatalf("list status = %d, want 200 (body: %s)", list.Code, list.Body.String())
 		}
@@ -164,11 +164,11 @@ func TestCreateMovement(t *testing.T) {
 	t.Run("NonPositiveAmount", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 
 		for _, amt := range []string{"0", "-50"} {
 			body := `{"kind":"expense","amount":"` + amt + `","currency":"INR","occurred_on":"2026-08-20","description":"x","source_account_id":"` + a + `"}`
-			rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+			rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("amount %q: status = %d, want 400 (body: %s)", amt, rec.Code, rec.Body.String())
 			}
@@ -179,10 +179,10 @@ func TestCreateMovement(t *testing.T) {
 	t.Run("BlankDescription", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 
 		body := `{"kind":"expense","amount":"100","currency":"INR","occurred_on":"2026-08-20","description":"   ","source_account_id":"` + a + `"}`
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -192,12 +192,12 @@ func TestCreateMovement(t *testing.T) {
 	t.Run("InvalidKindShape", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
-		b := createAccount(t, e, "test-tenant", "B", "bank", "USD")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
+		b := createAccount(t, e, "test-user", "B", "bank", "USD")
 
 		// (a) expense with no account fields.
 		body := `{"kind":"expense","amount":"100","currency":"INR","occurred_on":"2026-08-20","description":"x"}`
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expense no accounts: status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -205,7 +205,7 @@ func TestCreateMovement(t *testing.T) {
 
 		// (b) transfer with source == destination.
 		body = `{"kind":"transfer","amount":"100","currency":"INR","occurred_on":"2026-08-20","description":"x","source_account_id":"` + a + `","destination_account_id":"` + a + `"}`
-		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("transfer same account: status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -213,7 +213,7 @@ func TestCreateMovement(t *testing.T) {
 
 		// (c) transfer from INR to USD account.
 		body = `{"kind":"transfer","amount":"100","currency":"INR","occurred_on":"2026-08-20","description":"x","source_account_id":"` + a + `","destination_account_id":"` + b + `"}`
-		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("currency mismatch: status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -223,11 +223,11 @@ func TestCreateMovement(t *testing.T) {
 	t.Run("InvalidOccurredOn", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 
 		for _, d := range []string{"", "garbage"} {
 			body := `{"kind":"expense","amount":"100","currency":"INR","occurred_on":"` + d + `","description":"x","source_account_id":"` + a + `"}`
-			rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+			rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("occurred_on %q: status = %d, want 400 (body: %s)", d, rec.Code, rec.Body.String())
 			}
@@ -238,10 +238,10 @@ func TestCreateMovement(t *testing.T) {
 	t.Run("AmountRoundTripsExactly", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 
 		body := `{"kind":"expense","amount":"19999.99","currency":"INR","occurred_on":"2026-08-20","description":"x","source_account_id":"` + a + `"}`
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -254,7 +254,7 @@ func TestCreateMovement(t *testing.T) {
 			t.Fatal("id is empty")
 		}
 
-		rec = do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		rec = do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -281,7 +281,7 @@ func TestListMovements(t *testing.T) {
 	t.Run("Empty", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -293,15 +293,15 @@ func TestListMovements(t *testing.T) {
 	t.Run("FilterByAccount", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
-		b := createAccount(t, e, "test-tenant", "B", "cash", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
+		b := createAccount(t, e, "test-user", "B", "cash", "INR")
 
 		// Expense on A, expense on B, transfer A -> B.
 		mA := createExpense(t, e, a, "a1")
 		mB := createExpense(t, e, b, "b1")
 		mT := createTransfer(t, e, a, b, "move")
 
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+a, "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+a, "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -314,7 +314,7 @@ func TestListMovements(t *testing.T) {
 		}
 		assertIDSet(t, list, map[string]bool{mA: true, mT: true}, "A filter")
 
-		rec = do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+b, "test-tenant", nil, "")
+		rec = do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+b, "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -331,12 +331,12 @@ func TestListMovements(t *testing.T) {
 	t.Run("FilterByOccurredRange", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 
-		early := insertMovement(t, e, "test-tenant", "expense", "10", "INR", "2026-08-01", "early", a, "")
-		late := insertMovement(t, e, "test-tenant", "expense", "20", "INR", "2026-08-20", "late", a, "")
+		early := insertMovement(t, e, "test-user", "expense", "10", "INR", "2026-08-01", "early", a, "")
+		late := insertMovement(t, e, "test-user", "expense", "20", "INR", "2026-08-20", "late", a, "")
 
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements?from=2026-08-10&to=2026-08-31", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements?from=2026-08-10&to=2026-08-31", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -359,7 +359,7 @@ func TestListMovements(t *testing.T) {
 	t.Run("InvalidRange", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements?from=garbage", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements?from=garbage", "test-user", nil, "")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -390,7 +390,7 @@ func assertIDSet(t *testing.T, list []map[string]any, want map[string]bool, labe
 func createExpense(t *testing.T, e *testEnv, accountID, desc string) string {
 	t.Helper()
 	body := `{"kind":"expense","amount":"100","currency":"INR","occurred_on":"2026-08-20","description":"` + desc + `","source_account_id":"` + accountID + `"}`
-	rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+	rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create expense status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -405,7 +405,7 @@ func createExpense(t *testing.T, e *testEnv, accountID, desc string) string {
 func createTransfer(t *testing.T, e *testEnv, srcID, dstID, desc string) string {
 	t.Helper()
 	body := `{"kind":"transfer","amount":"100","currency":"INR","occurred_on":"2026-08-20","description":"` + desc + `","source_account_id":"` + srcID + `","destination_account_id":"` + dstID + `"}`
-	rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+	rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create transfer status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -423,10 +423,10 @@ func TestGetMovement(t *testing.T) {
 	t.Run("Found", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpense(t, e, a, "Reliance Digital")
 
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -457,20 +457,20 @@ func TestGetMovement(t *testing.T) {
 	t.Run("NotFound", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+unknownUUID, "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+unknownUUID, "test-user", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 	})
 
-	t.Run("CrossTenant", func(t *testing.T) {
+	t.Run("CrossUser", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpense(t, e, a, "x")
 
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant-b", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user-b", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -485,10 +485,10 @@ func TestPatchMovement(t *testing.T) {
 	t.Run("Description", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 
 		body := `{"kind":"expense","amount":"1250.50","currency":"INR","occurred_on":"2026-08-20","description":"REL DIG 123","source_account_id":"` + a + `"}`
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -498,7 +498,7 @@ func TestPatchMovement(t *testing.T) {
 		}
 		id := strVal(orig, "id")
 
-		rec = do(t, e.handler, http.MethodPatch, "/api/finance/movements/"+id, "test-tenant", bytes.NewBufferString(`{"description":"Reliance Digital"}`), "application/json")
+		rec = do(t, e.handler, http.MethodPatch, "/api/finance/movements/"+id, "test-user", bytes.NewBufferString(`{"description":"Reliance Digital"}`), "application/json")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("patch status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -523,16 +523,16 @@ func TestPatchMovement(t *testing.T) {
 	t.Run("BlankDescription", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpense(t, e, a, "original")
 
-		rec := do(t, e.handler, http.MethodPatch, "/api/finance/movements/"+id, "test-tenant", bytes.NewBufferString(`{"description":"   "}`), "application/json")
+		rec := do(t, e.handler, http.MethodPatch, "/api/finance/movements/"+id, "test-user", bytes.NewBufferString(`{"description":"   "}`), "application/json")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if get.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 		}
@@ -548,11 +548,11 @@ func TestPatchMovement(t *testing.T) {
 	t.Run("CoreFieldRejected", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
-		b := createAccount(t, e, "test-tenant", "B", "cash", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
+		b := createAccount(t, e, "test-user", "B", "cash", "INR")
 
 		body := `{"kind":"expense","amount":"1250.50","currency":"INR","occurred_on":"2026-08-20","description":"orig","source_account_id":"` + a + `"}`
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -576,7 +576,7 @@ func TestPatchMovement(t *testing.T) {
 			tc := tc
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
-				rec := do(t, e.handler, http.MethodPatch, "/api/finance/movements/"+id, "test-tenant", bytes.NewBufferString(tc.body), "application/json")
+				rec := do(t, e.handler, http.MethodPatch, "/api/finance/movements/"+id, "test-user", bytes.NewBufferString(tc.body), "application/json")
 				if rec.Code != http.StatusBadRequest {
 					t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 				}
@@ -584,7 +584,7 @@ func TestPatchMovement(t *testing.T) {
 			})
 		}
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if get.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 		}
@@ -612,7 +612,7 @@ func TestPatchMovement(t *testing.T) {
 	t.Run("Unknown", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodPatch, "/api/finance/movements/"+unknownUUID, "test-tenant", bytes.NewBufferString(`{"description":"x"}`), "application/json")
+		rec := do(t, e.handler, http.MethodPatch, "/api/finance/movements/"+unknownUUID, "test-user", bytes.NewBufferString(`{"description":"x"}`), "application/json")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -627,10 +627,10 @@ func TestDeleteMovement(t *testing.T) {
 	t.Run("Manual", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpense(t, e, a, "only movement")
 
-		rec := do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+id, "test-user", nil, "")
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("status = %d, want 204 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -638,12 +638,12 @@ func TestDeleteMovement(t *testing.T) {
 			t.Errorf("body = %q, want empty for 204", rec.Body.String())
 		}
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if get.Code != http.StatusNotFound {
 			t.Fatalf("get after delete status = %d, want 404 (body: %s)", get.Code, get.Body.String())
 		}
 
-		if bal := getBalance(t, e, "test-tenant", a); bal != "0" {
+		if bal := getBalance(t, e, "test-user", a); bal != "0" {
 			t.Errorf("balance = %q, want %q", bal, "0")
 		}
 	})
@@ -651,16 +651,16 @@ func TestDeleteMovement(t *testing.T) {
 	t.Run("Imported", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
-		id := insertImportMovement(t, e, "test-tenant", "500", "INR", "2026-08-01", "imported expense", a)
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
+		id := insertImportMovement(t, e, "test-user", "500", "INR", "2026-08-01", "imported expense", a)
 
-		rec := do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+id, "test-user", nil, "")
 		if rec.Code != http.StatusConflict {
 			t.Fatalf("status = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if get.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 		}
@@ -676,7 +676,7 @@ func TestDeleteMovement(t *testing.T) {
 	t.Run("Unknown", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+unknownUUID, "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+unknownUUID, "test-user", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -686,7 +686,7 @@ func TestDeleteMovement(t *testing.T) {
 
 // insertImportMovement inserts one import-origin movement directly via SQL
 // and returns its id. import_batch_id stays NULL.
-func insertImportMovement(t *testing.T, e *testEnv, tenantID, amount, currency, occurredOn, desc, source string) string {
+func insertImportMovement(t *testing.T, e *testEnv, OwnerID, amount, currency, occurredOn, desc, source string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -696,23 +696,35 @@ func insertImportMovement(t *testing.T, e *testEnv, tenantID, amount, currency, 
 		src = source
 	}
 
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, OwnerID); err != nil {
+		t.Fatalf("set user: %v", err)
+	}
+
 	var id string
-	err := e.pool.QueryRow(ctx,
-		`INSERT INTO money_movements (tenant_id, kind, amount, currency, occurred_on, description, norm_description, origin, source_account_id)
+	err = tx.QueryRow(ctx,
+		`INSERT INTO money_movements (owner_id, kind, amount, currency, occurred_on, description, norm_description, origin, source_account_id)
 		 VALUES ($1, 'expense', $2::numeric, $3, $4::date, $5, $6, 'import', $7) RETURNING id`,
-		tenantID, amount, currency, occurredOn, desc, strings.ToLower(desc), src,
+		OwnerID, amount, currency, occurredOn, desc, strings.ToLower(desc), src,
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("insert import movement: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
 	}
 	return id
 }
 
 // uploadInvoice posts a PDF invoice, asserts 201, fetches the single document
 // on the asset, and returns the asset id and document id.
-func uploadInvoice(t *testing.T, e *testEnv, tenant, filename string) (assetID, docID string) {
+func uploadInvoice(t *testing.T, e *testEnv, userID, filename string) (assetID, docID string) {
 	t.Helper()
-	rec, asset := e.uploadFile(t, tenant, filename, "application/pdf", pdfBytes(16))
+	rec, asset := e.uploadFile(t, userID, filename, "application/pdf", pdfBytes(16))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -721,7 +733,7 @@ func uploadInvoice(t *testing.T, e *testEnv, tenant, filename string) (assetID, 
 		t.Fatal("asset id is empty")
 	}
 
-	drec := do(t, e.handler, http.MethodGet, "/api/users/"+tenant+"/assets/"+assetID+"/documents", "", nil, "")
+	drec := do(t, e.handler, http.MethodGet, "/api/users/"+userID+"/assets/"+assetID+"/documents", "", nil, "")
 	if drec.Code != http.StatusOK {
 		t.Fatalf("list documents status = %d, want 200 (body: %s)", drec.Code, drec.Body.String())
 	}
@@ -748,12 +760,12 @@ func TestLinkMovement(t *testing.T) {
 		e := newEnv(t, envOpts{
 			llmPayload: `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"WM-2024-001","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100","currency":"INR","metadata":{}}`,
 		})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpenseAmount(t, e, a, "100", "invoice purchase")
 
-		_, docID := uploadInvoice(t, e, "test-tenant", "invoice.pdf")
+		_, docID := uploadInvoice(t, e, "test-user", "invoice.pdf")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -771,7 +783,7 @@ func TestLinkMovement(t *testing.T) {
 			t.Errorf("link_conflicting = %v, want false", v)
 		}
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if get.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 		}
@@ -792,23 +804,23 @@ func TestLinkMovement(t *testing.T) {
 		e := newEnv(t, envOpts{
 			llmPayload: `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"WM-2024-001","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100","currency":"INR","metadata":{}}`,
 		})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpenseAmount(t, e, a, "100", "invoice purchase")
-		_, docID := uploadInvoice(t, e, "test-tenant", "invoice.pdf")
+		_, docID := uploadInvoice(t, e, "test-user", "invoice.pdf")
 
 		body := `{"document_id":"` + docID + `"}`
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("first link status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
 
 		// Second identical link must be a no-op success.
-		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(body), "application/json")
+		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(body), "application/json")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("second link status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if get.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 		}
@@ -829,29 +841,29 @@ func TestLinkMovement(t *testing.T) {
 		e := newEnv(t, envOpts{
 			llmPayload: `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"WM-2024-001","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100","currency":"INR","metadata":{}}`,
 		})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpenseAmount(t, e, a, "100", "invoice purchase")
 
-		_, d1 := uploadInvoice(t, e, "test-tenant", "invoice-1.pdf")
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+d1+`"}`), "application/json")
+		_, d1 := uploadInvoice(t, e, "test-user", "invoice-1.pdf")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+d1+`"}`), "application/json")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("first link status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
 
 		// Second invoice with a different serial so a new document is created.
 		e.setLLMPayload(`{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"WM-2024-002","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100","currency":"INR","metadata":{}}`)
-		_, d2 := uploadInvoice(t, e, "test-tenant", "invoice-2.pdf")
+		_, d2 := uploadInvoice(t, e, "test-user", "invoice-2.pdf")
 		if d2 == d1 {
 			t.Fatalf("second upload produced the same document id %q, want a new document", d2)
 		}
 
-		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+d2+`"}`), "application/json")
+		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+d2+`"}`), "application/json")
 		if rec.Code != http.StatusConflict {
 			t.Fatalf("conflict status = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if get.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 		}
@@ -869,24 +881,24 @@ func TestLinkMovement(t *testing.T) {
 		e := newEnv(t, envOpts{
 			llmPayload: `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"WM-2024-001","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100","currency":"INR","metadata":{}}`,
 		})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		m1 := createExpenseAmount(t, e, a, "100", "one")
 		m2 := createExpenseAmount(t, e, a, "200", "two")
 
-		_, docID := uploadInvoice(t, e, "test-tenant", "invoice.pdf")
+		_, docID := uploadInvoice(t, e, "test-user", "invoice.pdf")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+m1+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+m1+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("m1 link status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements/"+m2+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
+		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements/"+m2+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
 		if rec.Code != http.StatusConflict {
 			t.Fatalf("m2 link status = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+m1, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+m1, "test-user", nil, "")
 		if get.Code != http.StatusOK {
 			t.Fatalf("get m1 status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 		}
@@ -899,24 +911,24 @@ func TestLinkMovement(t *testing.T) {
 		}
 	})
 
-	t.Run("CrossTenantDocument", func(t *testing.T) {
+	t.Run("CrossUserDocument", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{
 			llmPayload: `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"WM-2024-001","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100","currency":"INR","metadata":{}}`,
 		})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpenseAmount(t, e, a, "100", "invoice purchase")
 
-		// Tenant B uploads its own invoice (same serial, distinct tenant asset).
-		_, docB := uploadInvoice(t, e, "test-tenant-b", "invoice-b.pdf")
+		// User B uploads its own invoice (same serial, distinct userID asset).
+		_, docB := uploadInvoice(t, e, "test-user-b", "invoice-b.pdf")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+docB+`"}`), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+docB+`"}`), "application/json")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if get.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 		}
@@ -932,10 +944,10 @@ func TestLinkMovement(t *testing.T) {
 	t.Run("UnknownDocument", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpenseAmount(t, e, a, "100", "x")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+unknownUUID+`"}`), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+unknownUUID+`"}`), "application/json")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -945,10 +957,10 @@ func TestLinkMovement(t *testing.T) {
 	t.Run("MissingDocumentID", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpenseAmount(t, e, a, "100", "x")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(`{}`), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(`{}`), "application/json")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -960,7 +972,7 @@ func TestLinkMovement(t *testing.T) {
 func createExpenseAmount(t *testing.T, e *testEnv, accountID, amount, desc string) string {
 	t.Helper()
 	body := `{"kind":"expense","amount":"` + amount + `","currency":"INR","occurred_on":"2026-08-20","description":"` + desc + `","source_account_id":"` + accountID + `"}`
-	rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-tenant", bytes.NewBufferString(body), "application/json")
+	rec := do(t, e.handler, http.MethodPost, "/api/finance/movements", "test-user", bytes.NewBufferString(body), "application/json")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create expense status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -980,21 +992,21 @@ func TestUnlinkMovement(t *testing.T) {
 		e := newEnv(t, envOpts{
 			llmPayload: `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"WM-2024-001","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100","currency":"INR","metadata":{}}`,
 		})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpenseAmount(t, e, a, "100", "invoice purchase")
-		_, docID := uploadInvoice(t, e, "test-tenant", "invoice.pdf")
+		_, docID := uploadInvoice(t, e, "test-user", "invoice.pdf")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("link status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		rec = do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+id+"/link", "test-tenant", nil, "")
+		rec = do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+id+"/link", "test-user", nil, "")
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("unlink status = %d, want 204 (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if get.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 		}
@@ -1007,7 +1019,7 @@ func TestUnlinkMovement(t *testing.T) {
 		}
 
 		// Re-link must succeed: the document is linkable again.
-		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
+		rec = do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("relink status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -1016,10 +1028,10 @@ func TestUnlinkMovement(t *testing.T) {
 	t.Run("UnlinkedNoOp", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpenseAmount(t, e, a, "100", "never linked")
 
-		rec := do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+id+"/link", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+id+"/link", "test-user", nil, "")
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("status = %d, want 204 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -1028,7 +1040,7 @@ func TestUnlinkMovement(t *testing.T) {
 	t.Run("Unknown", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+unknownUUID+"/link", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+unknownUUID+"/link", "test-user", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -1044,12 +1056,12 @@ func TestLinkConflict(t *testing.T) {
 		t.Parallel()
 		// Default happyPayload: price "39999.99" INR.
 		e := newEnv(t, envOpts{})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpenseAmount(t, e, a, "40000", "invoice purchase")
 
-		assetID, docID := uploadInvoice(t, e, "test-tenant", "invoice.pdf")
+		assetID, docID := uploadInvoice(t, e, "test-user", "invoice.pdf")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -1061,7 +1073,7 @@ func TestLinkConflict(t *testing.T) {
 			t.Errorf("link_conflicting = %v, want true", v)
 		}
 
-		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+		get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 		if get.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 		}
@@ -1073,7 +1085,7 @@ func TestLinkConflict(t *testing.T) {
 			t.Errorf("amount = %q, want %q (unchanged)", v, "40000")
 		}
 
-		arec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets/"+assetID, "", nil, "")
+		arec := do(t, e.handler, http.MethodGet, "/api/users/test-user/assets/"+assetID, "", nil, "")
 		if arec.Code != http.StatusOK {
 			t.Fatalf("get asset status = %d, want 200 (body: %s)", arec.Code, arec.Body.String())
 		}
@@ -1087,11 +1099,11 @@ func TestLinkConflict(t *testing.T) {
 		e := newEnv(t, envOpts{
 			llmPayload: `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"WM-2024-001","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"40000","currency":"INR","metadata":{}}`,
 		})
-		a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
+		a := createAccount(t, e, "test-user", "A", "bank", "INR")
 		id := createExpenseAmount(t, e, a, "40000", "invoice purchase")
-		_, docID := uploadInvoice(t, e, "test-tenant", "invoice.pdf")
+		_, docID := uploadInvoice(t, e, "test-user", "invoice.pdf")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-tenant", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/movements/"+id+"/link", "test-user", bytes.NewBufferString(`{"document_id":"`+docID+`"}`), "application/json")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -1105,9 +1117,9 @@ func TestLinkConflict(t *testing.T) {
 	})
 }
 
-// TestMovementsMissingTenant exercises the multitenancy contract: every
-// movement endpoint without the X-Tenant-ID header is rejected with 400.
-func TestMovementsMissingTenant(t *testing.T) {
+// TestMovementsMissingUser exercises the user-identity contract: every
+// movement endpoint with an empty {userId} path segment is rejected with 400.
+func TestMovementsMissingUser(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOpts{})
@@ -1120,16 +1132,15 @@ func TestMovementsMissingTenant(t *testing.T) {
 		body   *bytes.Buffer
 		cType  string
 	}{
-		{name: "POST /api/finance/movements", method: http.MethodPost, path: "/api/finance/movements", body: bytes.NewBufferString(validBody), cType: "application/json"},
-		{name: "GET /api/finance/movements", method: http.MethodGet, path: "/api/finance/movements"},
-		{name: "GET /api/finance/movements/{id}", method: http.MethodGet, path: "/api/finance/movements/" + unknownUUID},
-		{name: "PATCH /api/finance/movements/{id}", method: http.MethodPatch, path: "/api/finance/movements/" + unknownUUID, body: bytes.NewBufferString(`{"description":"x"}`), cType: "application/json"},
-		{name: "DELETE /api/finance/movements/{id}", method: http.MethodDelete, path: "/api/finance/movements/" + unknownUUID},
-		{name: "POST /api/finance/movements/{id}/link", method: http.MethodPost, path: "/api/finance/movements/" + unknownUUID + "/link", body: bytes.NewBufferString(`{"document_id":"` + unknownUUID + `"}`), cType: "application/json"},
-		{name: "DELETE /api/finance/movements/{id}/link", method: http.MethodDelete, path: "/api/finance/movements/" + unknownUUID + "/link"},
+		{name: "POST /api/users//finance/movements", method: http.MethodPost, path: "/api/users//finance/movements", body: bytes.NewBufferString(validBody), cType: "application/json"},
+		{name: "GET /api/users//finance/movements", method: http.MethodGet, path: "/api/users//finance/movements"},
+		{name: "GET /api/users//finance/movements/{id}", method: http.MethodGet, path: "/api/users//finance/movements/" + unknownUUID},
+		{name: "PATCH /api/users//finance/movements/{id}", method: http.MethodPatch, path: "/api/users//finance/movements/" + unknownUUID, body: bytes.NewBufferString(`{"description":"x"}`), cType: "application/json"},
+		{name: "DELETE /api/users//finance/movements/{id}", method: http.MethodDelete, path: "/api/users//finance/movements/" + unknownUUID},
+		{name: "POST /api/users//finance/movements/{id}/link", method: http.MethodPost, path: "/api/users//finance/movements/" + unknownUUID + "/link", body: bytes.NewBufferString(`{"document_id":"` + unknownUUID + `"}`), cType: "application/json"},
+		{name: "DELETE /api/users//finance/movements/{id}/link", method: http.MethodDelete, path: "/api/users//finance/movements/" + unknownUUID + "/link"},
 	}
-	// The committed tenant middleware rejects a missing X-Tenant-ID header
-	// with 400 (multitenancy contract).
+	// The user middleware rejects an empty {userId} path segment with 400.
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -1143,16 +1154,16 @@ func TestMovementsMissingTenant(t *testing.T) {
 	}
 }
 
-// TestMovementTenantScoping verifies movements are fully tenant-scoped.
-func TestMovementTenantScoping(t *testing.T) {
+// TestMovementUserScoping verifies movements are fully userID-scoped.
+func TestMovementUserScoping(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOpts{})
-	a := createAccount(t, e, "test-tenant", "A", "bank", "INR")
-	id := createExpense(t, e, a, "tenant A expense")
+	a := createAccount(t, e, "test-user", "A", "bank", "INR")
+	id := createExpense(t, e, a, "userID A expense")
 
-	// Tenant B sees no movements and cannot read/patch/delete tenant A's.
-	rec := do(t, e.handler, http.MethodGet, "/api/finance/movements", "test-tenant-b", nil, "")
+	// User B sees no movements and cannot read/patch/delete userID A's.
+	rec := do(t, e.handler, http.MethodGet, "/api/finance/movements", "test-user-b", nil, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -1160,27 +1171,27 @@ func TestMovementTenantScoping(t *testing.T) {
 		t.Fatalf("list body = %q, want exactly %q (never null)", got, "[]")
 	}
 
-	rec = do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant-b", nil, "")
+	rec = do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user-b", nil, "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("get status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 	}
 	assertErrorEnvelope(t, rec)
 
-	rec = do(t, e.handler, http.MethodPatch, "/api/finance/movements/"+id, "test-tenant-b", bytes.NewBufferString(`{"description":"hacked"}`), "application/json")
+	rec = do(t, e.handler, http.MethodPatch, "/api/finance/movements/"+id, "test-user-b", bytes.NewBufferString(`{"description":"hacked"}`), "application/json")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("patch status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 	}
 	assertErrorEnvelope(t, rec)
 
-	rec = do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+id, "test-tenant-b", nil, "")
+	rec = do(t, e.handler, http.MethodDelete, "/api/finance/movements/"+id, "test-user-b", nil, "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("delete status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 	}
 	assertErrorEnvelope(t, rec)
 
-	// Tenant A still sees its movement.
-	get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-tenant", nil, "")
+	// User A still sees its movement.
+	get := do(t, e.handler, http.MethodGet, "/api/finance/movements/"+id, "test-user", nil, "")
 	if get.Code != http.StatusOK {
-		t.Fatalf("tenant A get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
+		t.Fatalf("userID A get status = %d, want 200 (body: %s)", get.Code, get.Body.String())
 	}
 }

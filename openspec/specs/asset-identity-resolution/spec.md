@@ -17,7 +17,7 @@ Before matching, identity values SHALL be normalized: leading/trailing whitespac
 
 ### Requirement: Serial-number match
 
-When an extraction yields a serial number, the system SHALL match it against existing Assets **of the same tenant** by normalized serial number. A match identifies the same Asset. Serial-number matching SHALL take precedence over brand+model matching whenever a serial number is present. Serial numbers of other tenants SHALL NOT be considered.
+When an extraction yields a serial number, the system SHALL match it against existing Assets **in the same owner scope** by normalized serial number. A match identifies the same Asset. Serial-number matching SHALL take precedence over brand+model matching whenever a serial number is present. Serial numbers outside that owner scope SHALL NOT be considered.
 
 #### Scenario: Serial match links document to existing asset
 
@@ -31,7 +31,7 @@ When an extraction yields a serial number, the system SHALL match it against exi
 
 ### Requirement: Brand and model match
 
-When an extraction yields no serial number but yields both brand and model, the system SHALL match against existing Assets **of the same tenant** on normalized brand AND normalized model. A match identifies the same Asset.
+When an extraction yields no serial number but yields both brand and model, the system SHALL match against existing Assets **in the same owner scope** on normalized brand AND normalized model. A match identifies the same Asset.
 
 #### Scenario: Brand+model match links document to existing asset
 

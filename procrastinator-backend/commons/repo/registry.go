@@ -2,8 +2,8 @@ package repo
 
 import "context"
 
-// TenantRegistry is the lookup boundary for the tenant registry (tenants table).
-// Middleware uses it to reject unregistered tenants before any handler runs.
-type TenantRegistry interface {
+// UserRegistry is the lookup boundary for the user registry (users table).
+// Middleware uses it to reject unregistered users before any handler runs.
+type UserRegistry interface {
 	Has(ctx context.Context, id string) (bool, error)
 }

@@ -20,6 +20,9 @@ type assetJSON struct {
 	Metadata     map[string]any `json:"metadata"`
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
+	// OwnerHouseholdID is the owner_household_id column; omitted (null) for
+	// personal rows.
+	OwnerHouseholdID *string `json:"owner_household_id,omitempty"`
 }
 
 // documentJSON is the JSON representation of a entity.DocumentWithSource
@@ -30,6 +33,9 @@ type documentJSON struct {
 	SourceFilename   string    `json:"source_filename"`
 	SourceUploadedAt time.Time `json:"source_uploaded_at"`
 	CreatedAt        time.Time `json:"created_at"`
+	// OwnerHouseholdID is the document's owner_household_id column; omitted
+	// (null) for personal rows.
+	OwnerHouseholdID *string `json:"owner_household_id,omitempty"`
 }
 
 // toAssetJSON converts a entity.Asset into its JSON DTO. Metadata is
@@ -40,18 +46,19 @@ func toAssetJSON(a entity.Asset) assetJSON {
 		metadata = make(map[string]any)
 	}
 	return assetJSON{
-		ID:           a.ID,
-		Brand:        a.Brand,
-		Model:        a.Model,
-		SerialNumber: a.SerialNumber,
-		PurchaseDate: a.PurchaseDate,
-		WarrantyEnd:  a.WarrantyEnd,
-		Price:        a.Price,
-		Currency:     a.Currency,
-		DocType:      a.DocType,
-		Metadata:     metadata,
-		CreatedAt:    a.CreatedAt,
-		UpdatedAt:    a.UpdatedAt,
+		ID:               a.ID,
+		Brand:            a.Brand,
+		Model:            a.Model,
+		SerialNumber:     a.SerialNumber,
+		PurchaseDate:     a.PurchaseDate,
+		WarrantyEnd:      a.WarrantyEnd,
+		Price:            a.Price,
+		Currency:         a.Currency,
+		DocType:          a.DocType,
+		Metadata:         metadata,
+		CreatedAt:        a.CreatedAt,
+		UpdatedAt:        a.UpdatedAt,
+		OwnerHouseholdID: a.OwnerHouseholdID,
 	}
 }
 
@@ -63,5 +70,6 @@ func toDocumentJSON(d entity.DocumentWithSource) documentJSON {
 		SourceFilename:   d.SourceFilename,
 		SourceUploadedAt: d.SourceUploadedAt,
 		CreatedAt:        d.CreatedAt,
+		OwnerHouseholdID: d.OwnerHouseholdID,
 	}
 }

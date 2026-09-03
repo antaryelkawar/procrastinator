@@ -8,11 +8,11 @@ Implement a synchronous document upload flow that handles file validation, sourc
 
 ### Requirement: Document upload endpoint
 
-The system SHALL expose `POST /api/documents` accepting `multipart/form-data` with the uploaded file in a form field named `file`. The endpoint SHALL process the document synchronously through the full ingestion flow (source retention, LLM classification and extraction, identity resolution, asset creation or update) before responding. On success the endpoint SHALL respond `201 Created` with a JSON body representing the resulting Asset.
+The system SHALL expose `POST /api/users/{userId}/documents` accepting `multipart/form-data` with the uploaded file in a form field named `file`. The endpoint SHALL process the document synchronously through the full ingestion flow (source retention, LLM classification and extraction, identity resolution, asset creation or update) before responding. On success the endpoint SHALL respond `201 Created` with a JSON body representing the resulting Asset.
 
 #### Scenario: Successful invoice upload creates and returns an asset
 
-- **WHEN** a client POSTs a valid PDF invoice as multipart field `file` to `/api/documents` and the LLM extracts usable asset identity fields
+- **WHEN** a client POSTs a valid PDF invoice as multipart field `file` to `/api/users/{userId}/documents` and the LLM extracts usable asset identity fields
 - **THEN** the response status is `201 Created` and the JSON body contains the created Asset with the populated extracted fields
 
 #### Scenario: Successful warranty upload returns the matched asset
@@ -22,7 +22,7 @@ The system SHALL expose `POST /api/documents` accepting `multipart/form-data` wi
 
 #### Scenario: Missing file field is rejected
 
-- **WHEN** a client POSTs to `/api/documents` without a multipart field named `file`
+- **WHEN** a client POSTs to `/api/users/{userId}/documents` without a multipart field named `file`
 - **THEN** the response status is `400 Bad Request` and no Source, Document, or Asset record is created
 
 ### Requirement: Upload validation

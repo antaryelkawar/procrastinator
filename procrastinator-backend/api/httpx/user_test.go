@@ -10,20 +10,20 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 )
 
-// fakeRegistry is an in-memory implementation of repo.TenantRegistry for tests.
+// fakeRegistry is an in-memory implementation of repo.UserRegistry for tests.
 type fakeRegistry struct {
-	tenants map[string]bool
-	err     error
+	Users map[string]bool
+	err   error
 }
 
 func (f *fakeRegistry) Has(_ context.Context, id string) (bool, error) {
 	if f.err != nil {
 		return false, f.err
 	}
-	return f.tenants[id], nil
+	return f.Users[id], nil
 }
 
 // requestWithUserID builds a request whose context carries the {userId} route
@@ -51,16 +51,16 @@ func runMiddleware(t *testing.T, reg *fakeRegistry, userID string) (*httptest.Re
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	mw := TenantMiddleware(reg)(inner)
+	mw := UserMiddleware(reg)(inner)
 	rec := httptest.NewRecorder()
 	mw.ServeHTTP(rec, requestWithUserID(userID))
 	return rec, called, gotCtx
 }
 
-func TestTenantMiddleware_Missing(t *testing.T) {
+func TestUserMiddleware_Missing(t *testing.T) {
 	t.Parallel()
 
-	reg := &fakeRegistry{tenants: map[string]bool{"acme": true}}
+	reg := &fakeRegistry{Users: map[string]bool{"acme": true}}
 	rec, called, _ := runMiddleware(t, reg, "")
 
 	if called {
@@ -74,7 +74,7 @@ func TestTenantMiddleware_Missing(t *testing.T) {
 	}
 }
 
-func TestTenantMiddleware_Malformed(t *testing.T) {
+func TestUserMiddleware_Malformed(t *testing.T) {
 	t.Parallel()
 
 	longID := strings.Repeat("a", 65)
@@ -94,7 +94,7 @@ func TestTenantMiddleware_Malformed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			reg := &fakeRegistry{tenants: map[string]bool{}}
+			reg := &fakeRegistry{Users: map[string]bool{}}
 			rec, called, _ := runMiddleware(t, reg, tc.userID)
 
 			if called {
@@ -110,10 +110,10 @@ func TestTenantMiddleware_Malformed(t *testing.T) {
 	}
 }
 
-func TestTenantMiddleware_Unregistered(t *testing.T) {
+func TestUserMiddleware_Unregistered(t *testing.T) {
 	t.Parallel()
 
-	reg := &fakeRegistry{tenants: map[string]bool{"acme": true}}
+	reg := &fakeRegistry{Users: map[string]bool{"acme": true}}
 	rec, called, _ := runMiddleware(t, reg, "unknown")
 
 	if called {
@@ -127,12 +127,12 @@ func TestTenantMiddleware_Unregistered(t *testing.T) {
 	}
 }
 
-func TestTenantMiddleware_RegistryError(t *testing.T) {
+func TestUserMiddleware_RegistryError(t *testing.T) {
 	t.Parallel()
 
 	reg := &fakeRegistry{
-		tenants: map[string]bool{"acme": true},
-		err:     errors.New("db down"),
+		Users: map[string]bool{"acme": true},
+		err:   errors.New("db down"),
 	}
 	rec, called, _ := runMiddleware(t, reg, "acme")
 
@@ -142,15 +142,15 @@ func TestTenantMiddleware_RegistryError(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
-	if !strings.Contains(rec.Body.String(), "tenant lookup failed") {
-		t.Errorf("body = %q, want to contain %q", rec.Body.String(), "tenant lookup failed")
+	if !strings.Contains(rec.Body.String(), "user lookup failed") {
+		t.Errorf("body = %q, want to contain %q", rec.Body.String(), "user lookup failed")
 	}
 }
 
-func TestTenantMiddleware_Registered(t *testing.T) {
+func TestUserMiddleware_Registered(t *testing.T) {
 	t.Parallel()
 
-	reg := &fakeRegistry{tenants: map[string]bool{"acme": true}}
+	reg := &fakeRegistry{Users: map[string]bool{"acme": true}}
 	rec, called, gotCtx := runMiddleware(t, reg, "acme")
 
 	if !called {
@@ -163,11 +163,11 @@ func TestTenantMiddleware_Registered(t *testing.T) {
 		t.Errorf("body = %q, want %q", rec.Body.String(), "ok")
 	}
 
-	id, err := tenant.TenantFrom(gotCtx)
+	id, err := user.UserFrom(gotCtx)
 	if err != nil {
-		t.Fatalf("tenant.TenantFrom = %v, want no error", err)
+		t.Fatalf("user.UserFrom = %v, want no error", err)
 	}
 	if id != "acme" {
-		t.Errorf("tenant = %q, want %q", id, "acme")
+		t.Errorf("user = %q, want %q", id, "acme")
 	}
 }

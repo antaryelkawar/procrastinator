@@ -16,22 +16,22 @@ import (
 
 // rls_test.go: raw-SQL integration tests for the row-level security
 // (defense-in-depth) requirement from openspec
-// multi-tenant-isolation/specs/multitenancy §"Row-level security
+// owner-model-rework §"Row-level security
 // defense-in-depth". These deliberately bypass the repository layer — RLS must
-// hold even when application-level WHERE tenant_id scoping is absent.
+// hold even when application-level WHERE owner_id scoping is absent.
 //
 // Topology under test (empirically verified): the test database role is a
 // NON-superuser without BYPASSRLS and OWNS every table, and migration
-// 00003 has ENABLEd and FORCEd RLS on assets/sources/documents with a policy
-// keyed on tenant_id = current_setting('app.tenant_id', true). An unbound
-// transaction therefore sees nothing, and cross-tenant writes are rejected
+// 00004 has ENABLEd and FORCEd RLS on assets/sources/documents with a policy
+// keyed on owner_id = current_setting('app.user_id', true). An unbound
+// transaction therefore sees nothing, and cross-user writes are rejected
 // with SQLSTATE 42501.
 
 const testSchemaRLS = "p_rls"
 
 const (
-	rlsTenantAcme   = "acme"
-	rlsTenantGlobex = "globex"
+	rlsUserAcme   = "acme"
+	rlsUserGlobex = "globex"
 
 	seedAcmeSerial   = "rls-acme-1"
 	seedGlobexSerial = "rls-globex-1"
@@ -64,45 +64,46 @@ func rlsSharedPool(t *testing.T) *pgxpool.Pool {
 	return rlsPool
 }
 
-// seedRLSFixture registers the two RLS tenants and seeds exactly one asset per
-// tenant, each inside a tenant-bound transaction (raw unbound writes are
-// rejected by RLS, so seeding must bind the tenant first).
+// seedRLSFixture registers the two RLS users and seeds exactly one asset per
+// user, each inside a user-bound transaction (raw unbound writes are
+// rejected by RLS, so seeding must bind the user first).
 func seedRLSFixture(ctx context.Context, pool *pgxpool.Pool) error {
-	if err := ensureTenants(ctx, pool, rlsTenantAcme, rlsTenantGlobex); err != nil {
-		return fmt.Errorf("ensureTenants: %w", err)
+	if err := ensureUsers(ctx, pool, rlsUserAcme, rlsUserGlobex); err != nil {
+		return fmt.Errorf("ensureUsers: %w", err)
 	}
-	if err := seedAssetInBoundTx(ctx, pool, rlsTenantAcme, "A", seedAcmeSerial); err != nil {
+	if err := seedAssetInBoundTx(ctx, pool, rlsUserAcme, "A", seedAcmeSerial); err != nil {
 		return err
 	}
-	return seedAssetInBoundTx(ctx, pool, rlsTenantGlobex, "G", seedGlobexSerial)
+	return seedAssetInBoundTx(ctx, pool, rlsUserGlobex, "G", seedGlobexSerial)
 }
 
 // seedAssetInBoundTx inserts a single asset row inside a transaction bound to
-// the given tenant via a transaction-scoped set_config. It first deletes any
+// the given user via a transaction-scoped set_config. It first deletes any
 // existing row with the same marker so the fixture resets idempotently: the
 // p_rls schema persists across separate test binary invocations, so a plain
-// INSERT would hit the (tenant_id, norm_serial) unique index on re-runs.
-func seedAssetInBoundTx(ctx context.Context, pool *pgxpool.Pool, tenant, brand, serial string) error {
+// INSERT would hit the (owner_id, owner_household_id, norm_serial) unique
+// index on re-runs.
+func seedAssetInBoundTx(ctx context.Context, pool *pgxpool.Pool, userID, brand, serial string) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin seed tx for %q: %w", tenant, err)
+		return fmt.Errorf("begin seed tx for %q: %w", userID, err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenant); err != nil {
-		return fmt.Errorf("bind seed tenant %q: %w", tenant, err)
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, userID); err != nil {
+		return fmt.Errorf("bind seed user %q: %w", userID, err)
 	}
 	if _, err := tx.Exec(ctx,
-		`DELETE FROM assets WHERE tenant_id = $1 AND norm_serial = $2`,
-		tenant, serial); err != nil {
-		return fmt.Errorf("reset seed asset for %q: %w", tenant, err)
+		`DELETE FROM assets WHERE owner_id = $1 AND norm_serial = $2`,
+		userID, serial); err != nil {
+		return fmt.Errorf("reset seed asset for %q: %w", userID, err)
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO assets (tenant_id, brand, norm_serial) VALUES ($1, $2, $3)`,
-		tenant, brand, serial); err != nil {
-		return fmt.Errorf("seed asset for %q: %w", tenant, err)
+		`INSERT INTO assets (owner_id, brand, norm_serial) VALUES ($1, $2, $3)`,
+		userID, brand, serial); err != nil {
+		return fmt.Errorf("seed asset for %q: %w", userID, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit seed tx for %q: %w", tenant, err)
+		return fmt.Errorf("commit seed tx for %q: %w", userID, err)
 	}
 	return nil
 }
@@ -120,46 +121,46 @@ func assertRLSViolation(t *testing.T, op string, err error) {
 	}
 }
 
-// bindTenant opens a tx on pool and binds the given tenant via a
+// bindUser opens a tx on pool and binds the given user via a
 // transaction-scoped set_config. Returns the tx; caller owns Commit/Rollback.
-func bindTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant string) pgx.Tx {
+func bindUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID string) pgx.Tx {
 	t.Helper()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenant); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, userID); err != nil {
 		tx.Rollback(ctx)
-		t.Fatalf("bind tenant %q: %v", tenant, err)
+		t.Fatalf("bind user %q: %v", userID, err)
 	}
 	return tx
 }
 
-// TestRLS_BoundTransactionSeesOnlyBoundTenant maps to the spec scenario
-// "Unscoped query returns only the bound tenant's rows": a transaction bound to
+// TestRLS_BoundTransactionSeesOnlyBoundUser maps to the spec scenario
+// "Unscoped query returns only the bound user's rows": a transaction bound to
 // acme running a raw SELECT with no WHERE clause sees only acme rows.
-func TestRLS_BoundTransactionSeesOnlyBoundTenant(t *testing.T) {
+func TestRLS_BoundTransactionSeesOnlyBoundUser(t *testing.T) {
 	t.Parallel()
 	pool := rlsSharedPool(t)
 	ctx := context.Background()
 
-	tx := bindTenant(t, ctx, pool, rlsTenantAcme)
+	tx := bindUser(t, ctx, pool, rlsUserAcme)
 	defer tx.Rollback(ctx)
 
-	rows, err := tx.Query(ctx, `SELECT tenant_id FROM assets`)
+	rows, err := tx.Query(ctx, `SELECT owner_id FROM assets`)
 	if err != nil {
 		t.Fatalf("unscoped select: %v", err)
 	}
 	var seen []string
 	for rows.Next() {
-		var tenant string
-		if err := rows.Scan(&tenant); err != nil {
+		var ownerID string
+		if err := rows.Scan(&ownerID); err != nil {
 			rows.Close()
-			t.Fatalf("scan tenant_id: %v", err)
+			t.Fatalf("scan owner_id: %v", err)
 		}
-		seen = append(seen, tenant)
-		if tenant != rlsTenantAcme {
-			t.Errorf("unscoped select returned tenant %q, want only %q", tenant, rlsTenantAcme)
+		seen = append(seen, ownerID)
+		if ownerID != rlsUserAcme {
+			t.Errorf("unscoped select returned user %q, want only %q", ownerID, rlsUserAcme)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -185,25 +186,25 @@ func TestRLS_BoundTransactionSeesOnlyBoundTenant(t *testing.T) {
 	}
 }
 
-// TestRLS_CrossTenantWriteRejectedByPolicy maps to the spec scenario
-// "Cross-tenant write is rejected by policy": a transaction bound to acme
+// TestRLS_CrossUserWriteRejectedByPolicy maps to the spec scenario
+// "Cross-user write is rejected by policy": a transaction bound to acme
 // cannot create or modify a globex row.
-func TestRLS_CrossTenantWriteRejectedByPolicy(t *testing.T) {
+func TestRLS_CrossUserWriteRejectedByPolicy(t *testing.T) {
 	t.Parallel()
 	pool := rlsSharedPool(t)
 	ctx := context.Background()
 
-	t.Run("insert into foreign tenant rejected", func(t *testing.T) {
-		tx := bindTenant(t, ctx, pool, rlsTenantAcme)
+	t.Run("insert into foreign user rejected", func(t *testing.T) {
+		tx := bindUser(t, ctx, pool, rlsUserAcme)
 		defer tx.Rollback(ctx)
 
 		_, err := tx.Exec(ctx,
-			`INSERT INTO assets (tenant_id, brand, norm_serial) VALUES ('globex', 'X', 'rls-x-1')`)
+			`INSERT INTO assets (owner_id, brand, norm_serial) VALUES ('globex', 'X', 'rls-x-1')`)
 		assertRLSViolation(t, "INSERT globex row while bound to acme", err)
 		tx.Rollback(ctx)
 
 		// The failed insert created nothing (verify from the globex side).
-		txG := bindTenant(t, ctx, pool, rlsTenantGlobex)
+		txG := bindUser(t, ctx, pool, rlsUserGlobex)
 		defer txG.Rollback(ctx)
 		var n int
 		if err := txG.QueryRow(ctx, `SELECT count(*) FROM assets WHERE norm_serial = 'rls-x-1'`).Scan(&n); err != nil {
@@ -215,22 +216,22 @@ func TestRLS_CrossTenantWriteRejectedByPolicy(t *testing.T) {
 		txG.Rollback(ctx)
 	})
 
-	t.Run("update other tenant rows is a no-op", func(t *testing.T) {
-		tx := bindTenant(t, ctx, pool, rlsTenantAcme)
+	t.Run("update other user rows is a no-op", func(t *testing.T) {
+		tx := bindUser(t, ctx, pool, rlsUserAcme)
 		defer tx.Rollback(ctx)
 
 		// globex rows are invisible to acme via the USING policy → 0 rows.
-		tag, err := tx.Exec(ctx, `UPDATE assets SET brand = 'hacked' WHERE tenant_id = 'globex'`)
+		tag, err := tx.Exec(ctx, `UPDATE assets SET brand = 'hacked' WHERE owner_id = 'globex'`)
 		if err != nil {
-			t.Fatalf("UPDATE other-tenant rows: %v", err)
+			t.Fatalf("UPDATE other-user rows: %v", err)
 		}
 		if tag.RowsAffected() != 0 {
-			t.Errorf("UPDATE other-tenant rows affected %d, want 0", tag.RowsAffected())
+			t.Errorf("UPDATE other-user rows affected %d, want 0", tag.RowsAffected())
 		}
 		tx.Rollback(ctx)
 
 		// The globex seed row is unmodified.
-		txG := bindTenant(t, ctx, pool, rlsTenantGlobex)
+		txG := bindUser(t, ctx, pool, rlsUserGlobex)
 		defer txG.Rollback(ctx)
 		var brand string
 		if err := txG.QueryRow(ctx,
@@ -243,31 +244,31 @@ func TestRLS_CrossTenantWriteRejectedByPolicy(t *testing.T) {
 		txG.Rollback(ctx)
 	})
 
-	t.Run("repoint own row to foreign tenant rejected", func(t *testing.T) {
-		tx := bindTenant(t, ctx, pool, rlsTenantAcme)
+	t.Run("repoint own row to foreign user rejected", func(t *testing.T) {
+		tx := bindUser(t, ctx, pool, rlsUserAcme)
 		defer tx.Rollback(ctx)
 
-		_, err := tx.Exec(ctx, `UPDATE assets SET tenant_id = 'globex' WHERE tenant_id = 'acme'`)
-		assertRLSViolation(t, "UPDATE acme rows to globex tenant (WITH CHECK)", err)
+		_, err := tx.Exec(ctx, `UPDATE assets SET owner_id = 'globex' WHERE owner_id = 'acme'`)
+		assertRLSViolation(t, "UPDATE acme rows to globex user (WITH CHECK)", err)
 		tx.Rollback(ctx)
 
 		// The acme seed row still belongs to acme.
-		txA := bindTenant(t, ctx, pool, rlsTenantAcme)
+		txA := bindUser(t, ctx, pool, rlsUserAcme)
 		defer txA.Rollback(ctx)
-		var tenant string
+		var ownerID string
 		if err := txA.QueryRow(ctx,
-			`SELECT tenant_id FROM assets WHERE norm_serial = $1`, seedAcmeSerial).Scan(&tenant); err != nil {
-			t.Fatalf("read acme seed tenant: %v", err)
+			`SELECT owner_id FROM assets WHERE norm_serial = $1`, seedAcmeSerial).Scan(&ownerID); err != nil {
+			t.Fatalf("read acme seed owner: %v", err)
 		}
-		if tenant != rlsTenantAcme {
-			t.Errorf("acme seed tenant_id = %q, want acme", tenant)
+		if ownerID != rlsUserAcme {
+			t.Errorf("acme seed owner_id = %q, want acme", ownerID)
 		}
 		txA.Rollback(ctx)
 	})
 }
 
 // TestRLS_UnboundTransactionSeesNothing maps to the spec scenario
-// "Unbound transaction sees nothing": a transaction that never bound a tenant
+// "Unbound transaction sees nothing": a transaction that never bound a user
 // sees zero rows and cannot write any.
 func TestRLS_UnboundTransactionSeesNothing(t *testing.T) {
 	t.Parallel()
@@ -289,18 +290,18 @@ func TestRLS_UnboundTransactionSeesNothing(t *testing.T) {
 	}
 
 	_, err = tx.Exec(ctx,
-		`INSERT INTO assets (tenant_id, brand, norm_serial) VALUES ('acme', 'X', 'rls-unbound-1')`)
+		`INSERT INTO assets (owner_id, brand, norm_serial) VALUES ('acme', 'X', 'rls-unbound-1')`)
 	assertRLSViolation(t, "INSERT while unbound", err)
 	tx.Rollback(ctx)
 }
 
-// TestRLS_TenantBindingDoesNotLeakAcrossPoolConnections maps to the spec
-// scenario "Tenant binding does not leak across pooled connections": a
+// TestRLS_UserBindingDoesNotLeakAcrossPoolConnections maps to the spec
+// scenario "User binding does not leak across pooled connections": a
 // transaction bound to acme commits, the same physical connection is reused
 // for a transaction bound to globex, which then observes only globex rows with
 // no residue of acme's binding. A MaxConns:1 pool guarantees the three txs
 // land on the same physical connection.
-func TestRLS_TenantBindingDoesNotLeakAcrossPoolConnections(t *testing.T) {
+func TestRLS_UserBindingDoesNotLeakAcrossPoolConnections(t *testing.T) {
 	t.Parallel()
 	rlsSharedPool(t) // ensure schema, migrations, and seed rows exist first
 
@@ -325,10 +326,10 @@ func TestRLS_TenantBindingDoesNotLeakAcrossPoolConnections(t *testing.T) {
 
 	// Tx A: bound to acme, commits a row with the per-run marker.
 	{
-		tx := bindTenant(t, ctx, dedicated, rlsTenantAcme)
+		tx := bindUser(t, ctx, dedicated, rlsUserAcme)
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO assets (tenant_id, brand, norm_serial) VALUES ($1, $2, $3)`,
-			rlsTenantAcme, "R", marker); err != nil {
+			`INSERT INTO assets (owner_id, brand, norm_serial) VALUES ($1, $2, $3)`,
+			rlsUserAcme, "R", marker); err != nil {
 			tx.Rollback(ctx)
 			t.Fatalf("tx A insert: %v", err)
 		}
@@ -339,23 +340,23 @@ func TestRLS_TenantBindingDoesNotLeakAcrossPoolConnections(t *testing.T) {
 
 	// Tx B: bound to globex on the same connection; must see only globex rows.
 	{
-		tx := bindTenant(t, ctx, dedicated, rlsTenantGlobex)
-		rows, err := tx.Query(ctx, `SELECT tenant_id FROM assets`)
+		tx := bindUser(t, ctx, dedicated, rlsUserGlobex)
+		rows, err := tx.Query(ctx, `SELECT owner_id FROM assets`)
 		if err != nil {
 			tx.Rollback(ctx)
 			t.Fatalf("tx B unscoped select: %v", err)
 		}
 		seen := 0
 		for rows.Next() {
-			var tenant string
-			if err := rows.Scan(&tenant); err != nil {
+			var ownerID string
+			if err := rows.Scan(&ownerID); err != nil {
 				rows.Close()
 				tx.Rollback(ctx)
 				t.Fatalf("tx B scan: %v", err)
 			}
 			seen++
-			if tenant != rlsTenantGlobex {
-				t.Errorf("tx B saw tenant %q, want only %q (no acme residue)", tenant, rlsTenantGlobex)
+			if ownerID != rlsUserGlobex {
+				t.Errorf("tx B saw user %q, want only %q (no acme residue)", ownerID, rlsUserGlobex)
 			}
 		}
 		if err := rows.Err(); err != nil {
@@ -391,8 +392,8 @@ func TestRLS_TenantBindingDoesNotLeakAcrossPoolConnections(t *testing.T) {
 
 	// Cleanup: delete the per-run row, bound to acme.
 	{
-		tx := bindTenant(t, ctx, dedicated, rlsTenantAcme)
-		tag, err := tx.Exec(ctx, `DELETE FROM assets WHERE tenant_id = $1 AND norm_serial = $2`, rlsTenantAcme, marker)
+		tx := bindUser(t, ctx, dedicated, rlsUserAcme)
+		tag, err := tx.Exec(ctx, `DELETE FROM assets WHERE owner_id = $1 AND norm_serial = $2`, rlsUserAcme, marker)
 		if err != nil {
 			tx.Rollback(ctx)
 			t.Fatalf("cleanup delete: %v", err)
@@ -404,4 +405,62 @@ func TestRLS_TenantBindingDoesNotLeakAcrossPoolConnections(t *testing.T) {
 			t.Fatalf("cleanup commit: %v", err)
 		}
 	}
+}
+
+// TestRLS_HouseholdOwnerCanInsertWithoutMembershipRow ensures that a household
+// owner can insert a household-scoped row even if they do not have a
+// membership row for that household.
+func TestRLS_HouseholdOwnerCanInsertWithoutMembershipRow(t *testing.T) {
+	t.Parallel()
+	pool := rlsSharedPool(t)
+	ctx := context.Background()
+
+	// 1. Create a household with rlsUserAcme as owner.
+	// We bind to Acme to create the household.
+	tx := bindUser(t, ctx, pool, rlsUserAcme)
+	householdID := fmt.Sprintf("rls-hh-%d", time.Now().UnixNano())
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO households (id, owner_id, display_name) VALUES ($1, $2, 'Acme Household')`,
+		householdID, rlsUserAcme); err != nil {
+		tx.Rollback(ctx)
+		t.Fatalf("create household: %v", err)
+	}
+
+	// 2. Verify Acme has no membership row for this household.
+	var memberCount int
+	err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM household_members WHERE household_id = $1 AND user_id = $2`,
+		householdID, rlsUserAcme).Scan(&memberCount)
+	if err != nil {
+		tx.Rollback(ctx)
+		t.Fatalf("count membership: %v", err)
+	}
+	if memberCount != 0 {
+		t.Fatalf("expected 0 membership rows for owner, found %d", memberCount)
+	}
+
+	// 3. Try to insert an asset into this household.
+	// This should pass because the owner is exempt from the membership check.
+	_, err = tx.Exec(ctx,
+		`INSERT INTO assets (owner_id, brand, norm_serial, owner_household_id) VALUES ($1, 'A', 'rls-hh-1', $2)`,
+		rlsUserAcme, householdID)
+	if err != nil {
+		tx.Rollback(ctx)
+		t.Fatalf("failed to insert asset as household owner: %v", err)
+	}
+
+	// 4. Verify insertion succeeded.
+	var assetCount int
+	err = tx.QueryRow(ctx,
+		`SELECT count(*) FROM assets WHERE owner_household_id = $1`,
+		householdID).Scan(&assetCount)
+	if err != nil {
+		tx.Rollback(ctx)
+		t.Fatalf("count assets: %v", err)
+	}
+	if assetCount != 1 {
+		t.Errorf("expected 1 asset, found %d", assetCount)
+	}
+
+	tx.Commit(ctx)
 }

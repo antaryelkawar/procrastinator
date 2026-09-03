@@ -49,7 +49,7 @@ func itoa(n int) string {
 func movementAt(day int, amount string, norm string, ref *string) entity.MoneyMovement {
 	return entity.MoneyMovement{
 		ID:                "mv-" + itoa(day) + "-" + amount,
-		TenantID:          "test-tenant",
+		OwnerID:           "test-user",
 		Kind:              entity.KindExpense,
 		Amount:            amount,
 		Currency:          "INR",

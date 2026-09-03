@@ -1,13 +1,10 @@
 // Package api integration tests for the statement import API surface:
 //
-//	POST /api/finance/import-batches               multipart upload, field "file" + field "account_id"
-//	GET  /api/finance/import-batches               list preview/committed/discard batches for the tenant
-//	GET  /api/finance/import-batches/{id}          single batch with parsed lines
-//	POST /api/finance/import-batches/{id}/commit   create movements for valid lines
-//	POST /api/finance/import-batches/{id}/discard  keep the source, create no movements
-//
-// These tests are the RED phase for task 9.5: the routes are not registered
-// yet, so the suite must compile and fail at runtime.
+//	POST /api/users/{userId}/finance/import-batches               multipart upload, field "file" + field "account_id"
+//	GET  /api/users/{userId}/finance/import-batches               list preview/committed/discard batches for the user
+//	GET  /api/users/{userId}/finance/import-batches/{id}          single batch with parsed lines
+//	POST /api/users/{userId}/finance/import-batches/{id}/commit   create movements for valid lines
+//	POST /api/users/{userId}/finance/import-batches/{id}/discard  keep the source, create no movements
 package api
 
 import (
@@ -26,8 +23,8 @@ import (
 )
 
 // uploadStatement posts a multipart statement upload (file part "file" + field "account_id")
-// to POST /api/finance/import-batches and returns the recorded response.
-func uploadStatement(t *testing.T, e *testEnv, tenant, filename, contentType string, content []byte, accountID string) *httptest.ResponseRecorder {
+// to POST /api/users/{userId}/finance/import-batches and returns the recorded response.
+func uploadStatement(t *testing.T, e *testEnv, userID, filename, contentType string, content []byte, accountID string) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
@@ -47,14 +44,14 @@ func uploadStatement(t *testing.T, e *testEnv, tenant, filename, contentType str
 	if err := w.Close(); err != nil {
 		t.Fatalf("close multipart writer: %v", err)
 	}
-	return do(t, e.handler, http.MethodPost, "/api/finance/import-batches", tenant, &buf, w.FormDataContentType())
+	return do(t, e.handler, http.MethodPost, "/api/finance/import-batches", userID, &buf, w.FormDataContentType())
 }
 
 // createTestAccount creates a bank account named "Import Test" and returns its id.
-func createTestAccount(t *testing.T, e *testEnv, tenant string) string {
+func createTestAccount(t *testing.T, e *testEnv, userID string) string {
 	t.Helper()
 	body := bytes.NewBufferString(`{"name":"Import Test","type":"bank","currency":"INR"}`)
-	rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", tenant, body, "application/json")
+	rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", userID, body, "application/json")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create account status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -71,19 +68,31 @@ func createTestAccount(t *testing.T, e *testEnv, tenant string) string {
 
 // insertMovementWithRef inserts one manual movement directly via SQL with an
 // external_reference set, and returns its id.
-func insertMovementWithRef(t *testing.T, e *testEnv, tenantID, amount, currency, occurredOn, desc, account, ref string) string {
+func insertMovementWithRef(t *testing.T, e *testEnv, OwnerID, amount, currency, occurredOn, desc, account, ref string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, OwnerID); err != nil {
+		t.Fatalf("set user: %v", err)
+	}
+
 	var id string
-	err := e.pool.QueryRow(ctx,
-		`INSERT INTO money_movements (tenant_id, kind, amount, currency, occurred_on, description, norm_description, origin, source_account_id, external_reference)
+	err = tx.QueryRow(ctx,
+		`INSERT INTO money_movements (owner_id, kind, amount, currency, occurred_on, description, norm_description, origin, source_account_id, external_reference)
 		 VALUES ($1, 'expense', $2::numeric, $3, $4::date, $5, $6, 'manual', $7, $8) RETURNING id`,
-		tenantID, amount, currency, occurredOn, desc, strings.ToLower(desc), account, ref,
+		OwnerID, amount, currency, occurredOn, desc, strings.ToLower(desc), account, ref,
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("insert movement with ref %s: %v", ref, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
 	}
 	return id
 }
@@ -137,9 +146,9 @@ func intVal(m map[string]any, k string) int {
 }
 
 // requireBatchUpload uploads content and requires a 201 with a batch id.
-func requireBatchUpload(t *testing.T, e *testEnv, tenant, filename, contentType string, content []byte, accountID string) map[string]any {
+func requireBatchUpload(t *testing.T, e *testEnv, userID, filename, contentType string, content []byte, accountID string) map[string]any {
 	t.Helper()
-	rec := uploadStatement(t, e, tenant, filename, contentType, content, accountID)
+	rec := uploadStatement(t, e, userID, filename, contentType, content, accountID)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -151,9 +160,9 @@ func requireBatchUpload(t *testing.T, e *testEnv, tenant, filename, contentType 
 }
 
 // sourceCount returns the number of sources rows with the given filename for
-// the tenant. sources has FORCE RLS (multi-tenant-isolation), so the counting
-// transaction must bind app.tenant_id or every row is filtered out.
-func sourceCount(t *testing.T, e *testEnv, tenant, filename string) int {
+// the user. sources has FORCE RLS (scope isolation), so the counting
+// transaction must bind app.user_id or every row is filtered out.
+func sourceCount(t *testing.T, e *testEnv, userID, filename string) int {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -162,8 +171,8 @@ func sourceCount(t *testing.T, e *testEnv, tenant, filename string) int {
 		t.Fatalf("begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenant); err != nil {
-		t.Fatalf("set tenant: %v", err)
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, userID); err != nil {
+		t.Fatalf("set user: %v", err)
 	}
 	var n int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM sources WHERE filename = $1`, filename).Scan(&n); err != nil {
@@ -179,9 +188,9 @@ func TestCreateImportBatch(t *testing.T) {
 	t.Run("HappyPathCSV", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
+		acct := createTestAccount(t, e, "test-user")
 
-		batch := requireBatchUpload(t, e, "test-tenant", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
+		batch := requireBatchUpload(t, e, "test-user", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
 
 		if got := strVal(batch, "state"); got != "preview" {
 			t.Errorf("state = %q, want %q", got, "preview")
@@ -239,14 +248,14 @@ func TestCreateImportBatch(t *testing.T) {
 		}
 
 		// Preview creates no movements.
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("movements status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
 		if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
 			t.Errorf("movements body = %q, want exactly %q (preview creates none)", got, "[]")
 		}
-		if bal := getBalance(t, e, "test-tenant", acct); bal != "0" {
+		if bal := getBalance(t, e, "test-user", acct); bal != "0" {
 			t.Errorf("balance = %q, want %q (preview creates no movements)", bal, "0")
 		}
 	})
@@ -254,9 +263,9 @@ func TestCreateImportBatch(t *testing.T) {
 	t.Run("HappyPathPDF", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
+		acct := createTestAccount(t, e, "test-user")
 
-		batch := requireBatchUpload(t, e, "test-tenant", "statement_text.pdf", "application/pdf", readTestdata(t, "statement_text.pdf"), acct)
+		batch := requireBatchUpload(t, e, "test-user", "statement_text.pdf", "application/pdf", readTestdata(t, "statement_text.pdf"), acct)
 
 		if got := strVal(batch, "state"); got != "preview" {
 			t.Errorf("state = %q, want %q", got, "preview")
@@ -292,16 +301,16 @@ func TestCreateImportBatch(t *testing.T) {
 	t.Run("UnsupportedType", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
+		acct := createTestAccount(t, e, "test-user")
 
 		png := append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, bytes.Repeat([]byte("\x00"), 32)...)
-		rec := uploadStatement(t, e, "test-tenant", "fake.png", "image/png", png, acct)
+		rec := uploadStatement(t, e, "test-user", "fake.png", "image/png", png, acct)
 		if rec.Code != http.StatusUnsupportedMediaType {
 			t.Fatalf("status = %d, want 415 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		list := do(t, e.handler, http.MethodGet, "/api/finance/import-batches", "test-tenant", nil, "")
+		list := do(t, e.handler, http.MethodGet, "/api/finance/import-batches", "test-user", nil, "")
 		if list.Code != http.StatusOK {
 			t.Fatalf("list status = %d, want 200 (body: %s)", list.Code, list.Body.String())
 		}
@@ -313,10 +322,10 @@ func TestCreateImportBatch(t *testing.T) {
 	t.Run("Oversize", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{maxBytes: 64})
-		acct := createTestAccount(t, e, "test-tenant")
+		acct := createTestAccount(t, e, "test-user")
 
 		content := []byte(strings.Repeat("2026-08-20,-1.00,Pad\n", 10))
-		rec := uploadStatement(t, e, "test-tenant", "pad.csv", "text/csv", content, acct)
+		rec := uploadStatement(t, e, "test-user", "pad.csv", "text/csv", content, acct)
 		if rec.Code != http.StatusRequestEntityTooLarge {
 			t.Fatalf("status = %d, want 413 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -327,7 +336,7 @@ func TestCreateImportBatch(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
 
-		rec := uploadStatement(t, e, "test-tenant", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), unknownUUID)
+		rec := uploadStatement(t, e, "test-user", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), unknownUUID)
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -337,7 +346,7 @@ func TestCreateImportBatch(t *testing.T) {
 	t.Run("MissingFileField", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
+		acct := createTestAccount(t, e, "test-user")
 
 		var buf bytes.Buffer
 		w := multipart.NewWriter(&buf)
@@ -347,7 +356,7 @@ func TestCreateImportBatch(t *testing.T) {
 		if err := w.Close(); err != nil {
 			t.Fatalf("close multipart writer: %v", err)
 		}
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches", "test-tenant", &buf, w.FormDataContentType())
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches", "test-user", &buf, w.FormDataContentType())
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -359,7 +368,7 @@ func TestCreateImportBatch(t *testing.T) {
 		e := newEnv(t, envOpts{})
 
 		body, ct := buildMultipart(t, "file", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"))
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches", "test-tenant", body, ct)
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches", "test-user", body, ct)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -388,7 +397,7 @@ func TestCreateImportBatch(t *testing.T) {
 		if err := w.Close(); err != nil {
 			t.Fatalf("close multipart writer: %v", err)
 		}
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches", "test-tenant", &buf, w.FormDataContentType())
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches", "test-user", &buf, w.FormDataContentType())
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -398,16 +407,16 @@ func TestCreateImportBatch(t *testing.T) {
 	t.Run("ImageOnlyPDF", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
+		acct := createTestAccount(t, e, "test-user")
 
-		rec := uploadStatement(t, e, "test-tenant", "statement_image_only.pdf", "application/pdf", readTestdata(t, "statement_image_only.pdf"), acct)
+		rec := uploadStatement(t, e, "test-user", "statement_image_only.pdf", "application/pdf", readTestdata(t, "statement_image_only.pdf"), acct)
 		if rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
 		// The source is retained despite the rejection.
-		if n := sourceCount(t, e, "test-tenant", "statement_image_only.pdf"); n != 1 {
+		if n := sourceCount(t, e, "test-user", "statement_image_only.pdf"); n != 1 {
 			t.Errorf("sources count for statement_image_only.pdf = %d, want 1 (source retained)", n)
 		}
 	})
@@ -415,19 +424,19 @@ func TestCreateImportBatch(t *testing.T) {
 	t.Run("LineLimitExceededSmall", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{maxStatementLines: 5})
-		acct := createTestAccount(t, e, "test-tenant")
+		acct := createTestAccount(t, e, "test-user")
 
 		var b strings.Builder
 		for i := 1; i <= 6; i++ {
 			fmt.Fprintf(&b, "2026-08-20,-1.00,Line %d\n", i)
 		}
-		rec := uploadStatement(t, e, "test-tenant", "small_limit.csv", "text/csv", []byte(b.String()), acct)
+		rec := uploadStatement(t, e, "test-user", "small_limit.csv", "text/csv", []byte(b.String()), acct)
 		if rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		if n := sourceCount(t, e, "test-tenant", "small_limit.csv"); n != 1 {
+		if n := sourceCount(t, e, "test-user", "small_limit.csv"); n != 1 {
 			t.Errorf("sources count for small_limit.csv = %d, want 1 (source retained)", n)
 		}
 	})
@@ -435,19 +444,19 @@ func TestCreateImportBatch(t *testing.T) {
 	t.Run("LineLimitExceededDefault", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
+		acct := createTestAccount(t, e, "test-user")
 
 		var b strings.Builder
 		for i := 1; i <= 100001; i++ {
 			fmt.Fprintf(&b, "2026-08-20,-1.00,Row %d\n", i)
 		}
-		rec := uploadStatement(t, e, "test-tenant", "big_statement.csv", "text/csv", []byte(b.String()), acct)
+		rec := uploadStatement(t, e, "test-user", "big_statement.csv", "text/csv", []byte(b.String()), acct)
 		if rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		list := do(t, e.handler, http.MethodGet, "/api/finance/import-batches", "test-tenant", nil, "")
+		list := do(t, e.handler, http.MethodGet, "/api/finance/import-batches", "test-user", nil, "")
 		if list.Code != http.StatusOK {
 			t.Fatalf("list status = %d, want 200 (body: %s)", list.Code, list.Body.String())
 		}
@@ -464,11 +473,11 @@ func TestGetImportBatch(t *testing.T) {
 	t.Run("PreviewRereadable", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
-		created := requireBatchUpload(t, e, "test-tenant", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
+		acct := createTestAccount(t, e, "test-user")
+		created := requireBatchUpload(t, e, "test-user", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
 		id := strVal(created, "id")
 
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -505,21 +514,21 @@ func TestGetImportBatch(t *testing.T) {
 	t.Run("NotFound", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+unknownUUID, "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+unknownUUID, "test-user", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 	})
 
-	t.Run("CrossTenant", func(t *testing.T) {
+	t.Run("CrossUser", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
-		created := requireBatchUpload(t, e, "test-tenant", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
+		acct := createTestAccount(t, e, "test-user")
+		created := requireBatchUpload(t, e, "test-user", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
 		id := strVal(created, "id")
 
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-tenant-b", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-user-b", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -534,7 +543,7 @@ func TestListImportBatches(t *testing.T) {
 	t.Run("Empty", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -546,11 +555,11 @@ func TestListImportBatches(t *testing.T) {
 	t.Run("WithBatches", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
-		requireBatchUpload(t, e, "test-tenant", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
-		requireBatchUpload(t, e, "test-tenant", "statement_mixed.csv", "text/csv", readTestdata(t, "statement_mixed.csv"), acct)
+		acct := createTestAccount(t, e, "test-user")
+		requireBatchUpload(t, e, "test-user", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
+		requireBatchUpload(t, e, "test-user", "statement_mixed.csv", "text/csv", readTestdata(t, "statement_mixed.csv"), acct)
 
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -614,11 +623,11 @@ func TestCommitImportBatch(t *testing.T) {
 	t.Run("HappyPath", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
-		created := requireBatchUpload(t, e, "test-tenant", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
+		acct := createTestAccount(t, e, "test-user")
+		created := requireBatchUpload(t, e, "test-user", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
 		id := strVal(created, "id")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("commit status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -633,7 +642,7 @@ func TestCommitImportBatch(t *testing.T) {
 			t.Errorf("skipped = %d, want 1", got)
 		}
 
-		movRec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-tenant", nil, "")
+		movRec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-user", nil, "")
 		if movRec.Code != http.StatusOK {
 			t.Fatalf("movements status = %d, want 200 (body: %s)", movRec.Code, movRec.Body.String())
 		}
@@ -667,11 +676,11 @@ func TestCommitImportBatch(t *testing.T) {
 			}
 		}
 
-		if bal := getBalance(t, e, "test-tenant", acct); bal != "129.50" {
+		if bal := getBalance(t, e, "test-user", acct); bal != "129.50" {
 			t.Errorf("balance = %q, want %q (500.00 in, 250.50+120.00 out)", bal, "129.50")
 		}
 
-		getRec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-tenant", nil, "")
+		getRec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-user", nil, "")
 		if getRec.Code != http.StatusOK {
 			t.Fatalf("get batch status = %d, want 200 (body: %s)", getRec.Code, getRec.Body.String())
 		}
@@ -680,7 +689,7 @@ func TestCommitImportBatch(t *testing.T) {
 		}
 
 		// RecommitIdempotent: a second commit is a no-op with the same counts.
-		rec = do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-tenant", nil, "")
+		rec = do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("recommit status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -694,7 +703,7 @@ func TestCommitImportBatch(t *testing.T) {
 			t.Errorf("recommit skipped = %d, want 1", got)
 		}
 
-		movRec = do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-tenant", nil, "")
+		movRec = do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-user", nil, "")
 		if movRec.Code != http.StatusOK {
 			t.Fatalf("movements after recommit status = %d, want 200 (body: %s)", movRec.Code, movRec.Body.String())
 		}
@@ -709,16 +718,16 @@ func TestCommitImportBatch(t *testing.T) {
 	t.Run("ZeroValidLines", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
+		acct := createTestAccount(t, e, "test-user")
 
 		content := []byte("2026-08-20,bad-amount,desc\nnotadate,5.00,desc\n")
-		created := requireBatchUpload(t, e, "test-tenant", "zero_valid.csv", "text/csv", content, acct)
+		created := requireBatchUpload(t, e, "test-user", "zero_valid.csv", "text/csv", content, acct)
 		if got := intVal(created, "line_count_error"); got != 2 {
 			t.Fatalf("line_count_error = %d, want 2", got)
 		}
 		id := strVal(created, "id")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("commit status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -733,7 +742,7 @@ func TestCommitImportBatch(t *testing.T) {
 			t.Errorf("skipped = %d, want 2", got)
 		}
 
-		getRec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-tenant", nil, "")
+		getRec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-user", nil, "")
 		if getRec.Code != http.StatusOK {
 			t.Fatalf("get batch status = %d, want 200 (body: %s)", getRec.Code, getRec.Body.String())
 		}
@@ -741,7 +750,7 @@ func TestCommitImportBatch(t *testing.T) {
 			t.Errorf("state = %q, want %q", got, "committed")
 		}
 
-		movRec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-tenant", nil, "")
+		movRec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-user", nil, "")
 		if movRec.Code != http.StatusOK {
 			t.Fatalf("movements status = %d, want 200 (body: %s)", movRec.Code, movRec.Body.String())
 		}
@@ -753,22 +762,22 @@ func TestCommitImportBatch(t *testing.T) {
 	t.Run("DiscardedConflict", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
-		created := requireBatchUpload(t, e, "test-tenant", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
+		acct := createTestAccount(t, e, "test-user")
+		created := requireBatchUpload(t, e, "test-user", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
 		id := strVal(created, "id")
 
-		disc := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/discard", "test-tenant", nil, "")
+		disc := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/discard", "test-user", nil, "")
 		if disc.Code != http.StatusOK {
 			t.Fatalf("discard status = %d, want 200 (body: %s)", disc.Code, disc.Body.String())
 		}
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-user", nil, "")
 		if rec.Code != http.StatusConflict {
 			t.Fatalf("commit status = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		movRec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-tenant", nil, "")
+		movRec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-user", nil, "")
 		if movRec.Code != http.StatusOK {
 			t.Fatalf("movements status = %d, want 200 (body: %s)", movRec.Code, movRec.Body.String())
 		}
@@ -780,7 +789,7 @@ func TestCommitImportBatch(t *testing.T) {
 	t.Run("NotFound", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+unknownUUID+"/commit", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+unknownUUID+"/commit", "test-user", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -795,11 +804,11 @@ func TestDiscardImportBatch(t *testing.T) {
 	t.Run("PreviewDiscarded", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
-		created := requireBatchUpload(t, e, "test-tenant", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
+		acct := createTestAccount(t, e, "test-user")
+		created := requireBatchUpload(t, e, "test-user", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
 		id := strVal(created, "id")
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/discard", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/discard", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("discard status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -821,7 +830,7 @@ func TestDiscardImportBatch(t *testing.T) {
 		}
 
 		// ReDiscardIdempotent: a second discard is a no-op.
-		rec = do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/discard", "test-tenant", nil, "")
+		rec = do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/discard", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("re-discard status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -833,22 +842,22 @@ func TestDiscardImportBatch(t *testing.T) {
 	t.Run("CommittedConflict", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
-		created := requireBatchUpload(t, e, "test-tenant", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
+		acct := createTestAccount(t, e, "test-user")
+		created := requireBatchUpload(t, e, "test-user", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
 		id := strVal(created, "id")
 
-		commit := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-tenant", nil, "")
+		commit := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-user", nil, "")
 		if commit.Code != http.StatusOK {
 			t.Fatalf("commit status = %d, want 200 (body: %s)", commit.Code, commit.Body.String())
 		}
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/discard", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/discard", "test-user", nil, "")
 		if rec.Code != http.StatusConflict {
 			t.Fatalf("discard status = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		getRec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-tenant", nil, "")
+		getRec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-user", nil, "")
 		if getRec.Code != http.StatusOK {
 			t.Fatalf("get batch status = %d, want 200 (body: %s)", getRec.Code, getRec.Body.String())
 		}
@@ -860,7 +869,7 @@ func TestDiscardImportBatch(t *testing.T) {
 	t.Run("NotFound", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+unknownUUID+"/discard", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+unknownUUID+"/discard", "test-user", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -868,36 +877,36 @@ func TestDiscardImportBatch(t *testing.T) {
 	})
 }
 
-// TestImportTenantScoping verifies import batches are fully tenant-scoped.
-func TestImportTenantScoping(t *testing.T) {
+// TestImportUserScoping verifies import batches are fully userID-scoped.
+func TestImportUserScoping(t *testing.T) {
 	t.Parallel()
 
 	t.Run("ForeignBatchNotVisible", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		acct := createTestAccount(t, e, "test-tenant")
-		created := requireBatchUpload(t, e, "test-tenant", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
+		acct := createTestAccount(t, e, "test-user")
+		created := requireBatchUpload(t, e, "test-user", "statement_ok.csv", "text/csv", readTestdata(t, "statement_ok.csv"), acct)
 		id := strVal(created, "id")
 
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-tenant-b", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/import-batches/"+id, "test-user-b", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("get status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		rec = do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-tenant-b", nil, "")
+		rec = do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-user-b", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("commit status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		rec = do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/discard", "test-tenant-b", nil, "")
+		rec = do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/discard", "test-user-b", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("discard status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		list := do(t, e.handler, http.MethodGet, "/api/finance/import-batches", "test-tenant-b", nil, "")
+		list := do(t, e.handler, http.MethodGet, "/api/finance/import-batches", "test-user-b", nil, "")
 		if list.Code != http.StatusOK {
 			t.Fatalf("list status = %d, want 200 (body: %s)", list.Code, list.Body.String())
 		}
@@ -906,19 +915,19 @@ func TestImportTenantScoping(t *testing.T) {
 		}
 	})
 
-	t.Run("DuplicateDetectionIgnoresOtherTenants", func(t *testing.T) {
+	t.Run("DuplicateDetectionIgnoresOtherUsers", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
 
-		// Tenant B has a movement with external reference TXN-555.
-		acctB := createTestAccount(t, e, "test-tenant-b")
-		insertMovementWithRef(t, e, "test-tenant-b", "100.00", "INR", "2026-08-24", "other tenant txn", acctB, "TXN-555")
+		// User B has a movement with external reference TXN-555.
+		acctB := createTestAccount(t, e, "test-user-b")
+		insertMovementWithRef(t, e, "test-user-b", "100.00", "INR", "2026-08-24", "other userID txn", acctB, "TXN-555")
 
-		// Tenant A uploads a line with the same external reference: it must be
+		// User A uploads a line with the same external reference: it must be
 		// valid, not duplicate.
-		acctA := createTestAccount(t, e, "test-tenant")
-		content := []byte("2026-08-25,-777.00,Other Tenant Ref,TXN-555\n")
-		created := requireBatchUpload(t, e, "test-tenant", "other_ref.csv", "text/csv", content, acctA)
+		acctA := createTestAccount(t, e, "test-user")
+		content := []byte("2026-08-25,-777.00,Other User Ref,TXN-555\n")
+		created := requireBatchUpload(t, e, "test-user", "other_ref.csv", "text/csv", content, acctA)
 
 		lines, ok := created["lines"].([]any)
 		if !ok || len(lines) != 1 {
@@ -929,7 +938,7 @@ func TestImportTenantScoping(t *testing.T) {
 			t.Fatalf("line 0 is not an object: %v", lines[0])
 		}
 		if got := strVal(line, "status"); got == "duplicate" {
-			t.Errorf("line status = %q, must not be duplicate (other tenant's ref TXN-555 must be ignored)", got)
+			t.Errorf("line status = %q, must not be duplicate (other userID's ref TXN-555 must be ignored)", got)
 		}
 		if got := strVal(line, "status"); got != "valid" {
 			t.Errorf("line status = %q, want %q", got, "valid")
@@ -948,7 +957,7 @@ func TestAutoLinkObservable(t *testing.T) {
 
 	// Upload a document whose extracted identity (Reliance Digital AUTOLINK-1)
 	// matches the imported line's brand+model description.
-	up, asset := e.uploadFile(t, "test-tenant", "invoice.pdf", "application/pdf", pdfBytes(24))
+	up, asset := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(24))
 	if up.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, want 201 (body: %s)", up.Code, up.Body.String())
 	}
@@ -957,7 +966,7 @@ func TestAutoLinkObservable(t *testing.T) {
 		t.Fatalf("asset id is empty")
 	}
 
-	docsRec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets/"+assetID+"/documents", "", nil, "")
+	docsRec := do(t, e.handler, http.MethodGet, "/api/users/test-user/assets/"+assetID+"/documents", "", nil, "")
 	if docsRec.Code != http.StatusOK {
 		t.Fatalf("documents status = %d, want 200 (body: %s)", docsRec.Code, docsRec.Body.String())
 	}
@@ -973,12 +982,12 @@ func TestAutoLinkObservable(t *testing.T) {
 		t.Fatalf("document id is empty")
 	}
 
-	acct := createTestAccount(t, e, "test-tenant")
+	acct := createTestAccount(t, e, "test-user")
 	content := []byte("2026-08-20,-40000,Reliance Digital,TXN-900\n")
-	created := requireBatchUpload(t, e, "test-tenant", "autolink.csv", "text/csv", content, acct)
+	created := requireBatchUpload(t, e, "test-user", "autolink.csv", "text/csv", content, acct)
 	id := strVal(created, "id")
 
-	rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-tenant", nil, "")
+	rec := do(t, e.handler, http.MethodPost, "/api/finance/import-batches/"+id+"/commit", "test-user", nil, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("commit status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -993,7 +1002,7 @@ func TestAutoLinkObservable(t *testing.T) {
 		t.Errorf("skipped = %d, want 0", got)
 	}
 
-	movRec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-tenant", nil, "")
+	movRec := do(t, e.handler, http.MethodGet, "/api/finance/movements?account_id="+acct, "test-user", nil, "")
 	if movRec.Code != http.StatusOK {
 		t.Fatalf("movements status = %d, want 200 (body: %s)", movRec.Code, movRec.Body.String())
 	}

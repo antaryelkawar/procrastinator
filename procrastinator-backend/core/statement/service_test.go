@@ -14,14 +14,14 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 )
 
-// testTenant and testTenantB are the two tenant IDs used across the service
-// tests; foreign-tenant scenarios cross between them.
+// testUser and testUserB are the two user IDs used across the service
+// tests; foreign-user scenarios cross between them.
 const (
-	testTenant  = "test-tenant"
-	testTenantB = "other-tenant"
+	testUser  = "test-user"
+	testUserB = "other-user"
 )
 
 // Fixed base times so that List-ordering assertions are deterministic and no
@@ -56,7 +56,7 @@ var (
 // --- fakeAccountRepo --------------------------------------------------------
 
 // fakeAccountRepo is an in-memory implementation of
-// repo.Repository[entity.FinancialAccount] with tenant-scoped Get.
+// repo.Repository[entity.FinancialAccount] with user-scoped Get.
 type fakeAccountRepo struct {
 	mu        sync.Mutex
 	accounts  map[string]entity.FinancialAccount
@@ -75,7 +75,7 @@ func (r *fakeAccountRepo) Get(_ context.Context, id string, opts ...repo.Option)
 	if !ok {
 		return entity.FinancialAccount{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && a.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && a.OwnerID != tid {
 		return entity.FinancialAccount{}, repo.ErrNotFound
 	}
 	return a, nil
@@ -87,7 +87,7 @@ func (r *fakeAccountRepo) List(_ context.Context, opts ...repo.Option) ([]entity
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.FinancialAccount, 0, len(r.accounts))
 	for _, a := range r.accounts {
-		if o.TenantID != "" && a.TenantID != o.TenantID {
+		if o.OwnerID != "" && a.OwnerID != o.OwnerID {
 			continue
 		}
 		out = append(out, a)
@@ -106,8 +106,8 @@ func (r *fakeAccountRepo) Create(_ context.Context, a entity.FinancialAccount, o
 		r.nextID++
 		a.ID = "acct-" + strconv.Itoa(r.nextID)
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		a.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		a.OwnerID = tid
 	}
 	r.accounts[a.ID] = a
 	return a, nil
@@ -119,8 +119,8 @@ func (r *fakeAccountRepo) Update(_ context.Context, a entity.FinancialAccount, o
 	if _, ok := r.accounts[a.ID]; !ok {
 		return entity.FinancialAccount{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		a.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		a.OwnerID = tid
 	}
 	r.accounts[a.ID] = a
 	return a, nil
@@ -161,7 +161,7 @@ func (r *fakeAccountRepo) count() int {
 // --- fakeSourceRepo ----------------------------------------------------------
 
 // fakeSourceRepo is an in-memory implementation of
-// repo.Repository[entity.Source] with tenant-scoped Get.
+// repo.Repository[entity.Source] with user-scoped Get.
 type fakeSourceRepo struct {
 	mu        sync.Mutex
 	sources   map[string]entity.Source
@@ -180,7 +180,7 @@ func (r *fakeSourceRepo) Get(_ context.Context, id string, opts ...repo.Option) 
 	if !ok {
 		return entity.Source{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && s.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && s.OwnerID != tid {
 		return entity.Source{}, repo.ErrNotFound
 	}
 	return s, nil
@@ -192,7 +192,7 @@ func (r *fakeSourceRepo) List(_ context.Context, opts ...repo.Option) ([]entity.
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.Source, 0, len(r.sources))
 	for _, s := range r.sources {
-		if o.TenantID != "" && s.TenantID != o.TenantID {
+		if o.OwnerID != "" && s.OwnerID != o.OwnerID {
 			continue
 		}
 		out = append(out, s)
@@ -211,8 +211,8 @@ func (r *fakeSourceRepo) Create(_ context.Context, s entity.Source, opts ...repo
 		r.nextID++
 		s.ID = "src-" + strconv.Itoa(r.nextID)
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		s.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		s.OwnerID = tid
 	}
 	r.sources[s.ID] = s
 	return s, nil
@@ -224,8 +224,8 @@ func (r *fakeSourceRepo) Update(_ context.Context, s entity.Source, opts ...repo
 	if _, ok := r.sources[s.ID]; !ok {
 		return entity.Source{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		s.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		s.OwnerID = tid
 	}
 	r.sources[s.ID] = s
 	return s, nil
@@ -264,13 +264,13 @@ func (r *fakeSourceRepo) count() int {
 }
 
 // byFilename returns the stored sources whose Filename equals filename and
-// whose TenantID equals tenant (both must match).
-func (r *fakeSourceRepo) byFilename(filename, tenant string) []entity.Source {
+// whose OwnerID equals owner (both must match).
+func (r *fakeSourceRepo) byFilename(filename, owner string) []entity.Source {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make([]entity.Source, 0, len(r.sources))
 	for _, s := range r.sources {
-		if s.Filename == filename && s.TenantID == tenant {
+		if s.Filename == filename && s.OwnerID == owner {
 			out = append(out, s)
 		}
 	}
@@ -286,7 +286,7 @@ type movementUpdateCall struct {
 }
 
 // fakeMovementRepo is an in-memory implementation of
-// repo.Repository[entity.MoneyMovement]. List honors repo.Tenant, repo.Where
+// repo.Repository[entity.MoneyMovement]. List honors repo.Owner, repo.Where
 // ("=" on import_batch_id) and repo.OrderBy (empty, "id", or "created_at, id").
 // Create is injectably failible on the Nth call for atomicity tests.
 type fakeMovementRepo struct {
@@ -311,7 +311,7 @@ func (r *fakeMovementRepo) Get(_ context.Context, id string, opts ...repo.Option
 	if !ok {
 		return entity.MoneyMovement{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && m.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && m.OwnerID != tid {
 		return entity.MoneyMovement{}, repo.ErrNotFound
 	}
 	return m, nil
@@ -323,7 +323,7 @@ func (r *fakeMovementRepo) List(_ context.Context, opts ...repo.Option) ([]entit
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.MoneyMovement, 0, len(r.movs))
 	for _, m := range r.movs {
-		if o.TenantID != "" && m.TenantID != o.TenantID {
+		if o.OwnerID != "" && m.OwnerID != o.OwnerID {
 			continue
 		}
 		match := true
@@ -371,8 +371,8 @@ func (r *fakeMovementRepo) Create(_ context.Context, m entity.MoneyMovement, opt
 		r.nextID++
 		m.ID = "mv-" + strconv.Itoa(r.nextID)
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		m.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		m.OwnerID = tid
 	}
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = fixedT0.Add(time.Duration(r.nextID) * time.Second)
@@ -387,8 +387,8 @@ func (r *fakeMovementRepo) Update(_ context.Context, m entity.MoneyMovement, opt
 	if _, ok := r.movs[m.ID]; !ok {
 		return entity.MoneyMovement{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		m.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		m.OwnerID = tid
 	}
 	r.updates = append(r.updates, movementUpdateCall{movement: m})
 	r.movs[m.ID] = m
@@ -521,7 +521,7 @@ func (r *fakeImportBatchRepo) Get(_ context.Context, id string, opts ...repo.Opt
 	if !ok {
 		return entity.ImportBatch{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && b.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && b.OwnerID != tid {
 		return entity.ImportBatch{}, repo.ErrNotFound
 	}
 	return b, nil
@@ -533,7 +533,7 @@ func (r *fakeImportBatchRepo) List(_ context.Context, opts ...repo.Option) ([]en
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.ImportBatch, 0, len(r.batches))
 	for _, b := range r.batches {
-		if o.TenantID != "" && b.TenantID != o.TenantID {
+		if o.OwnerID != "" && b.OwnerID != o.OwnerID {
 			continue
 		}
 		out = append(out, b)
@@ -561,8 +561,8 @@ func (r *fakeImportBatchRepo) Create(_ context.Context, b entity.ImportBatch, op
 		r.nextID++
 		b.ID = "batch-" + strconv.Itoa(r.nextID)
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		b.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		b.OwnerID = tid
 	}
 	if b.CreatedAt.IsZero() {
 		b.CreatedAt = fixedT0.Add(time.Duration(r.nextID) * time.Second)
@@ -580,8 +580,8 @@ func (r *fakeImportBatchRepo) Update(_ context.Context, b entity.ImportBatch, op
 	if _, ok := r.batches[b.ID]; !ok {
 		return entity.ImportBatch{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		b.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		b.OwnerID = tid
 	}
 	r.batches[b.ID] = b
 	return b, nil
@@ -653,7 +653,7 @@ func (r *fakeImportBatchRepo) rollback() {
 // --- fakeImportLineRepo -----------------------------------------------------
 
 // fakeImportLineRepo is an in-memory implementation of
-// repo.Repository[entity.ImportLine]. List honors repo.Tenant, repo.Where
+// repo.Repository[entity.ImportLine]. List honors repo.Owner, repo.Where
 // ("=" on batch_id) and repo.OrderBy ("line_ref").
 type fakeImportLineRepo struct {
 	mu        sync.Mutex
@@ -674,7 +674,7 @@ func (r *fakeImportLineRepo) Get(_ context.Context, id string, opts ...repo.Opti
 	if !ok {
 		return entity.ImportLine{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && l.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && l.OwnerID != tid {
 		return entity.ImportLine{}, repo.ErrNotFound
 	}
 	return l, nil
@@ -686,7 +686,7 @@ func (r *fakeImportLineRepo) List(_ context.Context, opts ...repo.Option) ([]ent
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.ImportLine, 0, len(r.lines))
 	for _, l := range r.lines {
-		if o.TenantID != "" && l.TenantID != o.TenantID {
+		if o.OwnerID != "" && l.OwnerID != o.OwnerID {
 			continue
 		}
 		match := true
@@ -729,8 +729,8 @@ func (r *fakeImportLineRepo) Create(_ context.Context, l entity.ImportLine, opts
 		r.nextID++
 		l.ID = "line-" + strconv.Itoa(r.nextID)
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		l.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		l.OwnerID = tid
 	}
 	if l.CreatedAt.IsZero() {
 		l.CreatedAt = fixedT0.Add(time.Duration(r.nextID) * time.Second)
@@ -745,8 +745,8 @@ func (r *fakeImportLineRepo) Update(_ context.Context, l entity.ImportLine, opts
 	if _, ok := r.lines[l.ID]; !ok {
 		return entity.ImportLine{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		l.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		l.OwnerID = tid
 	}
 	r.lines[l.ID] = l
 	return l, nil
@@ -897,7 +897,7 @@ type movListerCall struct {
 }
 
 // fakeMovLister is an in-memory implementation of MovementsForAccountLister.
-// It filters seeded movements by tenant (from repo.Tenant in opts) AND by
+// It filters seeded movements by user (from repo.Owner in opts) AND by
 // account (SourceAccountID or DestinationAccountID equals accountID), and
 // records every call with its options.
 type fakeMovLister struct {
@@ -927,10 +927,10 @@ func (l *fakeMovLister) MovementsForAccount(_ context.Context, accountID string,
 	if l.listErr != nil {
 		return nil, l.listErr
 	}
-	tid := tenantFromOpts(opts)
+	tid := ownerFromOpts(opts)
 	out := make([]entity.MoneyMovement, 0, len(l.movs))
 	for _, m := range l.movs {
-		if m.TenantID != tid {
+		if m.OwnerID != tid {
 			continue
 		}
 		if (m.SourceAccountID != nil && *m.SourceAccountID == accountID) ||
@@ -964,16 +964,16 @@ func (l *fakeMovLister) callAccountID() string {
 // --- fakeLinkLister ---------------------------------------------------------
 
 // linkSeedDoc tags a document with the amount/currency the concrete store
-// would match on, plus its tenant.
+// would match on, plus its user.
 type linkSeedDoc struct {
 	doc      entity.Document
 	amount   string
 	currency string
-	tenant   string
+	owner    string
 }
 
 // fakeLinkLister is an in-memory implementation of LinkCandidateLister. A
-// seeded document is a candidate only when its tenant and amount/currency match
+// seeded document is a candidate only when its owner and amount/currency match
 // the query AND it is not already linked to any movement in the movement repo
 // (models the concrete NOT EXISTS). Calls are recorded.
 type fakeLinkLister struct {
@@ -989,10 +989,10 @@ func newFakeLinkLister(movRepo *fakeMovementRepo) *fakeLinkLister {
 }
 
 // seed adds a candidate document.
-func (l *fakeLinkLister) seed(doc entity.Document, amount, currency, tenant string) {
+func (l *fakeLinkLister) seed(doc entity.Document, amount, currency, owner string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.seeds = append(l.seeds, linkSeedDoc{doc: doc, amount: amount, currency: currency, tenant: tenant})
+	l.seeds = append(l.seeds, linkSeedDoc{doc: doc, amount: amount, currency: currency, owner: owner})
 }
 
 func (l *fakeLinkLister) LinkCandidates(_ context.Context, amount, currency string, opts ...repo.Option) ([]entity.Document, error) {
@@ -1006,10 +1006,10 @@ func (l *fakeLinkLister) LinkCandidates(_ context.Context, amount, currency stri
 	if l.err != nil {
 		return nil, l.err
 	}
-	tid := tenantFromOpts(opts)
+	tid := ownerFromOpts(opts)
 	out := make([]entity.Document, 0, len(seeds))
 	for _, s := range seeds {
-		if s.tenant != tid || s.amount != amount || s.currency != currency {
+		if s.owner != tid || s.amount != amount || s.currency != currency {
 			continue
 		}
 		if l.movRepo != nil && l.movRepo.linkedDocument(s.doc.ID) {
@@ -1044,9 +1044,9 @@ func (p *fakePDF) ExtractText(_ []byte) (string, error) {
 
 // --- helpers ----------------------------------------------------------------
 
-// tenantFromOpts extracts the tenant ID from options ("" if absent).
-func tenantFromOpts(opts []repo.Option) string {
-	return repo.ApplyOptions(opts...).TenantID
+// ownerFromOpts extracts the user ID from options ("" if absent).
+func ownerFromOpts(opts []repo.Option) string {
+	return repo.ApplyOptions(opts...).OwnerID
 }
 
 // asString coerces a filter value to a string.
@@ -1162,11 +1162,11 @@ type harness struct {
 }
 
 // newHarness builds a fully wired harness with default limits and a seeded
-// account (ID "acct-1", currency INR, tenant testTenant).
+// account (ID "acct-1", currency INR, user testUser).
 func newHarness() *harness {
 	sourceRepo := newFakeSourceRepo()
 	accountRepo := newFakeAccountRepo()
-	accountRepo.seed(entity.FinancialAccount{ID: "acct-1", TenantID: testTenant, Name: "Primary", Type: entity.AccountTypeBank, Currency: "INR"})
+	accountRepo.seed(entity.FinancialAccount{ID: "acct-1", OwnerID: testUser, Name: "Primary", Type: entity.AccountTypeBank, Currency: "INR"})
 	movRepo := newFakeMovementRepo()
 	batchRepo := newFakeImportBatchRepo()
 	lineRepo := newFakeImportLineRepo()
@@ -1192,9 +1192,9 @@ func newHarness() *harness {
 	}
 }
 
-// ctx returns a context carrying the given tenant ID.
-func (h *harness) ctx(tenantID string) context.Context {
-	return tenant.WithTenant(context.Background(), tenantID)
+// ctx returns a context carrying the given user ID.
+func (h *harness) ctx(OwnerID string) context.Context {
+	return user.WithUser(context.Background(), OwnerID)
 }
 
 // --- Upload tests -------------------------------------------------------------
@@ -1207,7 +1207,7 @@ func TestUploadSuccessfulCSVPreviewBatch(t *testing.T) {
 	h := newHarness()
 	data := []byte("2026-08-20,-1250.50,Reliance Digital,REF-1\n2026-08-21,300.00,Coffee\nnot-a-date,100.00,Bad Date Line")
 
-	batch, lines, err := h.svc.Upload(h.ctx(testTenant), "acct-1", "statement.csv", data)
+	batch, lines, err := h.svc.Upload(h.ctx(testUser), "acct-1", "statement.csv", data)
 	if err != nil {
 		t.Fatalf("Upload returned error %v, want nil", err)
 	}
@@ -1239,8 +1239,8 @@ func TestUploadSuccessfulCSVPreviewBatch(t *testing.T) {
 	if batch.LineCountError != 1 {
 		t.Errorf("batch LineCountError = %d, want 1", batch.LineCountError)
 	}
-	if batch.TenantID != testTenant {
-		t.Errorf("batch TenantID = %q, want %q", batch.TenantID, testTenant)
+	if batch.OwnerID != testUser {
+		t.Errorf("batch OwnerID = %q, want %q", batch.OwnerID, testUser)
 	}
 
 	if len(lines) != 3 {
@@ -1302,10 +1302,10 @@ func TestUploadSuccessfulCSVPreviewBatch(t *testing.T) {
 	if name != "statement.csv" {
 		t.Errorf("sourceStore lastCall name = %q, want \"statement.csv\"", name)
 	}
-	// Source row persisted for the uploaded filename and tenant.
-	srcs := h.sourceRepo.byFilename("statement.csv", testTenant)
+	// Source row persisted for the uploaded filename and user.
+	srcs := h.sourceRepo.byFilename("statement.csv", testUser)
 	if len(srcs) != 1 {
-		t.Errorf("sourceRepo row count for statement.csv/test-tenant = %d, want 1", len(srcs))
+		t.Errorf("sourceRepo row count for statement.csv/test-user = %d, want 1", len(srcs))
 	}
 
 	// No movements created.
@@ -1314,7 +1314,7 @@ func TestUploadSuccessfulCSVPreviewBatch(t *testing.T) {
 	}
 
 	// Re-readable via GetBatch.
-	gb, glines, err := h.svc.GetBatch(h.ctx(testTenant), batch.ID)
+	gb, glines, err := h.svc.GetBatch(h.ctx(testUser), batch.ID)
 	if err != nil {
 		t.Fatalf("GetBatch returned error %v", err)
 	}
@@ -1325,12 +1325,12 @@ func TestUploadSuccessfulCSVPreviewBatch(t *testing.T) {
 		t.Errorf("GetBatch returned %d lines, want 3", len(glines))
 	}
 
-	// fakeMovLister called with account ID and tenant.
+	// fakeMovLister called with account ID and user.
 	if got := h.movLister.callAccountID(); got != "acct-1" {
 		t.Errorf("movLister accountID = %q, want \"acct-1\"", got)
 	}
-	if got := tenantFromOpts(h.movLister.lastCallOpts()); got != testTenant {
-		t.Errorf("movLister tenant = %q, want %q", got, testTenant)
+	if got := ownerFromOpts(h.movLister.lastCallOpts()); got != testUser {
+		t.Errorf("movLister user = %q, want %q", got, testUser)
 	}
 }
 
@@ -1343,7 +1343,7 @@ func TestUploadUnsupportedType(t *testing.T) {
 		t.Parallel()
 		h := newHarness()
 		h.sourceStore.err = errStoreUnsupported
-		_, _, err := h.svc.Upload(h.ctx(testTenant), "acct-1", "file.png", []byte("x"))
+		_, _, err := h.svc.Upload(h.ctx(testUser), "acct-1", "file.png", []byte("x"))
 		if !errors.Is(err, ErrUnsupportedType) {
 			t.Fatalf("Upload error = %v, want ErrUnsupportedType", err)
 		}
@@ -1359,7 +1359,7 @@ func TestUploadUnsupportedType(t *testing.T) {
 		t.Parallel()
 		h := newHarness()
 		h.sourceStore.contentType = "application/octet-stream"
-		_, _, err := h.svc.Upload(h.ctx(testTenant), "acct-1", "file.bin", []byte("2026-08-20,-100.00,Test"))
+		_, _, err := h.svc.Upload(h.ctx(testUser), "acct-1", "file.bin", []byte("2026-08-20,-100.00,Test"))
 		if !errors.Is(err, ErrUnsupportedType) {
 			t.Fatalf("Upload error = %v, want ErrUnsupportedType", err)
 		}
@@ -1376,7 +1376,7 @@ func TestUploadOversize(t *testing.T) {
 	h := newHarness()
 	h.svc.maxBytes = 10
 	big := bytes.Repeat([]byte("x"), 11)
-	_, _, err := h.svc.Upload(h.ctx(testTenant), "acct-1", "big.csv", big)
+	_, _, err := h.svc.Upload(h.ctx(testUser), "acct-1", "big.csv", big)
 	if !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("Upload error = %v, want ErrTooLarge", err)
 	}
@@ -1398,7 +1398,7 @@ func TestUploadUnknownAccount(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
 	data := []byte("2026-08-20,-100.00,Test")
-	_, _, err := h.svc.Upload(h.ctx(testTenant), "nonexistent-acct", "s.csv", data)
+	_, _, err := h.svc.Upload(h.ctx(testUser), "nonexistent-acct", "s.csv", data)
 	if !errors.Is(err, repo.ErrNotFound) {
 		t.Fatalf("Upload error = %v, want repo.ErrNotFound", err)
 	}
@@ -1409,8 +1409,8 @@ func TestUploadUnknownAccount(t *testing.T) {
 		t.Errorf("batch count = %d, want 0", got)
 	}
 	// Source row retained despite the unknown account.
-	if srcs := h.sourceRepo.byFilename("s.csv", testTenant); len(srcs) != 1 {
-		t.Errorf("sourceRepo row count for s.csv/test-tenant = %d, want 1 (retained)", len(srcs))
+	if srcs := h.sourceRepo.byFilename("s.csv", testUser); len(srcs) != 1 {
+		t.Errorf("sourceRepo row count for s.csv/test-user = %d, want 1 (retained)", len(srcs))
 	}
 }
 
@@ -1421,7 +1421,7 @@ func TestUploadImageOnlyPDF(t *testing.T) {
 	h := newHarness()
 	h.sourceStore.contentType = "application/pdf"
 	h.pdf.text = "" // image-only PDF
-	_, _, err := h.svc.Upload(h.ctx(testTenant), "acct-1", "scan.pdf", []byte("pdf-bytes"))
+	_, _, err := h.svc.Upload(h.ctx(testUser), "acct-1", "scan.pdf", []byte("pdf-bytes"))
 	if !errors.Is(err, ErrNoLines) {
 		t.Fatalf("Upload error = %v, want ErrNoLines", err)
 	}
@@ -1432,8 +1432,8 @@ func TestUploadImageOnlyPDF(t *testing.T) {
 		t.Errorf("batch count = %d, want 0", got)
 	}
 	// Source row retained despite ErrNoLines.
-	if srcs := h.sourceRepo.byFilename("scan.pdf", testTenant); len(srcs) != 1 {
-		t.Errorf("sourceRepo row count for scan.pdf/test-tenant = %d, want 1 (retained)", len(srcs))
+	if srcs := h.sourceRepo.byFilename("scan.pdf", testUser); len(srcs) != 1 {
+		t.Errorf("sourceRepo row count for scan.pdf/test-user = %d, want 1 (retained)", len(srcs))
 	}
 }
 
@@ -1444,7 +1444,7 @@ func TestUploadPDFTextLines(t *testing.T) {
 	h.sourceStore.contentType = "application/pdf"
 	h.pdf.text = "2026-08-20,-1250.50,Reliance Digital,REF-1\n\n2026-08-21,300.00,Coffee\n"
 
-	batch, lines, err := h.svc.Upload(h.ctx(testTenant), "acct-1", "scan.pdf", []byte("pdf-bytes"))
+	batch, lines, err := h.svc.Upload(h.ctx(testUser), "acct-1", "scan.pdf", []byte("pdf-bytes"))
 	if err != nil {
 		t.Fatalf("Upload returned error %v, want nil", err)
 	}
@@ -1476,7 +1476,7 @@ func TestUploadTooManyLines(t *testing.T) {
 	h.svc.maxLines = maxLines
 	// 3 data rows (no header)
 	data := []byte("2026-08-20,-100.00,A\n2026-08-21,-200.00,B\n2026-08-22,-300.00,C")
-	_, _, err := h.svc.Upload(h.ctx(testTenant), "acct-1", "many.csv", data)
+	_, _, err := h.svc.Upload(h.ctx(testUser), "acct-1", "many.csv", data)
 	if !errors.Is(err, ErrTooManyLines) {
 		t.Fatalf("Upload error = %v, want ErrTooManyLines", err)
 	}
@@ -1487,8 +1487,8 @@ func TestUploadTooManyLines(t *testing.T) {
 		t.Errorf("batch count = %d, want 0", got)
 	}
 	// Source row retained despite ErrTooManyLines.
-	if srcs := h.sourceRepo.byFilename("many.csv", testTenant); len(srcs) != 1 {
-		t.Errorf("sourceRepo row count for many.csv/test-tenant = %d, want 1 (retained)", len(srcs))
+	if srcs := h.sourceRepo.byFilename("many.csv", testUser); len(srcs) != 1 {
+		t.Errorf("sourceRepo row count for many.csv/test-user = %d, want 1 (retained)", len(srcs))
 	}
 }
 
@@ -1518,7 +1518,7 @@ func TestUploadInBoundsWithinTimeBound(t *testing.T) {
 	// mirroring the harness construction.
 	sourceRepo := newFakeSourceRepo()
 	accountRepo := newFakeAccountRepo()
-	accountRepo.seed(entity.FinancialAccount{ID: "acct-1", TenantID: testTenant, Name: "Primary", Type: entity.AccountTypeBank, Currency: "INR"})
+	accountRepo.seed(entity.FinancialAccount{ID: "acct-1", OwnerID: testUser, Name: "Primary", Type: entity.AccountTypeBank, Currency: "INR"})
 	movRepo := newFakeMovementRepo()
 	batchRepo := newFakeImportBatchRepo()
 	lineRepo := newFakeImportLineRepo()
@@ -1529,7 +1529,7 @@ func TestUploadInBoundsWithinTimeBound(t *testing.T) {
 	svc := New(ff.factory, sourceStore, movLister, linkLister, &fakePDF{}, int64(8<<20), wantLines)
 
 	start := time.Now()
-	batch, lines, err := svc.Upload(tenant.WithTenant(context.Background(), testTenant), "acct-1", "statement.csv", data)
+	batch, lines, err := svc.Upload(user.WithUser(context.Background(), testUser), "acct-1", "statement.csv", data)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -1563,14 +1563,14 @@ func TestUploadInBoundsWithinTimeBound(t *testing.T) {
 	}
 }
 
-// TestUploadNoTenant verifies that a context without a tenant is rejected
+// TestUploadNoUser verifies that a context without a user is rejected
 // before any store call.
-func TestUploadNoTenant(t *testing.T) {
+func TestUploadNoUser(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
 	_, _, err := h.svc.Upload(context.Background(), "acct-1", "s.csv", []byte("2026-08-20,-100.00,Test"))
-	if !errors.Is(err, tenant.ErrNoTenant) {
-		t.Fatalf("Upload error = %v, want tenant.ErrNoTenant", err)
+	if !errors.Is(err, user.ErrNoUser) {
+		t.Fatalf("Upload error = %v, want user.ErrNoUser", err)
 	}
 	if got := h.sourceStore.callCount(); got != 0 {
 		t.Errorf("sourceStore callCount = %d, want 0", got)
@@ -1588,7 +1588,7 @@ func TestUploadNoTenant(t *testing.T) {
 func seedPreviewBatch(h *harness, batchID string, lines []entity.ImportLine) entity.ImportBatch {
 	batch := entity.ImportBatch{
 		ID:        batchID,
-		TenantID:  testTenant,
+		OwnerID:   testUser,
 		State:     entity.BatchStatePreview,
 		AccountID: "acct-1",
 		SourceID:  "src-seeded",
@@ -1600,7 +1600,7 @@ func seedPreviewBatch(h *harness, batchID string, lines []entity.ImportLine) ent
 	h.factory.batchRepo.seed(batch)
 	for _, l := range lines {
 		l.BatchID = batchID
-		l.TenantID = testTenant
+		l.OwnerID = testUser
 		h.factory.lineRepo.seed(l)
 	}
 	// Recompute counts on the batch.
@@ -1680,7 +1680,7 @@ func TestCommitCreatesMovementsForValidLinesOnly(t *testing.T) {
 	}
 
 	batch := seedPreviewBatch(h, "batch-1", lines)
-	summary, err := h.svc.Commit(h.ctx(testTenant), batch.ID)
+	summary, err := h.svc.Commit(h.ctx(testUser), batch.ID)
 	if err != nil {
 		t.Fatalf("Commit returned error %v, want nil", err)
 	}
@@ -1743,7 +1743,7 @@ func TestCommitCreatesMovementsForValidLinesOnly(t *testing.T) {
 	}
 
 	// Batch is committed.
-	gb, _, err := h.svc.GetBatch(h.ctx(testTenant), "batch-1")
+	gb, _, err := h.svc.GetBatch(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("GetBatch error %v", err)
 	}
@@ -1789,7 +1789,7 @@ func TestCommitAtomic(t *testing.T) {
 	// Inject failure on the 2nd movement Create.
 	h.factory.movRepo.failAt = 2
 
-	_, err := h.svc.Commit(h.ctx(testTenant), batch.ID)
+	_, err := h.svc.Commit(h.ctx(testUser), batch.ID)
 	if err == nil {
 		t.Fatal("Commit returned nil error, want error from failed create")
 	}
@@ -1803,7 +1803,7 @@ func TestCommitAtomic(t *testing.T) {
 	}
 
 	// Batch still in preview.
-	gb, _, err := h.svc.GetBatch(h.ctx(testTenant), "batch-1")
+	gb, _, err := h.svc.GetBatch(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("GetBatch error %v", err)
 	}
@@ -1838,13 +1838,13 @@ func TestCommitIdempotent(t *testing.T) {
 
 	batch := seedPreviewBatch(h, "batch-1", lines)
 
-	summary1, err := h.svc.Commit(h.ctx(testTenant), batch.ID)
+	summary1, err := h.svc.Commit(h.ctx(testUser), batch.ID)
 	if err != nil {
 		t.Fatalf("first Commit error %v", err)
 	}
 	movCountAfterFirst := h.factory.movRepo.count()
 
-	summary2, err := h.svc.Commit(h.ctx(testTenant), batch.ID)
+	summary2, err := h.svc.Commit(h.ctx(testUser), batch.ID)
 	if err != nil {
 		t.Fatalf("second Commit error %v", err)
 	}
@@ -1867,13 +1867,13 @@ func TestCommitDiscardedConflict(t *testing.T) {
 	h := newHarness()
 
 	batch := entity.ImportBatch{
-		ID: "batch-1", TenantID: testTenant,
+		ID: "batch-1", OwnerID: testUser,
 		State: entity.BatchStateDiscarded, AccountID: "acct-1",
 		CreatedAt: fixedT0, UpdatedAt: fixedT0,
 	}
 	h.factory.batchRepo.seed(batch)
 
-	_, err := h.svc.Commit(h.ctx(testTenant), "batch-1")
+	_, err := h.svc.Commit(h.ctx(testUser), "batch-1")
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("Commit error = %v, want ErrConflict", err)
 	}
@@ -1894,7 +1894,7 @@ func TestCommitZeroValidLines(t *testing.T) {
 	}
 
 	seedPreviewBatch(h, "batch-1", lines)
-	summary, err := h.svc.Commit(h.ctx(testTenant), "batch-1")
+	summary, err := h.svc.Commit(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("Commit error %v", err)
 	}
@@ -1914,14 +1914,14 @@ func TestCommitZeroValidLines(t *testing.T) {
 func TestCommitUnknownBatch(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
-	_, err := h.svc.Commit(h.ctx(testTenant), "nonexistent")
+	_, err := h.svc.Commit(h.ctx(testUser), "nonexistent")
 	if !errors.Is(err, repo.ErrNotFound) {
 		t.Fatalf("Commit error = %v, want repo.ErrNotFound", err)
 	}
 }
 
-// TestCommitNoTenant verifies that a context without a tenant is rejected.
-func TestCommitNoTenant(t *testing.T) {
+// TestCommitNoUser verifies that a context without a user is rejected.
+func TestCommitNoUser(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
 	lines := []entity.ImportLine{
@@ -1932,8 +1932,8 @@ func TestCommitNoTenant(t *testing.T) {
 	seedPreviewBatch(h, "batch-1", lines)
 
 	_, err := h.svc.Commit(context.Background(), "batch-1")
-	if !errors.Is(err, tenant.ErrNoTenant) {
-		t.Fatalf("Commit error = %v, want tenant.ErrNoTenant", err)
+	if !errors.Is(err, user.ErrNoUser) {
+		t.Fatalf("Commit error = %v, want user.ErrNoUser", err)
 	}
 	if got := h.factory.movRepo.count(); got != 0 {
 		t.Errorf("movement count = %d, want 0", got)
@@ -1953,7 +1953,7 @@ func TestDiscardPreview(t *testing.T) {
 	}
 	seedPreviewBatch(h, "batch-1", lines)
 
-	updated, err := h.svc.Discard(h.ctx(testTenant), "batch-1")
+	updated, err := h.svc.Discard(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("Discard error %v", err)
 	}
@@ -1962,7 +1962,7 @@ func TestDiscardPreview(t *testing.T) {
 	}
 
 	// Lines still readable.
-	_, glines, err := h.svc.GetBatch(h.ctx(testTenant), "batch-1")
+	_, glines, err := h.svc.GetBatch(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("GetBatch error %v", err)
 	}
@@ -1978,13 +1978,13 @@ func TestDiscardIdempotent(t *testing.T) {
 	h := newHarness()
 
 	batch := entity.ImportBatch{
-		ID: "batch-1", TenantID: testTenant,
+		ID: "batch-1", OwnerID: testUser,
 		State: entity.BatchStateDiscarded, AccountID: "acct-1",
 		CreatedAt: fixedT0, UpdatedAt: fixedT0,
 	}
 	h.factory.batchRepo.seed(batch)
 
-	updated, err := h.svc.Discard(h.ctx(testTenant), "batch-1")
+	updated, err := h.svc.Discard(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("Discard error %v", err)
 	}
@@ -2000,13 +2000,13 @@ func TestDiscardCommittedConflict(t *testing.T) {
 	h := newHarness()
 
 	batch := entity.ImportBatch{
-		ID: "batch-1", TenantID: testTenant,
+		ID: "batch-1", OwnerID: testUser,
 		State: entity.BatchStateCommitted, AccountID: "acct-1",
 		CreatedAt: fixedT0, UpdatedAt: fixedT0,
 	}
 	h.factory.batchRepo.seed(batch)
 
-	_, err := h.svc.Discard(h.ctx(testTenant), "batch-1")
+	_, err := h.svc.Discard(h.ctx(testUser), "batch-1")
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("Discard error = %v, want ErrConflict", err)
 	}
@@ -2017,7 +2017,7 @@ func TestDiscardCommittedConflict(t *testing.T) {
 func TestDiscardUnknown(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
-	_, err := h.svc.Discard(h.ctx(testTenant), "nonexistent")
+	_, err := h.svc.Discard(h.ctx(testUser), "nonexistent")
 	if !errors.Is(err, repo.ErrNotFound) {
 		t.Fatalf("Discard error = %v, want repo.ErrNotFound", err)
 	}
@@ -2031,14 +2031,14 @@ func seedCommittedBatchWithMovs(h *harness, batchID string, batch entity.ImportB
 	for i := range movs {
 		movs[i].ImportBatchID = ptr(batchID)
 		movs[i].Origin = entity.OriginImport
-		movs[i].TenantID = testTenant
+		movs[i].OwnerID = testUser
 	}
 	for i, m := range movs {
 		m.CreatedAt = fixedT0.Add(time.Duration(i) * time.Second)
 		h.factory.movRepo.seed(m)
 	}
 	batch.State = entity.BatchStateCommitted
-	batch.TenantID = testTenant
+	batch.OwnerID = testUser
 	if batch.CreatedAt.IsZero() {
 		batch.CreatedAt = fixedT0
 	}
@@ -2060,19 +2060,19 @@ func TestAutoLinkExactlyOne(t *testing.T) {
 		ID: "mv-1", Kind: entity.KindExpense, Amount: amount, Currency: currency,
 		SourceAccountID: ptr("acct-1"),
 	}
-	doc := entity.Document{ID: "doc-1", TenantID: testTenant}
-	h.linkLister.seed(doc, amount, currency, testTenant)
+	doc := entity.Document{ID: "doc-1", OwnerID: testUser}
+	h.linkLister.seed(doc, amount, currency, testUser)
 
 	batch := entity.ImportBatch{ID: "batch-1", AccountID: "acct-1", LineCountValid: 1}
 	seedCommittedBatchWithMovs(h, "batch-1", batch, []entity.MoneyMovement{mv})
 
 	// Call applyAutoLinks via Commit (idempotent path).
-	_, err := h.svc.Commit(h.ctx(testTenant), "batch-1")
+	_, err := h.svc.Commit(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("Commit error %v", err)
 	}
 
-	stored, _ := h.factory.movRepo.Get(context.Background(), "mv-1", repo.Tenant(testTenant))
+	stored, _ := h.factory.movRepo.Get(context.Background(), "mv-1", repo.Owner(testUser))
 	if stored.LinkedDocumentID == nil || *stored.LinkedDocumentID != "doc-1" {
 		t.Errorf("LinkedDocumentID = %v, want &\"doc-1\"", stored.LinkedDocumentID)
 	}
@@ -2093,18 +2093,18 @@ func TestAutoLinkMultipleNoLink(t *testing.T) {
 		ID: "mv-1", Kind: entity.KindExpense, Amount: amount, Currency: currency,
 		SourceAccountID: ptr("acct-1"),
 	}
-	h.linkLister.seed(entity.Document{ID: "doc-1", TenantID: testTenant}, amount, currency, testTenant)
-	h.linkLister.seed(entity.Document{ID: "doc-2", TenantID: testTenant}, amount, currency, testTenant)
+	h.linkLister.seed(entity.Document{ID: "doc-1", OwnerID: testUser}, amount, currency, testUser)
+	h.linkLister.seed(entity.Document{ID: "doc-2", OwnerID: testUser}, amount, currency, testUser)
 
 	batch := entity.ImportBatch{ID: "batch-1", AccountID: "acct-1", LineCountValid: 1}
 	seedCommittedBatchWithMovs(h, "batch-1", batch, []entity.MoneyMovement{mv})
 
-	_, err := h.svc.Commit(h.ctx(testTenant), "batch-1")
+	_, err := h.svc.Commit(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("Commit error %v", err)
 	}
 
-	stored, _ := h.factory.movRepo.Get(context.Background(), "mv-1", repo.Tenant(testTenant))
+	stored, _ := h.factory.movRepo.Get(context.Background(), "mv-1", repo.Owner(testUser))
 	if stored.LinkedDocumentID != nil {
 		t.Errorf("LinkedDocumentID = %v, want nil (ambiguous)", stored.LinkedDocumentID)
 	}
@@ -2124,12 +2124,12 @@ func TestAutoLinkZeroNoLink(t *testing.T) {
 	batch := entity.ImportBatch{ID: "batch-1", AccountID: "acct-1", LineCountValid: 1}
 	seedCommittedBatchWithMovs(h, "batch-1", batch, []entity.MoneyMovement{mv})
 
-	_, err := h.svc.Commit(h.ctx(testTenant), "batch-1")
+	_, err := h.svc.Commit(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("Commit error %v", err)
 	}
 
-	stored, _ := h.factory.movRepo.Get(context.Background(), "mv-1", repo.Tenant(testTenant))
+	stored, _ := h.factory.movRepo.Get(context.Background(), "mv-1", repo.Owner(testUser))
 	if stored.LinkedDocumentID != nil {
 		t.Errorf("LinkedDocumentID = %v, want nil (no candidates)", stored.LinkedDocumentID)
 	}
@@ -2151,19 +2151,19 @@ func TestAutoLinkAlreadyLinkedNotCandidate(t *testing.T) {
 		ID: "mv-2", Kind: entity.KindExpense, Amount: amount, Currency: currency,
 		SourceAccountID: ptr("acct-1"),
 	}
-	doc := entity.Document{ID: "doc-1", TenantID: testTenant}
-	h.linkLister.seed(doc, amount, currency, testTenant)
+	doc := entity.Document{ID: "doc-1", OwnerID: testUser}
+	h.linkLister.seed(doc, amount, currency, testUser)
 
 	batch := entity.ImportBatch{ID: "batch-1", AccountID: "acct-1", LineCountValid: 2}
 	seedCommittedBatchWithMovs(h, "batch-1", batch, []entity.MoneyMovement{mv1, mv2})
 
-	_, err := h.svc.Commit(h.ctx(testTenant), "batch-1")
+	_, err := h.svc.Commit(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("Commit error %v", err)
 	}
 
-	mv1Stored, _ := h.factory.movRepo.Get(context.Background(), "mv-1", repo.Tenant(testTenant))
-	mv2Stored, _ := h.factory.movRepo.Get(context.Background(), "mv-2", repo.Tenant(testTenant))
+	mv1Stored, _ := h.factory.movRepo.Get(context.Background(), "mv-1", repo.Owner(testUser))
+	mv2Stored, _ := h.factory.movRepo.Get(context.Background(), "mv-2", repo.Owner(testUser))
 
 	// Exactly one movement should be linked.
 	if mv1Stored.LinkedDocumentID != nil && mv2Stored.LinkedDocumentID != nil {
@@ -2174,12 +2174,12 @@ func TestAutoLinkAlreadyLinkedNotCandidate(t *testing.T) {
 	}
 
 	// Re-commit: still exactly one link.
-	_, err = h.svc.Commit(h.ctx(testTenant), "batch-1")
+	_, err = h.svc.Commit(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("re-Commit error %v", err)
 	}
-	mv1Stored, _ = h.factory.movRepo.Get(context.Background(), "mv-1", repo.Tenant(testTenant))
-	mv2Stored, _ = h.factory.movRepo.Get(context.Background(), "mv-2", repo.Tenant(testTenant))
+	mv1Stored, _ = h.factory.movRepo.Get(context.Background(), "mv-1", repo.Owner(testUser))
+	mv2Stored, _ = h.factory.movRepo.Get(context.Background(), "mv-2", repo.Owner(testUser))
 	links := 0
 	if mv1Stored.LinkedDocumentID != nil {
 		links++
@@ -2198,7 +2198,7 @@ func TestAutoLinkAlreadyLinkedNotCandidate(t *testing.T) {
 func TestListBatchesEmpty(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
-	batches, err := h.svc.ListBatches(h.ctx(testTenant))
+	batches, err := h.svc.ListBatches(h.ctx(testUser))
 	if err != nil {
 		t.Fatalf("ListBatches error %v", err)
 	}
@@ -2217,20 +2217,20 @@ func TestListBatchesOrder(t *testing.T) {
 
 	// Two batches with the same CreatedAt.
 	h.factory.batchRepo.seed(entity.ImportBatch{
-		ID: "batch-b", TenantID: testTenant, State: entity.BatchStatePreview,
+		ID: "batch-b", OwnerID: testUser, State: entity.BatchStatePreview,
 		CreatedAt: fixedT1, UpdatedAt: fixedT1,
 	})
 	h.factory.batchRepo.seed(entity.ImportBatch{
-		ID: "batch-a", TenantID: testTenant, State: entity.BatchStatePreview,
+		ID: "batch-a", OwnerID: testUser, State: entity.BatchStatePreview,
 		CreatedAt: fixedT1, UpdatedAt: fixedT1,
 	})
 	// One batch with an earlier CreatedAt.
 	h.factory.batchRepo.seed(entity.ImportBatch{
-		ID: "batch-early", TenantID: testTenant, State: entity.BatchStatePreview,
+		ID: "batch-early", OwnerID: testUser, State: entity.BatchStatePreview,
 		CreatedAt: fixedT0, UpdatedAt: fixedT0,
 	})
 
-	batches, err := h.svc.ListBatches(h.ctx(testTenant))
+	batches, err := h.svc.ListBatches(h.ctx(testUser))
 	if err != nil {
 		t.Fatalf("ListBatches error %v", err)
 	}
@@ -2254,7 +2254,7 @@ func TestListBatchesOrder(t *testing.T) {
 func TestGetBatchUnknown(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
-	_, _, err := h.svc.GetBatch(h.ctx(testTenant), "nonexistent")
+	_, _, err := h.svc.GetBatch(h.ctx(testUser), "nonexistent")
 	if !errors.Is(err, repo.ErrNotFound) {
 		t.Fatalf("GetBatch error = %v, want repo.ErrNotFound", err)
 	}
@@ -2285,12 +2285,12 @@ func TestGetBatchReturnsStateCountsLines(t *testing.T) {
 	}
 	batch := seedPreviewBatch(h, "batch-1", lines)
 
-	_, err := h.svc.Commit(h.ctx(testTenant), batch.ID)
+	_, err := h.svc.Commit(h.ctx(testUser), batch.ID)
 	if err != nil {
 		t.Fatalf("Commit error %v", err)
 	}
 
-	gb, glines, err := h.svc.GetBatch(h.ctx(testTenant), "batch-1")
+	gb, glines, err := h.svc.GetBatch(h.ctx(testUser), "batch-1")
 	if err != nil {
 		t.Fatalf("GetBatch error %v", err)
 	}
@@ -2317,11 +2317,11 @@ func TestGetBatchReturnsStateCountsLines(t *testing.T) {
 	}
 }
 
-// --- Tenant tests ---------------------------------------------------------------
+// --- User tests ---------------------------------------------------------------
 
-// TestTenantForeignBatchNotFound verifies that a batch created under one
-// tenant is not visible from another tenant.
-func TestTenantForeignBatchNotFound(t *testing.T) {
+// TestOwnerForeignBatchNotFound verifies that a batch created under one
+// user is not visible from another user.
+func TestOwnerForeignBatchNotFound(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
 
@@ -2330,50 +2330,50 @@ func TestTenantForeignBatchNotFound(t *testing.T) {
 	}
 	batch := seedPreviewBatch(h, "batch-1", lines)
 
-	// GetBatch with testTenantB.
-	_, _, err := h.svc.GetBatch(h.ctx(testTenantB), batch.ID)
+	// GetBatch with testUserB.
+	_, _, err := h.svc.GetBatch(h.ctx(testUserB), batch.ID)
 	if !errors.Is(err, repo.ErrNotFound) {
-		t.Errorf("GetBatch (tenant B) error = %v, want repo.ErrNotFound", err)
+		t.Errorf("GetBatch (user B) error = %v, want repo.ErrNotFound", err)
 	}
 
-	// Commit with testTenantB.
-	_, err = h.svc.Commit(h.ctx(testTenantB), batch.ID)
+	// Commit with testUserB.
+	_, err = h.svc.Commit(h.ctx(testUserB), batch.ID)
 	if !errors.Is(err, repo.ErrNotFound) {
-		t.Errorf("Commit (tenant B) error = %v, want repo.ErrNotFound", err)
+		t.Errorf("Commit (user B) error = %v, want repo.ErrNotFound", err)
 	}
 
-	// Discard with testTenantB.
-	_, err = h.svc.Discard(h.ctx(testTenantB), batch.ID)
+	// Discard with testUserB.
+	_, err = h.svc.Discard(h.ctx(testUserB), batch.ID)
 	if !errors.Is(err, repo.ErrNotFound) {
-		t.Errorf("Discard (tenant B) error = %v, want repo.ErrNotFound", err)
+		t.Errorf("Discard (user B) error = %v, want repo.ErrNotFound", err)
 	}
 }
 
-// TestDuplicateDetectionIgnoresOtherTenants verifies that duplicate detection
-// does not consider movements from other tenants.
-func TestDuplicateDetectionIgnoresOtherTenants(t *testing.T) {
+// TestDuplicateDetectionIgnoresOtherOwners verifies that duplicate detection
+// does not consider movements from other Users.
+func TestDuplicateDetectionIgnoresOtherOwners(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
 
-	// testTenantB has a committed movement with ext ref TXN-9.
+	// testUserB has a committed movement with ext ref TXN-9.
 	extRef := "TXN-9"
 	otherAcct := "acct-other"
 	h.movLister.seed(entity.MoneyMovement{
 		ID:                "mv-foreign",
-		TenantID:          testTenantB,
+		OwnerID:           testUserB,
 		ExternalReference: &extRef,
 		SourceAccountID:   &otherAcct,
 	})
 
-	// testTenant uploads a line with ext ref TXN-9 for its own account.
+	// testUser uploads a line with ext ref TXN-9 for its own account.
 	data := []byte("2026-08-20,-100.00,Test,TXN-9")
-	batch, lines, err := h.svc.Upload(h.ctx(testTenant), "acct-1", "s.csv", data)
+	batch, lines, err := h.svc.Upload(h.ctx(testUser), "acct-1", "s.csv", data)
 	if err != nil {
 		t.Fatalf("Upload error %v", err)
 	}
 
 	// The line should be valid (not duplicate) because the foreign movement
-	// is in a different tenant.
+	// is in a different user.
 	if batch.LineCountValid != 1 {
 		t.Errorf("LineCountValid = %d, want 1", batch.LineCountValid)
 	}
@@ -2384,31 +2384,31 @@ func TestDuplicateDetectionIgnoresOtherTenants(t *testing.T) {
 		t.Errorf("lines = %v, want 1 valid line", lines)
 	}
 
-	// MovementsForAccount was called with repo.Tenant(testTenant).
-	if got := tenantFromOpts(h.movLister.lastCallOpts()); got != testTenant {
-		t.Errorf("movLister tenant = %q, want %q", got, testTenant)
+	// MovementsForAccount was called with repo.Owner(testUser).
+	if got := ownerFromOpts(h.movLister.lastCallOpts()); got != testUser {
+		t.Errorf("movLister user = %q, want %q", got, testUser)
 	}
 }
 
-// TestListBatchesNoTenant verifies that ListBatches without a tenant returns
-// tenant.ErrNoTenant.
-func TestListBatchesNoTenant(t *testing.T) {
+// TestListBatchesNoUser verifies that ListBatches without a user returns
+// user.ErrNoUser.
+func TestListBatchesNoUser(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
 	_, err := h.svc.ListBatches(context.Background())
-	if !errors.Is(err, tenant.ErrNoTenant) {
-		t.Fatalf("ListBatches error = %v, want tenant.ErrNoTenant", err)
+	if !errors.Is(err, user.ErrNoUser) {
+		t.Fatalf("ListBatches error = %v, want user.ErrNoUser", err)
 	}
 }
 
-// TestGetBatchNoTenant verifies that GetBatch without a tenant returns
-// tenant.ErrNoTenant.
-func TestGetBatchNoTenant(t *testing.T) {
+// TestGetBatchNoUser verifies that GetBatch without a user returns
+// user.ErrNoUser.
+func TestGetBatchNoUser(t *testing.T) {
 	t.Parallel()
 	h := newHarness()
 	_, _, err := h.svc.GetBatch(context.Background(), "batch-1")
-	if !errors.Is(err, tenant.ErrNoTenant) {
-		t.Fatalf("GetBatch error = %v, want tenant.ErrNoTenant", err)
+	if !errors.Is(err, user.ErrNoUser) {
+		t.Fatalf("GetBatch error = %v, want user.ErrNoUser", err)
 	}
 }
 

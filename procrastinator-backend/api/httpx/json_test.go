@@ -80,11 +80,11 @@ func TestWriteError(t *testing.T) {
 		wantBody   string
 	}{
 		{
-			name:       "status 401 missing tenant header",
+			name:       "status 401 missing user identity",
 			status:     401,
-			msg:        "missing or empty X-Tenant-ID header",
+			msg:        "missing or invalid user identity",
 			wantStatus: 401,
-			wantBody:   `{"error":"missing or empty X-Tenant-ID header"}`,
+			wantBody:   `{"error":"missing or invalid user identity"}`,
 		},
 		{
 			name:       "status 400 bad input",

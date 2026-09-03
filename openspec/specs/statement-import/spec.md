@@ -1,12 +1,14 @@
-# Spec: statement-import
+# statement-import
 
-Delta for change `statement-ledger-ingestion`. Introduces the new `statement-import` capability: the Import Batch lifecycle for bank/wallet statement files. Movements created here are governed by the `financial-ledger` capability of the same change; Sources and Documents referenced here are defined by the `document-ingestion` capability.
+## Purpose
 
-## ADDED Requirements
+Defines the statement-import capability: the Import Batch lifecycle for bank/wallet statement files, scoped per owner. Movements created here are governed by the `financial-ledger` capability; Sources and Documents referenced here are defined by the `document-ingestion` capability.
+
+## Requirements
 
 ### Requirement: Import batch model
 
-The system SHALL persist Import Batches scoped per tenant. An Import Batch SHALL have: an opaque identifier; a lifecycle state from the controlled vocabulary {`preview`, `committed`, `discarded`}; a reference to the target Financial Account the statement describes; a reference to the retained Source of the uploaded statement file; the original filename; the detected statement format (`csv` or `pdf`); per-status line counts; and creation/update timestamps. The lifecycle SHALL be a one-way state machine: a batch is created in `preview` and may transition exactly once to `committed` (via commit) or to `discarded` (via discard); `committed` and `discarded` are terminal states. Every parsed statement line SHALL be persisted as part of the batch with: a stable statement line reference (its 1-based position within the parsed statement), the raw line content, the extracted fields (occurred date, signed amount, description, and optional external reference identifier), a line status from the controlled vocabulary {`valid`, `duplicate`, `possible-duplicate`, `error`}, and, for `error` lines, a human-readable reason.
+The system SHALL persist Import Batches scoped per owner (`owner_id` with a nullable `owner_household_id`). An Import Batch SHALL have: an opaque identifier; a lifecycle state from the controlled vocabulary {`preview`, `committed`, `discarded`}; a reference to the target Financial Account the statement describes; a reference to the retained Source of the uploaded statement file; the original filename; the detected statement format (`csv` or `pdf`); per-status line counts; and creation/update timestamps. The lifecycle SHALL be a one-way state machine: a batch is created in `preview` and may transition exactly once to `committed` (via commit) or to `discarded` (via discard); `committed` and `discarded` are terminal states. Every parsed statement line SHALL be persisted as part of the batch with: a stable statement line reference (its 1-based position within the parsed statement), the raw line content, the extracted fields (occurred date, signed amount, description, and optional external reference identifier), a line status from the controlled vocabulary {`valid`, `duplicate`, `possible-duplicate`, `error`}, and, for `error` lines, a human-readable reason.
 
 #### Scenario: Uploaded batch starts in preview with its lines
 
@@ -20,11 +22,11 @@ The system SHALL persist Import Batches scoped per tenant. An Import Batch SHALL
 
 ### Requirement: Statement upload endpoint
 
-The system SHALL expose `POST /api/finance/import-batches` accepting `multipart/form-data` with the uploaded statement file in a form field named `file` and the target account identifier in a form field named `account_id`. The endpoint SHALL process the upload synchronously — retain the Source, parse the statement, persist the batch and its lines in state `preview` — before responding `201 Created` with a JSON body representing the batch including its lines and their statuses. The system SHALL accept only CSV (`text/csv`) and PDF (`application/pdf`) uploads, determined by content sniffing of the file bytes rather than the client-supplied Content-Type header alone; other types SHALL be rejected with `415 Unsupported Media Type`. Uploads larger than a configurable size limit (default 50 MiB) SHALL be rejected with `413 Payload Too Large`. A missing `file` field or a missing/blank `account_id` SHALL be rejected with `400 Bad Request`. An unknown target account SHALL yield `404 Not Found`. A syntactically accepted file that yields no parseable statement lines — including an image-only/scanned PDF with no text layer (OCR is out of scope) — SHALL be rejected with `422 Unprocessable Entity`; in all rejection cases no Import Batch SHALL be persisted.
+The system SHALL expose `POST /api/users/{userId}/finance/import-batches` accepting `multipart/form-data` with the uploaded statement file in a form field named `file` and the target account identifier in a form field named `account_id`. The endpoint SHALL process the upload synchronously — retain the Source, parse the statement, persist the batch and its lines in state `preview` — before responding `201 Created` with a JSON body representing the batch including its lines and their statuses. The system SHALL accept only CSV (`text/csv`) and PDF (`application/pdf`) uploads, determined by content sniffing of the file bytes rather than the client-supplied Content-Type header alone; other types SHALL be rejected with `415 Unsupported Media Type`. Uploads larger than a configurable size limit (default 50 MiB) SHALL be rejected with `413 Payload Too Large`. A missing `file` field or a missing/blank `account_id` SHALL be rejected with `400 Bad Request`. An unknown target account SHALL yield `404 Not Found`. A syntactically accepted file that yields no parseable statement lines — including an image-only/scanned PDF with no text layer (OCR is out of scope) — SHALL be rejected with `422 Unprocessable Entity`; in all rejection cases no Import Batch SHALL be persisted.
 
 #### Scenario: Successful CSV upload returns a preview batch
 
-- **WHEN** a client POSTs a valid bank statement CSV as multipart field `file` with a valid `account_id` to `/api/finance/import-batches`
+- **WHEN** a client POSTs a valid bank statement CSV as multipart field `file` with a valid `account_id` to `/api/users/{userId}/finance/import-batches`
 - **THEN** the response is `201 Created` with the batch in state `preview`, and the batch's lines carry per-line statuses
 
 #### Scenario: Unsupported file type is rejected
@@ -58,12 +60,12 @@ Every accepted upload SHALL be retained as a Source record before parsing, with 
 
 #### Scenario: Committed batch still exposes its Source
 
-- **WHEN** a batch has been committed and a client requests `GET /api/finance/import-batches/{id}`
+- **WHEN** a batch has been committed and a client requests `GET /api/users/{userId}/finance/import-batches/{id}`
 - **THEN** the response references the retained Source of the original statement file
 
 ### Requirement: Statement parsing and per-line preview
 
-Parsing SHALL extract for each statement line: the occurred date, the signed amount with its direction relative to the target account (money out vs money in), a counterparty description, and, when the statement provides one, an external reference identifier. A line from which date, amount, and description cannot all be extracted SHALL be marked `error` with a reason and SHALL NOT block the remaining lines. Parsing and preview SHALL NOT create, modify, or delete any Money Movement and SHALL NOT change any derived balance; canonical writes happen only at commit. The batch and its per-line preview SHALL be retrievable via `GET /api/finance/import-batches/{id}` until the batch is discarded or committed, and remain retrievable afterwards.
+Parsing SHALL extract for each statement line: the occurred date, the signed amount with its direction relative to the target account (money out vs money in), a counterparty description, and, when the statement provides one, an external reference identifier. A line from which date, amount, and description cannot all be extracted SHALL be marked `error` with a reason and SHALL NOT block the remaining lines. Parsing and preview SHALL NOT create, modify, or delete any Money Movement and SHALL NOT change any derived balance; canonical writes happen only at commit. The batch and its per-line preview SHALL be retrievable via `GET /api/users/{userId}/finance/import-batches/{id}` until the batch is discarded or committed, and remain retrievable afterwards.
 
 #### Scenario: Preview creates no movements
 
@@ -77,12 +79,12 @@ Parsing SHALL extract for each statement line: the occurred date, the signed amo
 
 #### Scenario: Preview is re-readable
 
-- **WHEN** a client requests `GET /api/finance/import-batches/{id}` for a batch in state `preview`
+- **WHEN** a client requests `GET /api/users/{userId}/finance/import-batches/{id}` for a batch in state `preview`
 - **THEN** the response is `200 OK` with the batch and every line's line reference, extracted fields, and status
 
 ### Requirement: Deterministic duplicate detection
 
-Each parsed line SHALL be classified deterministically before the batch is persisted. A line SHALL be classified `duplicate` when it carries an external reference identifier equal to the external reference of an already-committed movement on the same target account and tenant, or when it duplicates an earlier line within the same batch. A line that is not a `duplicate` SHALL be classified `possible-duplicate` when its content fingerprint — the tuple of occurred date, exact amount, and normalized description (case-insensitive, with whitespace collapsed) — equals the content fingerprint of an existing movement on the same target account and tenant of any origin. All other fully parsed lines SHALL be classified `valid`. Classification SHALL be deterministic: the same statement file against the same ledger state SHALL produce the same per-line statuses, and re-importing a previously committed statement SHALL classify every re-imported line as `duplicate`.
+Each parsed line SHALL be classified deterministically before the batch is persisted. A line SHALL be classified `duplicate` when it carries an external reference identifier equal to the external reference of an already-committed movement on the same target account and owner scope, or when it duplicates an earlier line within the same batch. A line that is not a `duplicate` SHALL be classified `possible-duplicate` when its content fingerprint — the tuple of occurred date, exact amount, and normalized description (case-insensitive, with whitespace collapsed) — equals the content fingerprint of an existing movement on the same target account and owner scope of any origin. All other fully parsed lines SHALL be classified `valid`. Classification SHALL be deterministic: the same statement file against the same ledger state SHALL produce the same per-line statuses, and re-importing a previously committed statement SHALL classify every re-imported line as `duplicate`.
 
 #### Scenario: External reference match is a duplicate
 
@@ -106,7 +108,7 @@ Each parsed line SHALL be classified deterministically before the batch is persi
 
 ### Requirement: Import batch commit
 
-The system SHALL expose `POST /api/finance/import-batches/{id}/commit`. Committing a batch in state `preview` SHALL atomically create one Money Movement per `valid` line — either all of them or none — and transition the batch to `committed`, responding `200 OK` with a JSON summary of created and skipped line counts. Lines with status `duplicate`, `possible-duplicate`, or `error` SHALL be skipped and SHALL NOT create movements; because imported movements cannot be individually deleted in this change, classification alone decides inclusion, and a client wanting a skipped line SHALL add it via the manual movement API. Each created movement SHALL have: origin `import`; kind `expense` when the line is money out of the target account and `income` when money in (imports never create transfers); the target account as source (expense) or destination (income); the line's exact amount and occurred date as the movement's amount and `occurred_on`; the account's currency; the line's description; the external reference identifier when the line provides one; and the batch identifier and statement line reference as provenance. Commit SHALL be idempotent: committing an already-`committed` batch SHALL respond `200 OK` with the same summary and create no additional movements. Committing a `discarded` batch SHALL be rejected with `409 Conflict`. Committing a batch with zero `valid` lines SHALL succeed, transition the batch to `committed`, and create zero movements.
+The system SHALL expose `POST /api/users/{userId}/finance/import-batches/{id}/commit`. Committing a batch in state `preview` SHALL atomically create one Money Movement per `valid` line — either all of them or none — and transition the batch to `committed`, responding `200 OK` with a JSON summary of created and skipped line counts. Lines with status `duplicate`, `possible-duplicate`, or `error` SHALL be skipped and SHALL NOT create movements; because imported movements cannot be individually deleted in this change, classification alone decides inclusion, and a client wanting a skipped line SHALL add it via the manual movement API. Each created movement SHALL have: origin `import`; kind `expense` when the line is money out of the target account and `income` when money in (imports never create transfers); the target account as source (expense) or destination (income); the line's exact amount and occurred date as the movement's amount and `occurred_on`; the account's currency; the line's description; the external reference identifier when the line provides one; and the batch identifier and statement line reference as provenance. Commit SHALL be idempotent: committing an already-`committed` batch SHALL respond `200 OK` with the same summary and create no additional movements. Committing a `discarded` batch SHALL be rejected with `409 Conflict`. Committing a batch with zero `valid` lines SHALL succeed, transition the batch to `committed`, and create zero movements.
 
 #### Scenario: Commit creates movements for valid lines only
 
@@ -130,7 +132,7 @@ The system SHALL expose `POST /api/finance/import-batches/{id}/commit`. Committi
 
 ### Requirement: Import batch discard
 
-The system SHALL expose `POST /api/finance/import-batches/{id}/discard`. Discarding a batch in state `preview` SHALL transition it to `discarded` and respond `200 OK` with the batch JSON. Discard SHALL be idempotent: discarding an already-`discarded` batch SHALL respond `200 OK` as a no-op. Discarding a `committed` batch SHALL be rejected with `409 Conflict`. A discarded batch SHALL retain its persisted lines and its retained Source, and SHALL never be committable.
+The system SHALL expose `POST /api/users/{userId}/finance/import-batches/{id}/discard`. Discarding a batch in state `preview` SHALL transition it to `discarded` and respond `200 OK` with the batch JSON. Discard SHALL be idempotent: discarding an already-`discarded` batch SHALL respond `200 OK` as a no-op. Discarding a `committed` batch SHALL be rejected with `409 Conflict`. A discarded batch SHALL retain its persisted lines and its retained Source, and SHALL never be committable.
 
 #### Scenario: Preview batch is discarded
 
@@ -149,16 +151,16 @@ The system SHALL expose `POST /api/finance/import-batches/{id}/discard`. Discard
 
 ### Requirement: Auto-linking of committed movements
 
-At commit, the system SHALL deterministically attempt to link each newly created movement to an existing captured Document. A Document SHALL be a link candidate when it belongs to the same tenant, is currently linked to no movement, and carries an extracted price whose amount and currency are both present and exactly equal to the movement's amount and currency. When exactly one candidate exists, the system SHALL create the link with creator kind `auto`. When zero or more than one candidate exists, the system SHALL create no link for that movement. Auto-linking SHALL NOT modify the movement's amount, currency, occurred date, or accounts, and SHALL NOT modify any Document.
+At commit, the system SHALL deterministically attempt to link each newly created movement to an existing captured Document. A Document SHALL be a link candidate when it is in the same owner scope, is currently linked to no movement, and carries an extracted price whose amount and currency are both present and exactly equal to the movement's amount and currency. When exactly one candidate exists, the system SHALL create the link with creator kind `auto`. When zero or more than one candidate exists, the system SHALL create no link for that movement. Auto-linking SHALL NOT modify the movement's amount, currency, occurred date, or accounts, and SHALL NOT modify any Document.
 
 #### Scenario: Exactly one matching document is auto-linked
 
-- **WHEN** a commit creates a movement of `40000 INR` and exactly one unlinked Document of the same tenant has extracted price `40000 INR`
+- **WHEN** a commit creates a movement of `40000 INR` and exactly one unlinked Document in the same owner scope has extracted price `40000 INR`
 - **THEN** the movement is linked to that Document with creator kind `auto`
 
 #### Scenario: Multiple matching documents produce no link
 
-- **WHEN** a commit creates a movement of `40000 INR` and two unlinked Documents of the same tenant each have extracted price `40000 INR`
+- **WHEN** a commit creates a movement of `40000 INR` and two unlinked Documents in the same owner scope each have extracted price `40000 INR`
 - **THEN** no link is created for that movement
 
 #### Scenario: Already-linked document is not a candidate
@@ -168,21 +170,21 @@ At commit, the system SHALL deterministically attempt to link each newly created
 
 ### Requirement: Import batch list and read API
 
-The system SHALL expose `GET /api/finance/import-batches` returning `200 OK` with a JSON array of the tenant's import batches ordered by creation timestamp ascending with ties broken by identifier ascending, and `GET /api/finance/import-batches/{id}` returning `200 OK` with the batch JSON including its state, per-status line counts, Source reference, and its lines with their statuses, or `404 Not Found` for an unknown identifier. An empty import history SHALL return `200 OK` with body `[]`.
+The system SHALL expose `GET /api/users/{userId}/finance/import-batches` returning `200 OK` with a JSON array of the owner's import batches ordered by creation timestamp ascending with ties broken by identifier ascending, and `GET /api/users/{userId}/finance/import-batches/{id}` returning `200 OK` with the batch JSON including its state, per-status line counts, Source reference, and its lines with their statuses, or `404 Not Found` for an unknown identifier. An empty import history SHALL return `200 OK` with body `[]`.
 
 #### Scenario: Empty import history returns an empty array
 
-- **WHEN** no import batches exist and a client requests `GET /api/finance/import-batches`
+- **WHEN** no import batches exist and a client requests `GET /api/users/{userId}/finance/import-batches`
 - **THEN** the response is `200 OK` with body `[]`
 
 #### Scenario: Batch read returns state, counts, and lines
 
-- **WHEN** a client requests `GET /api/finance/import-batches/{id}` for an existing batch
+- **WHEN** a client requests `GET /api/users/{userId}/finance/import-batches/{id}` for an existing batch
 - **THEN** the response is `200 OK` with the batch's state, per-status line counts, Source reference, and every line with its status
 
 #### Scenario: Unknown batch returns 404
 
-- **WHEN** a client requests `GET /api/finance/import-batches/{id}` for an identifier that does not exist
+- **WHEN** a client requests `GET /api/users/{userId}/finance/import-batches/{id}` for an identifier that does not exist
 - **THEN** the response is `404 Not Found`
 
 ### Requirement: Ingestion bounds
@@ -199,21 +201,21 @@ Statement ingestion SHALL enforce measurable resource bounds: the uploaded file 
 - **WHEN** a client uploads a 100 000-line CSV within the size limit
 - **THEN** the upload responds with the preview batch within 60 seconds
 
-### Requirement: Tenant scoping of import data
+### Requirement: Owner scoping of import data
 
-All import records (import batches and their lines) SHALL be tenant-scoped: every import table SHALL carry a `tenant_id`, every persistence operation SHALL resolve the tenant from the explicit tenant option or the request context and SHALL restrict reads and writes to that tenant, and a persistence operation with no resolvable tenant SHALL fail closed with an error rather than operate across tenants. No API response SHALL expose another tenant's import data; batch identifiers of another tenant SHALL behave as non-existent, and duplicate detection SHALL consider only movements of the uploading tenant.
+All import records (import batches and their lines) SHALL be owner-scoped: every import table SHALL carry an `owner_id` (NOT NULL) and a nullable `owner_household_id`, every persistence operation SHALL resolve the owner from the explicit owner option or the request context and SHALL restrict reads and writes by the owner visibility rule, and a persistence operation with no resolvable owner SHALL fail closed with an error rather than operate across owners. No API response SHALL expose another owner's import data; batch identifiers of another owner SHALL behave as non-existent, and duplicate detection SHALL consider only movements of the uploading owner.
 
-#### Scenario: Other tenant's batch id is not found
+#### Scenario: Other owner's batch id is not found
 
-- **WHEN** tenant `acme` requests `GET /api/finance/import-batches/{id}` for a batch created under tenant `globex`
+- **WHEN** owner `acme` requests `GET /api/users/{userId}/finance/import-batches/{id}` for a batch created under owner `globex`
 - **THEN** the response is `404 Not Found`
 
-#### Scenario: Duplicate detection ignores other tenants' movements
+#### Scenario: Duplicate detection ignores other owners' movements
 
-- **WHEN** tenant `globex` has a committed movement with external reference `TXN-123` on an account and tenant `acme` uploads a statement line with the same external reference `TXN-123` for its own account
+- **WHEN** owner `globex` has a committed movement with external reference `TXN-123` on an account and owner `acme` uploads a statement line with the same external reference `TXN-123` for its own account
 - **THEN** the line is not classified `duplicate` on account of globex's movement
 
-#### Scenario: Persistence without tenant fails closed
+#### Scenario: Persistence without owner fails closed
 
-- **WHEN** an import persistence operation is invoked with neither an explicit tenant option nor a context tenant
+- **WHEN** an import persistence operation is invoked with neither an explicit owner option nor a context owner
 - **THEN** it returns an error and performs no query

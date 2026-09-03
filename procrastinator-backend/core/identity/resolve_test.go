@@ -11,21 +11,21 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 )
 
 // Compile-time check: fakeAssetRepo satisfies the generic asset repository.
 var _ repo.Repository[entity.Asset] = (*fakeAssetRepo)(nil)
 
-// testTenant is the tenant ID used by all tests.
-const testTenant = "test-tenant"
+// testUser is the user ID used by all tests.
+const testUser = "test-user"
 
 // ptr returns a pointer to v.
 func ptr[T any](v T) *T { return &v }
 
-// testCtx returns a context carrying the test tenant.
+// testCtx returns a context carrying the test user.
 func testCtx() context.Context {
-	return tenant.WithTenant(context.Background(), testTenant)
+	return user.WithUser(context.Background(), testUser)
 }
 
 // fakeAssetRepo is a configurable in-memory implementation of
@@ -43,22 +43,22 @@ type fakeAssetRepo struct {
 }
 
 // newFakeAssetRepo returns a fakeAssetRepo seeded with the given assets.
-// Seeded assets are forced to carry the test tenant so they survive the
-// tenant filter applied by List.
+// Seeded assets are forced to carry the test user so they survive the
+// user filter applied by List.
 func newFakeAssetRepo(assets ...entity.Asset) *fakeAssetRepo {
 	r := &fakeAssetRepo{
 		assets: make(map[string]entity.Asset, len(assets)),
 	}
 	for _, a := range assets {
-		a.TenantID = testTenant
+		a.OwnerID = testUser
 		r.assets[a.ID] = a
 	}
 	return r
 }
 
-// tenantFromOpts extracts the tenant ID from options ("" if absent).
-func tenantFromOpts(opts []repo.Option) string {
-	return repo.ApplyOptions(opts...).TenantID
+// ownerFromOpts extracts the user ID from options ("" if absent).
+func ownerFromOpts(opts []repo.Option) string {
+	return repo.ApplyOptions(opts...).OwnerID
 }
 
 func (r *fakeAssetRepo) Get(ctx context.Context, id string, opts ...repo.Option) (entity.Asset, error) {
@@ -69,7 +69,7 @@ func (r *fakeAssetRepo) Get(ctx context.Context, id string, opts ...repo.Option)
 	if !ok {
 		return entity.Asset{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && a.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && a.OwnerID != tid {
 		return entity.Asset{}, repo.ErrNotFound
 	}
 	return a, nil
@@ -83,7 +83,7 @@ func (r *fakeAssetRepo) List(ctx context.Context, opts ...repo.Option) ([]entity
 
 	out := make([]entity.Asset, 0, len(r.assets))
 	for _, a := range r.assets {
-		if o.TenantID != "" && a.TenantID != o.TenantID {
+		if o.OwnerID != "" && a.OwnerID != o.OwnerID {
 			continue
 		}
 		match := true
@@ -104,9 +104,19 @@ func (r *fakeAssetRepo) List(ctx context.Context, opts ...repo.Option) ([]entity
 	return out, nil
 }
 
-// matchesFilter reports whether asset a satisfies filter f (supports "="
-// on the norm_* string columns).
+// matchesFilter reports whether asset a satisfies filter f (supports "=" and
+// "IS NULL" on owner_household_id, and "=" on the norm_* string columns).
 func (r *fakeAssetRepo) matchesFilter(a entity.Asset, f repo.Filter) bool {
+	if f.Field == "owner_household_id" {
+		switch f.Op {
+		case "=":
+			want, ok := f.Value.(string)
+			return ok && a.OwnerHouseholdID != nil && *a.OwnerHouseholdID == want
+		case "IS NULL":
+			return a.OwnerHouseholdID == nil
+		}
+		return false
+	}
 	if f.Op != "=" {
 		return false
 	}
@@ -143,8 +153,8 @@ func (r *fakeAssetRepo) Create(ctx context.Context, a entity.Asset, opts ...repo
 		r.nextID++
 		a.ID = "id-" + strconv.Itoa(r.nextID)
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		a.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		a.OwnerID = tid
 	}
 	r.assets[a.ID] = a
 	r.calls = append(r.calls, "Create:"+a.ID)
@@ -158,8 +168,8 @@ func (r *fakeAssetRepo) Update(ctx context.Context, a entity.Asset, opts ...repo
 	if _, ok := r.assets[a.ID]; !ok {
 		return entity.Asset{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		a.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		a.OwnerID = tid
 	}
 	a.UpdatedAt = time.Now()
 	r.assets[a.ID] = a
@@ -246,7 +256,7 @@ func TestResolve_SerialMatchWinsOverBrandModel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo(tc.repoAssets...)
-			got, created, err := Resolve(testCtx(), repo, tc.extraction)
+			got, created, err := Resolve(testCtx(), repo, tc.extraction, nil)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -317,7 +327,7 @@ func TestResolve_BrandModelMatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo(tc.repoAssets...)
-			got, created, err := Resolve(testCtx(), repo, tc.extraction)
+			got, created, err := Resolve(testCtx(), repo, tc.extraction, nil)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -373,7 +383,7 @@ func TestResolve_NoIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo()
-			_, _, err := Resolve(testCtx(), repo, tc.extraction)
+			_, _, err := Resolve(testCtx(), repo, tc.extraction, nil)
 			if !errors.Is(err, ErrNoIdentity) {
 				t.Errorf("Resolve error = %v, want ErrNoIdentity", err)
 			}
@@ -414,7 +424,7 @@ func TestResolve_CreateNew(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo()
-			got, created, err := Resolve(testCtx(), repo, tc.extraction)
+			got, created, err := Resolve(testCtx(), repo, tc.extraction, nil)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -488,7 +498,7 @@ func TestResolve_MergeSemantics(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo(tc.existing)
-			_, _, err := Resolve(testCtx(), repo, tc.extraction)
+			_, _, err := Resolve(testCtx(), repo, tc.extraction, nil)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -616,7 +626,7 @@ func TestResolve_MetadataMerge(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo(tc.existing)
-			_, _, err := Resolve(testCtx(), repo, tc.extraction)
+			_, _, err := Resolve(testCtx(), repo, tc.extraction, nil)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -696,7 +706,7 @@ func TestResolve_DocTypeSet(t *testing.T) {
 				repo = newFakeAssetRepo()
 			}
 
-			got, _, err := Resolve(testCtx(), repo, tc.extraction)
+			got, _, err := Resolve(testCtx(), repo, tc.extraction, nil)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -708,4 +718,143 @@ func TestResolve_DocTypeSet(t *testing.T) {
 			}
 		})
 	}
+}
+
+// sharedSerialAssets returns a personal asset (OwnerHouseholdID nil) and a
+// household asset (OwnerHouseholdID = &h) that share the same norm_serial, so
+// scope fencing is what disambiguates them.
+func sharedSerialAssets(h string) (personal, household entity.Asset) {
+	return entity.Asset{
+			ID:         "PERS",
+			NormSerial: ptr("SHARED-SN"),
+			Brand:      ptr("LG"),
+			NormBrand:  ptr("lg"),
+		}, entity.Asset{
+			ID:               "HOUS",
+			NormSerial:       ptr("SHARED-SN"),
+			Brand:            ptr("LG"),
+			NormBrand:        ptr("lg"),
+			OwnerHouseholdID: ptr(h),
+		}
+}
+
+func TestResolve_HouseholdFence(t *testing.T) {
+	t.Parallel()
+
+	h := "household-1"
+	personal, household := sharedSerialAssets(h)
+	repo := newFakeAssetRepo(personal, household)
+	ext := entity.Extraction{
+		SerialNumber: ptr("SHARED-SN"),
+		Price:        ptr("777.77"),
+	}
+
+	got, created, err := Resolve(testCtx(), repo, ext, ptr(h))
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if created {
+		t.Errorf("created = true, want false (a household asset should have been merged)")
+	}
+	if got.ID != "HOUS" {
+		t.Errorf("resolved asset ID = %q, want %q (must stay within the household scope)", got.ID, "HOUS")
+	}
+	if got.OwnerHouseholdID == nil || *got.OwnerHouseholdID != h {
+		t.Errorf("resolved OwnerHouseholdID = %v, want %q", got.OwnerHouseholdID, h)
+	}
+
+	// The household asset was merged (price applied), the personal one was not.
+	if stored, err := repo.Get(testCtx(), "HOUS"); err != nil {
+		t.Fatalf("Get(HOUS) error: %v", err)
+	} else if stored.Price == nil || *stored.Price != "777.77" {
+		t.Errorf("household asset Price = %v, want %q (merged)", stored.Price, "777.77")
+	}
+	if stored, err := repo.Get(testCtx(), "PERS"); err != nil {
+		t.Fatalf("Get(PERS) error: %v", err)
+	} else {
+		if stored.Price != nil {
+			t.Errorf("personal asset Price = %v, want nil (must NOT be modified by a household upload)", *stored.Price)
+		}
+		if stored.OwnerHouseholdID != nil {
+			t.Errorf("personal asset OwnerHouseholdID = %v, want nil (unchanged)", *stored.OwnerHouseholdID)
+		}
+	}
+}
+
+func TestResolve_PersonalFence(t *testing.T) {
+	t.Parallel()
+
+	h := "household-1"
+	personal, household := sharedSerialAssets(h)
+	repo := newFakeAssetRepo(personal, household)
+	ext := entity.Extraction{
+		SerialNumber: ptr("SHARED-SN"),
+		Price:        ptr("888.88"),
+	}
+
+	got, created, err := Resolve(testCtx(), repo, ext, nil)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if created {
+		t.Errorf("created = true, want false (the personal asset should have been merged)")
+	}
+	if got.ID != "PERS" {
+		t.Errorf("resolved asset ID = %q, want %q (must merge the personal asset)", got.ID, "PERS")
+	}
+	if got.OwnerHouseholdID != nil {
+		t.Errorf("resolved OwnerHouseholdID = %v, want nil", *got.OwnerHouseholdID)
+	}
+
+	// The personal asset was merged, the household one was not.
+	if stored, err := repo.Get(testCtx(), "PERS"); err != nil {
+		t.Fatalf("Get(PERS) error: %v", err)
+	} else if stored.Price == nil || *stored.Price != "888.88" {
+		t.Errorf("personal asset Price = %v, want %q (merged)", stored.Price, "888.88")
+	}
+	if stored, err := repo.Get(testCtx(), "HOUS"); err != nil {
+		t.Fatalf("Get(HOUS) error: %v", err)
+	} else {
+		if stored.Price != nil {
+			t.Errorf("household asset Price = %v, want nil (must NOT be modified by a personal upload)", *stored.Price)
+		}
+		if stored.OwnerHouseholdID == nil {
+			t.Error("household asset OwnerHouseholdID = nil, want household-1 (unchanged)")
+		}
+	}
+}
+
+func TestResolve_ScopeStampedOnCreate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("household scope stamped on create", func(t *testing.T) {
+		t.Parallel()
+		h := "household-2"
+		repo := newFakeAssetRepo()
+		got, created, err := Resolve(testCtx(), repo, entity.Extraction{SerialNumber: ptr("FRESH-H")}, ptr(h))
+		if err != nil {
+			t.Fatalf("Resolve returned error: %v", err)
+		}
+		if !created {
+			t.Fatal("created = false, want true")
+		}
+		if got.OwnerHouseholdID == nil || *got.OwnerHouseholdID != h {
+			t.Errorf("created OwnerHouseholdID = %v, want %q", got.OwnerHouseholdID, h)
+		}
+	})
+
+	t.Run("personal scope stamped on create", func(t *testing.T) {
+		t.Parallel()
+		repo := newFakeAssetRepo()
+		got, created, err := Resolve(testCtx(), repo, entity.Extraction{SerialNumber: ptr("FRESH-P")}, nil)
+		if err != nil {
+			t.Fatalf("Resolve returned error: %v", err)
+		}
+		if !created {
+			t.Fatal("created = false, want true")
+		}
+		if got.OwnerHouseholdID != nil {
+			t.Errorf("created OwnerHouseholdID = %v, want nil", *got.OwnerHouseholdID)
+		}
+	})
 }

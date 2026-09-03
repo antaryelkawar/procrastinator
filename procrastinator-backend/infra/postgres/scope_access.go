@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"procrastinator-backend/commons/repo"
 )
 
 // householdsForUser returns the ids of every household the given user is a
@@ -29,92 +27,83 @@ func householdsForUser(ctx context.Context, q Querier, userID string) ([]string,
 	return ids, rows.Err()
 }
 
-// ListScoped lists rows visible to the resolved tenant/user under the spec's
-// scope access rule: the user's personal rows (scope_type = 'personal') plus
-// rows owned by a household the user is a member of (owner_household_id IN
-// the user's households). A user with no household memberships sees only
-// personal rows. The tenant boundary itself is enforced by RLS; ListScoped
-// adds the application-level scope filter on top.
-func (r *pgRepository[T]) ListScoped(ctx context.Context, opts ...repo.Option) ([]T, error) {
-	o := repo.ApplyOptions(opts...)
+// visibilityCond builds the scope visibility predicate for a row per the D-8
+// rule:
+//
+//	visible(row, me) := owner_id = me
+//	                  OR (owner_household_id IS NOT NULL
+//	                      AND owner_household_id IN households(me))
+//
+// where households(me) is the set of household ids the user is a member of.
+//
+// The predicate is composable: it appends its bind arguments to *args (the
+// user id first, then each household id) and returns the SQL fragment with
+// $-placeholders that continue the caller's existing arg numbering. No id is
+// ever interpolated literally. It never emits an empty IN (): when the user
+// has no households (or the repository is not shareable) the fragment is just
+// "owner_id = $N".
+//
+// shareable gates whether the household disjunct is emitted at all. Tables
+// without an owner_household_id column (e.g. households) pass shareable=false.
+//
+// table optionally qualifies both owner_id and owner_household_id with a
+// table alias (e.g. "m" yields "m.owner_id = $N" / "m.owner_household_id IN
+// (…)"). An empty table leaves the predicate unqualified (byte-identical to
+// the no-alias form), which is what the main-table WHERE clauses use.
+func visibilityCond(ctx context.Context, q Querier, userID string, shareable bool, table string, args *[]any) (string, error) {
+	prefix := ""
+	if table != "" {
+		prefix = table + "."
+	}
 
-	tid, err := resolveTenant(ctx, o)
+	if !shareable {
+		*args = append(*args, userID)
+		return fmt.Sprintf("%sowner_id = $%d", prefix, len(*args)), nil
+	}
+
+	households, err := householdsForUser(ctx, q, userID)
 	if err != nil {
-		return nil, err
-	}
-	if err := validateFilters(r.filters, o.Filters); err != nil {
-		return nil, err
-	}
-	if err := validateOrderBy(r.filters, o.OrderBy); err != nil {
-		return nil, err
+		return "", err
 	}
 
-	var result []T
-	err = r.scope.run(ctx, tid, func(q Querier) error {
-		households, err := householdsForUser(ctx, q, tid)
-		if err != nil {
-			return err
-		}
+	// User id is always the first bind arg of the fragment.
+	*args = append(*args, userID)
+	if len(households) == 0 {
+		// No memberships: the household disjunct is impossible, so only the
+		// user's personal rows are visible. No empty IN () is emitted.
+		return fmt.Sprintf("%sowner_id = $%d", prefix, len(*args)), nil
+	}
 
-		var conds []string
-		var args []any
-		addCond := func(clause string, arg any) {
-			args = append(args, arg)
-			conds = append(conds, fmt.Sprintf("%s = $%d", clause, len(args)))
-		}
-		addCond("tenant_id", tid)
+	placeholders := make([]string, len(households))
+	for i, id := range households {
+		*args = append(*args, id)
+		placeholders[i] = fmt.Sprintf("$%d", len(*args))
+	}
+	return fmt.Sprintf("(%sowner_id = $%d OR %sowner_household_id IN (%s))", prefix, len(*args)-len(households), prefix, strings.Join(placeholders, ", ")), nil
+}
 
-		if len(households) == 0 {
-			// No memberships: only personal rows are visible. Emitting
-			// "owner_household_id IN ()" would be invalid SQL.
-			conds = append(conds, "scope_type = 'personal'")
-		} else {
-			placeholders := make([]string, len(households))
-			for i, id := range households {
-				args = append(args, id)
-				placeholders[i] = fmt.Sprintf("$%d", len(args))
-			}
-			conds = append(conds, fmt.Sprintf(
-				"(scope_type = 'personal' OR owner_household_id IN (%s))",
-				strings.Join(placeholders, ", ")))
-		}
-		for _, f := range o.Filters {
-			addFilterCond(r.filters, &conds, &args, f)
-		}
+// isMember reports whether userID is a member of householdID.
+func isMember(ctx context.Context, q Querier, userID, householdID string) (bool, error) {
+	var exists bool
+	err := q.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM household_members WHERE user_id = $1 AND household_id = $2)`,
+		userID, householdID,
+	).Scan(&exists)
+	return exists, err
+}
 
-		var sb strings.Builder
-		sb.WriteString("SELECT * FROM ")
-		sb.WriteString(r.table)
-		sb.WriteString(" WHERE ")
-		sb.WriteString(strings.Join(conds, " AND "))
-		if o.OrderBy != "" {
-			sb.WriteString(" ORDER BY ")
-			sb.WriteString(orderClause(r.filters, o.OrderBy))
+// strFromAny reads a string (or *string) map value as a string. A nil or
+// non-string value yields "".
+func strFromAny(v any) string {
+	switch s := v.(type) {
+	case string:
+		return s
+	case *string:
+		if s == nil {
+			return ""
 		}
-		if o.Limit > 0 {
-			args = append(args, o.Limit)
-			sb.WriteString(fmt.Sprintf(" LIMIT $%d", len(args)))
-		}
-		if o.Offset > 0 {
-			args = append(args, o.Offset)
-			sb.WriteString(fmt.Sprintf(" OFFSET $%d", len(args)))
-		}
-
-		rows, err := q.Query(ctx, sb.String(), args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
-		result = make([]T, 0)
-		for rows.Next() {
-			item, err := r.scanRow(rows)
-			if err != nil {
-				return err
-			}
-			result = append(result, item)
-		}
-		return rows.Err()
-	})
-	return result, err
+		return *s
+	default:
+		return ""
+	}
 }

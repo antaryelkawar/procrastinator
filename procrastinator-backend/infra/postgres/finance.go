@@ -44,11 +44,12 @@ type ImportLineRepository struct {
 func NewAccountRepository(pool *pgxpool.Pool) *AccountRepository {
 	return &AccountRepository{
 		pgRepository: &pgRepository[entity.FinancialAccount]{
-			scope:   &poolScope{pool: pool},
-			table:   "financial_accounts",
-			scanRow: scanFinancialAccount,
-			toMap:   financialAccountToMap,
-			filters: accountFilters,
+			scope:     &poolScope{pool: pool},
+			table:     "financial_accounts",
+			scanRow:   scanFinancialAccount,
+			toMap:     financialAccountToMap,
+			filters:   accountFilters,
+			shareable: true,
 		},
 	}
 }
@@ -57,11 +58,12 @@ func NewAccountRepository(pool *pgxpool.Pool) *AccountRepository {
 func NewMovementRepository(pool *pgxpool.Pool) *MovementRepository {
 	return &MovementRepository{
 		pgRepository: &pgRepository[entity.MoneyMovement]{
-			scope:   &poolScope{pool: pool},
-			table:   "money_movements",
-			scanRow: scanMoneyMovement,
-			toMap:   moneyMovementToMap,
-			filters: movementFilters,
+			scope:     &poolScope{pool: pool},
+			table:     "money_movements",
+			scanRow:   scanMoneyMovement,
+			toMap:     moneyMovementToMap,
+			filters:   movementFilters,
+			shareable: true,
 		},
 	}
 }
@@ -70,11 +72,12 @@ func NewMovementRepository(pool *pgxpool.Pool) *MovementRepository {
 func NewImportBatchRepository(pool *pgxpool.Pool) *ImportBatchRepository {
 	return &ImportBatchRepository{
 		pgRepository: &pgRepository[entity.ImportBatch]{
-			scope:   &poolScope{pool: pool},
-			table:   "import_batches",
-			scanRow: scanImportBatch,
-			toMap:   importBatchToMap,
-			filters: importBatchFilters,
+			scope:     &poolScope{pool: pool},
+			table:     "import_batches",
+			scanRow:   scanImportBatch,
+			toMap:     importBatchToMap,
+			filters:   importBatchFilters,
+			shareable: true,
 		},
 	}
 }
@@ -83,11 +86,12 @@ func NewImportBatchRepository(pool *pgxpool.Pool) *ImportBatchRepository {
 func NewImportLineRepository(pool *pgxpool.Pool) *ImportLineRepository {
 	return &ImportLineRepository{
 		pgRepository: &pgRepository[entity.ImportLine]{
-			scope:   &poolScope{pool: pool},
-			table:   "import_lines",
-			scanRow: scanImportLine,
-			toMap:   importLineToMap,
-			filters: importLineFilters,
+			scope:     &poolScope{pool: pool},
+			table:     "import_lines",
+			scanRow:   scanImportLine,
+			toMap:     importLineToMap,
+			filters:   importLineFilters,
+			shareable: true,
 		},
 	}
 }
@@ -191,8 +195,9 @@ func scanFinancialAccount(row rowScanner) (entity.FinancialAccount, error) {
 	var a entity.FinancialAccount
 	var id string
 	err := row.Scan(
-		&id, &a.TenantID, &a.Name, &a.Type, &a.Currency,
+		&id, &a.OwnerID, &a.Name, &a.Type, &a.Currency,
 		&a.Institution, &a.ExternalDescriptor, &a.CreatedAt, &a.UpdatedAt,
+		&a.OwnerHouseholdID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -211,11 +216,11 @@ func scanMoneyMovement(row rowScanner) (entity.MoneyMovement, error) {
 	var m entity.MoneyMovement
 	var id string
 	err := row.Scan(
-		&id, &m.TenantID, &m.Kind, &m.Amount, &m.Currency,
+		&id, &m.OwnerID, &m.Kind, &m.Amount, &m.Currency,
 		&m.OccurredOn, &m.RecordedAt, &m.Description, &m.NormDescription, &m.Origin,
 		&m.SourceAccountID, &m.DestinationAccountID, &m.ImportBatchID, &m.ImportLine,
 		&m.ExternalReference, &m.LinkedDocumentID, &m.LinkCreator, &m.LinkConflicting,
-		&m.CreatedAt, &m.UpdatedAt,
+		&m.CreatedAt, &m.UpdatedAt, &m.OwnerHouseholdID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -234,9 +239,9 @@ func scanImportBatch(row rowScanner) (entity.ImportBatch, error) {
 	var b entity.ImportBatch
 	var id string
 	err := row.Scan(
-		&id, &b.TenantID, &b.State, &b.AccountID, &b.SourceID, &b.Filename, &b.Format,
+		&id, &b.OwnerID, &b.State, &b.AccountID, &b.SourceID, &b.Filename, &b.Format,
 		&b.LineCountValid, &b.LineCountDuplicate, &b.LineCountPossibleDup, &b.LineCountError,
-		&b.CreatedAt, &b.UpdatedAt,
+		&b.CreatedAt, &b.UpdatedAt, &b.OwnerHouseholdID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -255,9 +260,9 @@ func scanImportLine(row rowScanner) (entity.ImportLine, error) {
 	var l entity.ImportLine
 	var id string
 	err := row.Scan(
-		&id, &l.TenantID, &l.BatchID, &l.LineRef, &l.RawLine,
+		&id, &l.OwnerID, &l.BatchID, &l.LineRef, &l.RawLine,
 		&l.OccurredOn, &l.Amount, &l.Direction, &l.Description, &l.NormDescription,
-		&l.ExternalReference, &l.Status, &l.ErrorReason, &l.CreatedAt,
+		&l.ExternalReference, &l.Status, &l.ErrorReason, &l.CreatedAt, &l.OwnerHouseholdID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -274,8 +279,8 @@ func financialAccountToMap(a entity.FinancialAccount) map[string]any {
 	if a.ID != "" {
 		m["id"] = a.ID
 	}
-	if a.TenantID != "" {
-		m["tenant_id"] = a.TenantID
+	if a.OwnerID != "" {
+		m["owner_id"] = a.OwnerID
 	}
 	if a.Name != "" {
 		m["name"] = a.Name
@@ -292,6 +297,9 @@ func financialAccountToMap(a entity.FinancialAccount) map[string]any {
 	if a.ExternalDescriptor != nil {
 		m["external_descriptor"] = a.ExternalDescriptor
 	}
+	if a.OwnerHouseholdID != nil {
+		m["owner_household_id"] = a.OwnerHouseholdID
+	}
 	return m
 }
 
@@ -300,8 +308,8 @@ func moneyMovementToMap(m entity.MoneyMovement) map[string]any {
 	if m.ID != "" {
 		out["id"] = m.ID
 	}
-	if m.TenantID != "" {
-		out["tenant_id"] = m.TenantID
+	if m.OwnerID != "" {
+		out["owner_id"] = m.OwnerID
 	}
 	if m.Kind != "" {
 		out["kind"] = m.Kind
@@ -372,6 +380,9 @@ func moneyMovementToMap(m entity.MoneyMovement) map[string]any {
 			out["link_conflicting"] = m.LinkConflicting
 		}
 	}
+	if m.OwnerHouseholdID != nil {
+		out["owner_household_id"] = m.OwnerHouseholdID
+	}
 	return out
 }
 
@@ -380,8 +391,8 @@ func importBatchToMap(b entity.ImportBatch) map[string]any {
 	if b.ID != "" {
 		m["id"] = b.ID
 	}
-	if b.TenantID != "" {
-		m["tenant_id"] = b.TenantID
+	if b.OwnerID != "" {
+		m["owner_id"] = b.OwnerID
 	}
 	if b.State != "" {
 		m["state"] = b.State
@@ -410,6 +421,9 @@ func importBatchToMap(b entity.ImportBatch) map[string]any {
 	if b.LineCountError > 0 {
 		m["line_count_error"] = b.LineCountError
 	}
+	if b.OwnerHouseholdID != nil {
+		m["owner_household_id"] = b.OwnerHouseholdID
+	}
 	return m
 }
 
@@ -418,8 +432,8 @@ func importLineToMap(l entity.ImportLine) map[string]any {
 	if l.ID != "" {
 		m["id"] = l.ID
 	}
-	if l.TenantID != "" {
-		m["tenant_id"] = l.TenantID
+	if l.OwnerID != "" {
+		m["owner_id"] = l.OwnerID
 	}
 	if l.BatchID != "" {
 		m["batch_id"] = l.BatchID
@@ -459,6 +473,9 @@ func importLineToMap(l entity.ImportLine) map[string]any {
 	if l.ErrorReason != nil {
 		m["error_reason"] = l.ErrorReason
 	}
+	if l.OwnerHouseholdID != nil {
+		m["owner_household_id"] = l.OwnerHouseholdID
+	}
 	return m
 }
 
@@ -466,11 +483,12 @@ func importLineToMap(l entity.ImportLine) map[string]any {
 func newAccountRepoForTx(tx pgx.Tx) *AccountRepository {
 	return &AccountRepository{
 		pgRepository: &pgRepository[entity.FinancialAccount]{
-			scope:   &txScopeImpl{tx: tx},
-			table:   "financial_accounts",
-			scanRow: scanFinancialAccount,
-			toMap:   financialAccountToMap,
-			filters: accountFilters,
+			scope:     &txScopeImpl{tx: tx},
+			table:     "financial_accounts",
+			scanRow:   scanFinancialAccount,
+			toMap:     financialAccountToMap,
+			filters:   accountFilters,
+			shareable: true,
 		},
 	}
 }
@@ -479,11 +497,12 @@ func newAccountRepoForTx(tx pgx.Tx) *AccountRepository {
 func newMovementRepoForTx(tx pgx.Tx) *MovementRepository {
 	return &MovementRepository{
 		pgRepository: &pgRepository[entity.MoneyMovement]{
-			scope:   &txScopeImpl{tx: tx},
-			table:   "money_movements",
-			scanRow: scanMoneyMovement,
-			toMap:   moneyMovementToMap,
-			filters: movementFilters,
+			scope:     &txScopeImpl{tx: tx},
+			table:     "money_movements",
+			scanRow:   scanMoneyMovement,
+			toMap:     moneyMovementToMap,
+			filters:   movementFilters,
+			shareable: true,
 		},
 	}
 }
@@ -492,11 +511,12 @@ func newMovementRepoForTx(tx pgx.Tx) *MovementRepository {
 func newImportBatchRepoForTx(tx pgx.Tx) *ImportBatchRepository {
 	return &ImportBatchRepository{
 		pgRepository: &pgRepository[entity.ImportBatch]{
-			scope:   &txScopeImpl{tx: tx},
-			table:   "import_batches",
-			scanRow: scanImportBatch,
-			toMap:   importBatchToMap,
-			filters: importBatchFilters,
+			scope:     &txScopeImpl{tx: tx},
+			table:     "import_batches",
+			scanRow:   scanImportBatch,
+			toMap:     importBatchToMap,
+			filters:   importBatchFilters,
+			shareable: true,
 		},
 	}
 }
@@ -505,11 +525,12 @@ func newImportBatchRepoForTx(tx pgx.Tx) *ImportBatchRepository {
 func newImportLineRepoForTx(tx pgx.Tx) *ImportLineRepository {
 	return &ImportLineRepository{
 		pgRepository: &pgRepository[entity.ImportLine]{
-			scope:   &txScopeImpl{tx: tx},
-			table:   "import_lines",
-			scanRow: scanImportLine,
-			toMap:   importLineToMap,
-			filters: importLineFilters,
+			scope:     &txScopeImpl{tx: tx},
+			table:     "import_lines",
+			scanRow:   scanImportLine,
+			toMap:     importLineToMap,
+			filters:   importLineFilters,
+			shareable: true,
 		},
 	}
 }

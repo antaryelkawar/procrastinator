@@ -10,12 +10,12 @@ import (
 	"time"
 )
 
-// unknownUUID is a fixed, well-formed UUID that never exists in any tenant.
+// unknownUUID is a fixed, well-formed UUID that never exists in any user.
 const unknownUUID = "00000000-0000-4000-8000-000000000000"
 
 // insertMovement inserts one manual movement directly via SQL and returns its
 // id. source/dest are "" when the kind has no such account.
-func insertMovement(t *testing.T, e *testEnv, tenantID, kind, amount, currency, occurredOn, desc, source, dest string) string {
+func insertMovement(t *testing.T, e *testEnv, OwnerID, kind, amount, currency, occurredOn, desc, source, dest string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -28,14 +28,26 @@ func insertMovement(t *testing.T, e *testEnv, tenantID, kind, amount, currency, 
 		dst = dest
 	}
 
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, OwnerID); err != nil {
+		t.Fatalf("set user: %v", err)
+	}
+
 	var id string
-	err := e.pool.QueryRow(ctx,
-		`INSERT INTO money_movements (tenant_id, kind, amount, currency, occurred_on, description, norm_description, origin, source_account_id, destination_account_id)
+	err = tx.QueryRow(ctx,
+		`INSERT INTO money_movements (owner_id, kind, amount, currency, occurred_on, description, norm_description, origin, source_account_id, destination_account_id)
 		 VALUES ($1, $2, $3::numeric, $4, $5::date, $6, $7, 'manual', $8, $9) RETURNING id`,
-		tenantID, kind, amount, currency, occurredOn, desc, strings.ToLower(desc), src, dst,
+		OwnerID, kind, amount, currency, occurredOn, desc, strings.ToLower(desc), src, dst,
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("insert movement %s: %v", kind, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
 	}
 	return id
 }
@@ -49,7 +61,7 @@ func TestCreateAccount(t *testing.T) {
 		e := newEnv(t, envOpts{})
 		body := bytes.NewBufferString(`{"name":"HDFC Savings","type":"bank","currency":"INR","institution":"HDFC Bank","external_descriptor":"XX1234"}`)
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-tenant", body, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-user", body, "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -89,13 +101,13 @@ func TestCreateAccount(t *testing.T) {
 		e := newEnv(t, envOpts{})
 		body := bytes.NewBufferString(`{"name":"HDFC Savings","type":"investment","currency":"INR"}`)
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-tenant", body, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-user", body, "application/json")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 
-		list := do(t, e.handler, http.MethodGet, "/api/finance/accounts", "test-tenant", nil, "")
+		list := do(t, e.handler, http.MethodGet, "/api/finance/accounts", "test-user", nil, "")
 		if list.Code != http.StatusOK {
 			t.Fatalf("list status = %d, want 200 (body: %s)", list.Code, list.Body.String())
 		}
@@ -109,7 +121,7 @@ func TestCreateAccount(t *testing.T) {
 		e := newEnv(t, envOpts{})
 		body := bytes.NewBufferString(`{"name":"","type":"bank","currency":"INR"}`)
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-tenant", body, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-user", body, "application/json")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -121,7 +133,7 @@ func TestCreateAccount(t *testing.T) {
 		e := newEnv(t, envOpts{})
 		body := bytes.NewBufferString(`{"name":"HDFC Savings","type":"bank","currency":"IN"}`)
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-tenant", body, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-user", body, "application/json")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -133,7 +145,7 @@ func TestCreateAccount(t *testing.T) {
 		e := newEnv(t, envOpts{})
 		body := bytes.NewBufferString(`{"name":`)
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-tenant", body, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-user", body, "application/json")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -148,7 +160,7 @@ func TestListAccounts(t *testing.T) {
 	t.Run("Empty", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/accounts", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/accounts", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -167,13 +179,13 @@ func TestListAccounts(t *testing.T) {
 			`{"name":"Cash","type":"cash","currency":"INR"}`,
 		}
 		for _, body := range creates {
-			rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-tenant", bytes.NewBufferString(body), "application/json")
+			rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-user", bytes.NewBufferString(body), "application/json")
 			if rec.Code != http.StatusCreated {
 				t.Fatalf("create status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 			}
 		}
 
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/accounts", "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/accounts", "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -218,7 +230,7 @@ func TestGetAccount(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
 		body := bytes.NewBufferString(`{"name":"HDFC Savings","type":"bank","currency":"INR"}`)
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-tenant", body, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-user", body, "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -233,10 +245,10 @@ func TestGetAccount(t *testing.T) {
 
 		// Income of 250 into the account, expense of 100 out of it: derived
 		// balance must be exactly "150".
-		insertMovement(t, e, "test-tenant", "income", "250", "INR", "2026-08-01", "salary", "", id)
-		insertMovement(t, e, "test-tenant", "expense", "100", "INR", "2026-08-02", "coffee", id, "")
+		insertMovement(t, e, "test-user", "income", "250", "INR", "2026-08-01", "salary", "", id)
+		insertMovement(t, e, "test-user", "expense", "100", "INR", "2026-08-02", "coffee", id, "")
 
-		rec = do(t, e.handler, http.MethodGet, "/api/finance/accounts/"+id, "test-tenant", nil, "")
+		rec = do(t, e.handler, http.MethodGet, "/api/finance/accounts/"+id, "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -262,18 +274,18 @@ func TestGetAccount(t *testing.T) {
 	t.Run("NotFound", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/finance/accounts/"+unknownUUID, "test-tenant", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/finance/accounts/"+unknownUUID, "test-user", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 	})
 
-	t.Run("CrossTenant", func(t *testing.T) {
+	t.Run("CrossUser", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
 		body := bytes.NewBufferString(`{"name":"HDFC Savings","type":"bank","currency":"INR"}`)
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-tenant", body, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-user", body, "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -286,7 +298,7 @@ func TestGetAccount(t *testing.T) {
 			t.Fatalf("created account id is empty")
 		}
 
-		rec = do(t, e.handler, http.MethodGet, "/api/finance/accounts/"+id, "test-tenant-b", nil, "")
+		rec = do(t, e.handler, http.MethodGet, "/api/finance/accounts/"+id, "test-user-b", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -306,7 +318,7 @@ func TestBalanceCannotBeSetDirectly(t *testing.T) {
 		e := newEnv(t, envOpts{})
 		body := bytes.NewBufferString(`{"name":"HDFC Savings","type":"bank","currency":"INR","balance":"999"}`)
 
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-tenant", body, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-user", body, "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -326,7 +338,7 @@ func TestBalanceCannotBeSetDirectly(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOpts{})
 		body := bytes.NewBufferString(`{"name":"HDFC Savings","type":"bank","currency":"INR"}`)
-		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-tenant", body, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/finance/accounts", "test-user", body, "application/json")
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -342,13 +354,13 @@ func TestBalanceCannotBeSetDirectly(t *testing.T) {
 		// PUT /api/finance/accounts/{id} is not registered (GET only), so chi
 		// rejects the method with 405 Method Not Allowed.
 		putBody := bytes.NewBufferString(`{"balance":"500"}`)
-		rec = do(t, e.handler, http.MethodPut, "/api/finance/accounts/"+id, "test-tenant", putBody, "application/json")
+		rec = do(t, e.handler, http.MethodPut, "/api/finance/accounts/"+id, "test-user", putBody, "application/json")
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("PUT status = %d, want 405 (body: %s)", rec.Code, rec.Body.String())
 		}
 
 		// The derived balance must be unchanged by the rejected update.
-		rec = do(t, e.handler, http.MethodGet, "/api/finance/accounts/"+id, "test-tenant", nil, "")
+		rec = do(t, e.handler, http.MethodGet, "/api/finance/accounts/"+id, "test-user", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("get status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -362,9 +374,9 @@ func TestBalanceCannotBeSetDirectly(t *testing.T) {
 	})
 }
 
-// TestAccountsMissingTenant exercises the multitenancy contract: every account
-// endpoint without the X-Tenant-ID header is rejected with 400.
-func TestAccountsMissingTenant(t *testing.T) {
+// TestAccountsMissingUser exercises the user-identity contract: every account
+// endpoint with an empty {userId} path segment is rejected with 400.
+func TestAccountsMissingUser(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOpts{})
@@ -377,12 +389,11 @@ func TestAccountsMissingTenant(t *testing.T) {
 		body   *bytes.Buffer
 		cType  string
 	}{
-		{name: "POST /api/finance/accounts", method: http.MethodPost, path: "/api/finance/accounts", body: body, cType: "application/json"},
-		{name: "GET /api/finance/accounts", method: http.MethodGet, path: "/api/finance/accounts"},
-		{name: "GET /api/finance/accounts/{id}", method: http.MethodGet, path: "/api/finance/accounts/" + unknownUUID},
+		{name: "POST /api/users//finance/accounts", method: http.MethodPost, path: "/api/users//finance/accounts", body: body, cType: "application/json"},
+		{name: "GET /api/users//finance/accounts", method: http.MethodGet, path: "/api/users//finance/accounts"},
+		{name: "GET /api/users//finance/accounts/{id}", method: http.MethodGet, path: "/api/users//finance/accounts/" + unknownUUID},
 	}
-	// The committed tenant middleware rejects a missing X-Tenant-ID header
-	// with 400 (multitenancy contract).
+	// The user middleware rejects an empty {userId} path segment with 400.
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

@@ -1,4 +1,4 @@
-// Package ledger implements the financial-ledger bounded context: tenant-scoped
+// Package ledger implements the financial-ledger bounded context: user-scoped
 // financial accounts, manual money movements, derived balances, and
 // movement-document links. Money is exact-decimal strings; no floats.
 package ledger
@@ -13,7 +13,7 @@ import (
 	"procrastinator-backend/commons"
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 )
 
 // ErrInvalid is returned for validation failures: bad field values, blank
@@ -32,9 +32,9 @@ type BalanceQuerier interface {
 	BalanceForAccount(ctx context.Context, accountID string, opts ...repo.Option) (string, error)
 }
 
-// Service is the financial-ledger application service. It is tenant-scoped:
-// every method resolves the tenant from the context first and fails closed
-// (tenant.ErrNoTenant) without touching any repository when it is absent.
+// Service is the financial-ledger application service. It is user-scoped:
+// every method resolves the user from the context first and fails closed
+// (user.ErrNoUser) without touching any repository when it is absent.
 // Money is handled as exact-decimal strings throughout; no floats.
 type Service struct {
 	factory  *repo.Factory
@@ -47,7 +47,7 @@ func New(factory *repo.Factory, balancer BalanceQuerier) *Service {
 }
 
 // AccountInput carries the caller-supplied fields for account creation.
-// The repository assigns the ID, tenant ID, and timestamps.
+// The repository assigns the ID, user ID, and timestamps.
 type AccountInput struct {
 	Name               string
 	Type               string
@@ -81,7 +81,7 @@ type MovementListFilter struct {
 // currency) and persists a new account. There is deliberately no account
 // update method: currency is immutable by construction.
 func (s *Service) CreateAccount(ctx context.Context, in AccountInput) (entity.FinancialAccount, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.FinancialAccount{}, err
 	}
@@ -101,31 +101,31 @@ func (s *Service) CreateAccount(ctx context.Context, in AccountInput) (entity.Fi
 		Institution:        in.Institution,
 		ExternalDescriptor: in.ExternalDescriptor,
 	}
-	return s.factory.Accounts.Create(ctx, acc, repo.Tenant(tid))
+	return s.factory.Accounts.Create(ctx, acc, repo.Owner(tid))
 }
 
-// ListAccounts returns all of the tenant's accounts in (created_at, id) order.
+// ListAccounts returns all of the user's accounts in (created_at, id) order.
 func (s *Service) ListAccounts(ctx context.Context) ([]entity.FinancialAccount, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return s.factory.Accounts.List(ctx, repo.Tenant(tid), repo.OrderBy("created_at, id"))
+	return s.factory.Accounts.List(ctx, repo.Owner(tid), repo.OrderBy("created_at, id"))
 }
 
-// GetAccount returns the tenant's account with the given ID together with its
+// GetAccount returns the user's account with the given ID together with its
 // derived balance. ErrNotFound propagates when the account is unknown or
-// belongs to another tenant.
+// belongs to another user.
 func (s *Service) GetAccount(ctx context.Context, id string) (entity.FinancialAccount, string, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.FinancialAccount{}, "", err
 	}
-	acc, err := s.factory.Accounts.Get(ctx, id, repo.Tenant(tid))
+	acc, err := s.factory.Accounts.Get(ctx, id, repo.Owner(tid))
 	if err != nil {
 		return entity.FinancialAccount{}, "", err
 	}
-	balance, err := s.balancer.BalanceForAccount(ctx, id, repo.Tenant(tid))
+	balance, err := s.balancer.BalanceForAccount(ctx, id, repo.Owner(tid))
 	if err != nil {
 		return entity.FinancialAccount{}, "", err
 	}
@@ -137,7 +137,7 @@ func (s *Service) GetAccount(ctx context.Context, id string) (entity.FinancialAc
 // propagates), verifies currency consistency, and persists the movement with
 // OriginManual.
 func (s *Service) CreateManualMovement(ctx context.Context, in MovementInput) (entity.MoneyMovement, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.MoneyMovement{}, err
 	}
@@ -156,14 +156,14 @@ func (s *Service) CreateManualMovement(ctx context.Context, in MovementInput) (e
 
 	accounts := make(map[string]entity.FinancialAccount)
 	if in.SourceAccountID != "" {
-		acc, err := s.factory.Accounts.Get(ctx, in.SourceAccountID, repo.Tenant(tid))
+		acc, err := s.factory.Accounts.Get(ctx, in.SourceAccountID, repo.Owner(tid))
 		if err != nil {
 			return entity.MoneyMovement{}, err
 		}
 		accounts[in.SourceAccountID] = acc
 	}
 	if in.DestinationAccountID != "" {
-		acc, err := s.factory.Accounts.Get(ctx, in.DestinationAccountID, repo.Tenant(tid))
+		acc, err := s.factory.Accounts.Get(ctx, in.DestinationAccountID, repo.Owner(tid))
 		if err != nil {
 			return entity.MoneyMovement{}, err
 		}
@@ -193,18 +193,18 @@ func (s *Service) CreateManualMovement(ctx context.Context, in MovementInput) (e
 		SourceAccountID:      source,
 		DestinationAccountID: dest,
 	}
-	return s.factory.Movements.Create(ctx, mv, repo.Tenant(tid))
+	return s.factory.Movements.Create(ctx, mv, repo.Owner(tid))
 }
 
-// ListMovements returns the tenant's movements in (created_at, id) order,
+// ListMovements returns the user's movements in (created_at, id) order,
 // filtered in memory by account (source OR destination) and inclusive
 // occurred-on bounds. The result is never nil.
 func (s *Service) ListMovements(ctx context.Context, f MovementListFilter) ([]entity.MoneyMovement, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return nil, err
 	}
-	all, err := s.factory.Movements.List(ctx, repo.Tenant(tid), repo.OrderBy("created_at, id"))
+	all, err := s.factory.Movements.List(ctx, repo.Owner(tid), repo.OrderBy("created_at, id"))
 	if err != nil {
 		return nil, err
 	}
@@ -224,52 +224,52 @@ func (s *Service) ListMovements(ctx context.Context, f MovementListFilter) ([]en
 	return out, nil
 }
 
-// GetMovement returns the tenant's movement with the given ID. ErrNotFound
-// propagates when the movement is unknown or belongs to another tenant.
+// GetMovement returns the user's movement with the given ID. ErrNotFound
+// propagates when the movement is unknown or belongs to another user.
 func (s *Service) GetMovement(ctx context.Context, id string) (entity.MoneyMovement, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.MoneyMovement{}, err
 	}
-	return s.factory.Movements.Get(ctx, id, repo.Tenant(tid))
+	return s.factory.Movements.Get(ctx, id, repo.Owner(tid))
 }
 
 // PatchDescription replaces a movement's description (verbatim) and its
 // normalized form. Works for any origin. Blank descriptions are rejected
 // before any repository call.
 func (s *Service) PatchDescription(ctx context.Context, id, desc string) (entity.MoneyMovement, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.MoneyMovement{}, err
 	}
 	if strings.TrimSpace(desc) == "" {
 		return entity.MoneyMovement{}, ErrInvalid
 	}
-	mv, err := s.factory.Movements.Get(ctx, id, repo.Tenant(tid))
+	mv, err := s.factory.Movements.Get(ctx, id, repo.Owner(tid))
 	if err != nil {
 		return entity.MoneyMovement{}, err
 	}
 	mv.Description = desc
 	mv.NormDescription = commons.NormalizeDescription(desc)
-	return s.factory.Movements.Update(ctx, mv, repo.Tenant(tid))
+	return s.factory.Movements.Update(ctx, mv, repo.Owner(tid))
 }
 
 // DeleteMovement deletes a manual movement. Imported movements are protected:
 // deleting one returns ErrConflict and leaves the row untouched. ErrNotFound
-// propagates for unknown or foreign-tenant IDs.
+// propagates for unknown or foreign-user IDs.
 func (s *Service) DeleteMovement(ctx context.Context, id string) error {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return err
 	}
-	mv, err := s.factory.Movements.Get(ctx, id, repo.Tenant(tid))
+	mv, err := s.factory.Movements.Get(ctx, id, repo.Owner(tid))
 	if err != nil {
 		return err
 	}
 	if mv.Origin == entity.OriginImport {
 		return ErrConflict
 	}
-	return s.factory.Movements.Delete(ctx, id, repo.Tenant(tid))
+	return s.factory.Movements.Delete(ctx, id, repo.Owner(tid))
 }
 
 // Link associates a movement with a document, recording who created the link
@@ -279,15 +279,15 @@ func (s *Service) DeleteMovement(ctx context.Context, id string) error {
 // another movement, returns ErrConflict. Neither side's values are ever
 // overwritten.
 func (s *Service) Link(ctx context.Context, movementID, documentID, creator string) error {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return err
 	}
-	mv, err := s.factory.Movements.Get(ctx, movementID, repo.Tenant(tid))
+	mv, err := s.factory.Movements.Get(ctx, movementID, repo.Owner(tid))
 	if err != nil {
 		return err
 	}
-	doc, err := s.factory.Documents.Get(ctx, documentID, repo.Tenant(tid))
+	doc, err := s.factory.Documents.Get(ctx, documentID, repo.Owner(tid))
 	if err != nil {
 		return err
 	}
@@ -297,7 +297,7 @@ func (s *Service) Link(ctx context.Context, movementID, documentID, creator stri
 		}
 		return ErrConflict
 	}
-	taken, err := s.factory.Movements.List(ctx, repo.Tenant(tid), repo.Where("linked_document_id", "=", documentID), repo.Limit(1))
+	taken, err := s.factory.Movements.List(ctx, repo.Owner(tid), repo.Where("linked_document_id", "=", documentID), repo.Limit(1))
 	if err != nil {
 		return err
 	}
@@ -309,18 +309,18 @@ func (s *Service) Link(ctx context.Context, movementID, documentID, creator stri
 	mv.LinkedDocumentID = &docID
 	mv.LinkCreator = &creatorLocal
 	mv.LinkConflicting = linkConflicts(doc, mv)
-	_, err = s.factory.Movements.Update(ctx, mv, repo.Tenant(tid))
+	_, err = s.factory.Movements.Update(ctx, mv, repo.Owner(tid))
 	return err
 }
 
 // Unlink clears a movement's document link. Unlinking a movement that has no
 // link is a no-op (no repository update).
 func (s *Service) Unlink(ctx context.Context, movementID string) error {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return err
 	}
-	mv, err := s.factory.Movements.Get(ctx, movementID, repo.Tenant(tid))
+	mv, err := s.factory.Movements.Get(ctx, movementID, repo.Owner(tid))
 	if err != nil {
 		return err
 	}
@@ -330,7 +330,7 @@ func (s *Service) Unlink(ctx context.Context, movementID string) error {
 	mv.LinkedDocumentID = nil
 	mv.LinkCreator = nil
 	mv.LinkConflicting = false
-	_, err = s.factory.Movements.Update(ctx, mv, repo.Tenant(tid))
+	_, err = s.factory.Movements.Update(ctx, mv, repo.Owner(tid))
 	return err
 }
 

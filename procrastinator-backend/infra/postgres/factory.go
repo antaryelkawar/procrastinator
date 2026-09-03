@@ -21,7 +21,7 @@ func NewFactory(pool *pgxpool.Pool) *repo.Factory {
 		ImportBatches: NewImportBatchRepository(pool),
 		ImportLines:   NewImportLineRepository(pool),
 		Households:    NewHouseholdRepository(pool),
-		Tenants:       NewTenantRegistry(pool),
+		Users:       NewUserRegistry(pool),
 		InTx: func(ctx context.Context, fn func(ctx context.Context, repos *repo.Repos) error) error {
 			tx, err := pool.Begin(ctx)
 			if err != nil {

@@ -11,3 +11,10 @@
 CREATE ROLE procrastinator LOGIN PASSWORD 'procrastinator' NOBYPASSRLS;
 ALTER DATABASE procrastinator OWNER TO procrastinator;
 CREATE DATABASE procrastinator_test OWNER procrastinator;
+
+-- rls_bypass lets the RLS helper fn_visible_households() scan household_members
+-- without re-firing the household_members policy (RLS recursion). It is NOLOGIN
+-- (no external connections) and its only member is the app role, so the BYPASSRLS
+-- exception is bounded. Must run on a fresh volume (initdb runs first-init only).
+CREATE ROLE rls_bypass NOLOGIN BYPASSRLS;
+GRANT rls_bypass TO procrastinator;

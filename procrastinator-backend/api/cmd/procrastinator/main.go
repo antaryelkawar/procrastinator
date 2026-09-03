@@ -15,6 +15,7 @@ import (
 
 	"procrastinator-backend/api"
 	"procrastinator-backend/config"
+	"procrastinator-backend/core/household"
 	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/core/ledger"
 	"procrastinator-backend/core/statement"
@@ -65,7 +66,8 @@ func main() {
 	ledgerSvc := ledger.New(factory, movRepo)
 	svc := ingest.New(factory, extractor, storage, cfg.MaxUploadBytes)
 	statementSvc := statement.New(factory, statementStore, movRepo, docRepo, pdfExtractor, cfg.MaxStatementBytes, cfg.MaxStatementLines)
-	server := api.New(svc, factory, ledgerSvc, movRepo, cfg.MaxUploadBytes, statementSvc, cfg.MaxStatementBytes)
+	householdSvc := household.New(factory)
+	server := api.New(svc, factory, ledgerSvc, movRepo, cfg.MaxUploadBytes, statementSvc, cfg.MaxStatementBytes, householdSvc)
 
 	httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: server.Routes()}
 

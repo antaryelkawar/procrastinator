@@ -12,12 +12,12 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 	"procrastinator-backend/core/identity"
 )
 
-// testTenant is the tenant ID used by all ingest tests.
-const testTenant = "test-tenant"
+// testUser is the user ID used by all ingest tests.
+const testUser = "test-user"
 
 // defaultRaw is the canonical LLM extraction payload used as the default
 // extractor result and in the invoice test cases.
@@ -123,9 +123,9 @@ func (s *fakeStorage) storedCount() int {
 	return len(s.stored)
 }
 
-// tenantFromOpts extracts the tenant ID from options ("" if absent).
-func tenantFromOpts(opts []repo.Option) string {
-	return repo.ApplyOptions(opts...).TenantID
+// ownerFromOpts extracts the owner ID from options ("" if absent).
+func ownerFromOpts(opts []repo.Option) string {
+	return repo.ApplyOptions(opts...).OwnerID
 }
 
 // fakeAssetRepo is an in-memory implementation of repo.Repository[entity.Asset].
@@ -148,7 +148,7 @@ func (r *fakeAssetRepo) Get(_ context.Context, id string, opts ...repo.Option) (
 	if !ok {
 		return entity.Asset{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && a.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && a.OwnerID != tid {
 		return entity.Asset{}, repo.ErrNotFound
 	}
 	return a, nil
@@ -160,7 +160,7 @@ func (r *fakeAssetRepo) List(_ context.Context, opts ...repo.Option) ([]entity.A
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.Asset, 0, len(r.assets))
 	for _, a := range r.assets {
-		if o.TenantID != "" && a.TenantID != o.TenantID {
+		if o.OwnerID != "" && a.OwnerID != o.OwnerID {
 			continue
 		}
 		match := true
@@ -181,9 +181,20 @@ func (r *fakeAssetRepo) List(_ context.Context, opts ...repo.Option) ([]entity.A
 	return out, nil
 }
 
-// matchAssetFilter reports whether asset a satisfies a single "=" filter on a
-// norm_* string column. Unsupported fields or operators yield false.
+// matchAssetFilter reports whether asset a satisfies a filter. It supports
+// "=" and "IS NULL" on owner_household_id (the scope fence), and "=" on the
+// norm_* string columns. Unsupported fields or operators yield false.
 func matchAssetFilter(a entity.Asset, f repo.Filter) bool {
+	if f.Field == "owner_household_id" {
+		switch f.Op {
+		case "=":
+			want, ok := f.Value.(string)
+			return ok && a.OwnerHouseholdID != nil && *a.OwnerHouseholdID == want
+		case "IS NULL":
+			return a.OwnerHouseholdID == nil
+		}
+		return false
+	}
 	if f.Op != "=" {
 		return false
 	}
@@ -215,8 +226,8 @@ func (r *fakeAssetRepo) Create(_ context.Context, a entity.Asset, opts ...repo.O
 		r.nextID++
 		a.ID = "asset-" + strconv.Itoa(r.nextID)
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		a.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		a.OwnerID = tid
 	}
 	r.assets[a.ID] = a
 	return a, nil
@@ -228,8 +239,8 @@ func (r *fakeAssetRepo) Update(_ context.Context, a entity.Asset, opts ...repo.O
 	if _, ok := r.assets[a.ID]; !ok {
 		return entity.Asset{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		a.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		a.OwnerID = tid
 	}
 	a.UpdatedAt = time.Now()
 	r.assets[a.ID] = a
@@ -320,7 +331,7 @@ func (r *fakeSourceRepo) Get(_ context.Context, id string, opts ...repo.Option) 
 	if !ok {
 		return entity.Source{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && s.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && s.OwnerID != tid {
 		return entity.Source{}, repo.ErrNotFound
 	}
 	return s, nil
@@ -332,7 +343,7 @@ func (r *fakeSourceRepo) List(_ context.Context, opts ...repo.Option) ([]entity.
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.Source, 0, len(r.sources))
 	for _, s := range r.sources {
-		if o.TenantID != "" && s.TenantID != o.TenantID {
+		if o.OwnerID != "" && s.OwnerID != o.OwnerID {
 			continue
 		}
 		out = append(out, s)
@@ -351,8 +362,8 @@ func (r *fakeSourceRepo) Create(_ context.Context, s entity.Source, opts ...repo
 		r.nextID++
 		s.ID = "src-" + strconv.Itoa(r.nextID)
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		s.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		s.OwnerID = tid
 	}
 	r.sources[s.ID] = s
 	return s, nil
@@ -364,8 +375,8 @@ func (r *fakeSourceRepo) Update(_ context.Context, s entity.Source, opts ...repo
 	if _, ok := r.sources[s.ID]; !ok {
 		return entity.Source{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		s.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		s.OwnerID = tid
 	}
 	r.sources[s.ID] = s
 	return s, nil
@@ -420,7 +431,7 @@ func (r *fakeDocumentRepo) Get(_ context.Context, id string, opts ...repo.Option
 	if !ok {
 		return entity.Document{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" && d.TenantID != tid {
+	if tid := ownerFromOpts(opts); tid != "" && d.OwnerID != tid {
 		return entity.Document{}, repo.ErrNotFound
 	}
 	return d, nil
@@ -432,7 +443,7 @@ func (r *fakeDocumentRepo) List(_ context.Context, opts ...repo.Option) ([]entit
 	o := repo.ApplyOptions(opts...)
 	out := make([]entity.Document, 0, len(r.documents))
 	for _, d := range r.documents {
-		if o.TenantID != "" && d.TenantID != o.TenantID {
+		if o.OwnerID != "" && d.OwnerID != o.OwnerID {
 			continue
 		}
 		out = append(out, d)
@@ -454,8 +465,8 @@ func (r *fakeDocumentRepo) Create(_ context.Context, d entity.Document, opts ...
 		r.nextID++
 		d.ID = "doc-" + strconv.Itoa(r.nextID)
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		d.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		d.OwnerID = tid
 	}
 	d.ExtractedFields = copyMap(d.ExtractedFields)
 	r.documents[d.ID] = d
@@ -468,8 +479,8 @@ func (r *fakeDocumentRepo) Update(_ context.Context, d entity.Document, opts ...
 	if _, ok := r.documents[d.ID]; !ok {
 		return entity.Document{}, repo.ErrNotFound
 	}
-	if tid := tenantFromOpts(opts); tid != "" {
-		d.TenantID = tid
+	if tid := ownerFromOpts(opts); tid != "" {
+		d.OwnerID = tid
 	}
 	r.documents[d.ID] = d
 	return d, nil
@@ -597,6 +608,7 @@ type processCase struct {
 	extractErr   error // fakeExtractor fault
 	docCreateErr error // fakeDocumentRepo fault
 	seed         []entity.Asset
+	scope        *string  // ownerHouseholdID passed to Process; nil = personal
 	raws         []string // one LLM raw payload per Process call; default [defaultRaw]
 	wantErrs     []error  // one per Process call; nil entry = success
 	wantStored   int      // successful storage.Put count
@@ -611,7 +623,7 @@ func newHarness(tc processCase) *harness {
 	sourceRepo := newFakeSourceRepo()
 	documentRepo := newFakeDocumentRepo()
 	for _, a := range tc.seed {
-		a.TenantID = testTenant
+		a.OwnerID = testUser
 		assetRepo.assets[a.ID] = a
 	}
 
@@ -649,6 +661,8 @@ func newHarness(tc processCase) *harness {
 
 func TestProcess(t *testing.T) {
 	t.Parallel()
+
+	householdScope := "hh-1"
 
 	cases := []processCase{
 		{
@@ -691,14 +705,56 @@ func TestProcess(t *testing.T) {
 				if assets[0].NormSerial == nil || *assets[0].NormSerial != "SN-123" {
 					t.Fatalf("asset NormSerial = %v, want \"SN-123\"", assets[0].NormSerial)
 				}
-				if assets[0].TenantID != testTenant {
-					t.Fatalf("asset TenantID = %q, want %q", assets[0].TenantID, testTenant)
+				if assets[0].OwnerID != testUser {
+					t.Fatalf("asset OwnerID = %q, want %q", assets[0].OwnerID, testUser)
 				}
-				if sources[0].TenantID != testTenant {
-					t.Fatalf("source TenantID = %q, want %q", sources[0].TenantID, testTenant)
+				if sources[0].OwnerID != testUser {
+					t.Fatalf("source OwnerID = %q, want %q", sources[0].OwnerID, testUser)
 				}
-				if docs[0].TenantID != testTenant {
-					t.Fatalf("document TenantID = %q, want %q", docs[0].TenantID, testTenant)
+				if docs[0].OwnerID != testUser {
+					t.Fatalf("document OwnerID = %q, want %q", docs[0].OwnerID, testUser)
+				}
+			},
+		},
+		{
+			name:        "household scope stamped on source, asset, document",
+			scope:       &householdScope,
+			wantErrs:    []error{nil},
+			wantStored:  1,
+			wantSources: 1,
+			wantAssets:  1,
+			wantDocs:    1,
+			verify: func(t *testing.T, h *harness) {
+				t.Helper()
+				sources := h.factory.sourceRepo.all()
+				if len(sources) != 1 {
+					t.Fatalf("source count = %d, want 1", len(sources))
+				}
+				if sources[0].OwnerHouseholdID == nil || *sources[0].OwnerHouseholdID != "hh-1" {
+					t.Fatalf("source OwnerHouseholdID = %v, want \"hh-1\"", sources[0].OwnerHouseholdID)
+				}
+				if sources[0].OwnerID != testUser {
+					t.Fatalf("source OwnerID = %q, want %q", sources[0].OwnerID, testUser)
+				}
+				assets := h.factory.assetRepo.all()
+				if len(assets) != 1 {
+					t.Fatalf("asset count = %d, want 1", len(assets))
+				}
+				if assets[0].OwnerHouseholdID == nil || *assets[0].OwnerHouseholdID != "hh-1" {
+					t.Fatalf("asset OwnerHouseholdID = %v, want \"hh-1\"", assets[0].OwnerHouseholdID)
+				}
+				if assets[0].OwnerID != testUser {
+					t.Fatalf("asset OwnerID = %q, want %q", assets[0].OwnerID, testUser)
+				}
+				docs := h.factory.docRepo.all()
+				if len(docs) != 1 {
+					t.Fatalf("document count = %d, want 1", len(docs))
+				}
+				if docs[0].OwnerHouseholdID == nil || *docs[0].OwnerHouseholdID != "hh-1" {
+					t.Fatalf("document OwnerHouseholdID = %v, want \"hh-1\"", docs[0].OwnerHouseholdID)
+				}
+				if docs[0].OwnerID != testUser {
+					t.Fatalf("document OwnerID = %q, want %q", docs[0].OwnerID, testUser)
 				}
 			},
 		},
@@ -845,9 +901,9 @@ func TestProcess(t *testing.T) {
 				raws = []string{defaultRaw}
 			}
 			h := newHarness(tc)
-			ctx := tenant.WithTenant(context.Background(), testTenant)
+			ctx := user.WithUser(context.Background(), testUser)
 			for i := range raws {
-				_, err := h.svc.Process(ctx, "invoice.pdf", h.payload, "application/pdf")
+				_, err := h.svc.Process(ctx, "invoice.pdf", h.payload, "application/pdf", tc.scope)
 				if tc.wantErrs[i] == nil {
 					if err != nil {
 						t.Fatalf("Process call %d returned error %v, want nil", i, err)

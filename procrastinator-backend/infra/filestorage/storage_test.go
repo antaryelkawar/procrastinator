@@ -12,14 +12,14 @@ import (
 	"strings"
 	"testing"
 
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 	"procrastinator-backend/infra/filestorage"
 )
 
-// tenantCtx returns a context carrying the given tenant ID.
-func tenantCtx(t *testing.T, id string) context.Context {
+// userCtx returns a context carrying the given user ID.
+func userCtx(t *testing.T, id string) context.Context {
 	t.Helper()
-	return tenant.WithTenant(context.Background(), id)
+	return user.WithUser(context.Background(), id)
 }
 
 // countFiles walks root and returns the number of regular files found.
@@ -75,7 +75,7 @@ func TestPutValidTypes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			s := filestorage.New(t.TempDir())
-			src, err := s.Put(tenantCtx(t, "acme"), tt.data)
+			src, err := s.Put(userCtx(t, "acme"), tt.data)
 			if err != nil {
 				t.Fatalf("Put() error = %v, want nil", err)
 			}
@@ -102,7 +102,7 @@ func TestPutValidTypes(t *testing.T) {
 				t.Error("UploadedAt is zero, want non-zero")
 			}
 
-			// Path must be tenant-scoped: acme/<uuid><ext>.
+			// Path must be user-scoped: acme/<uuid><ext>.
 			wantPrefix := "acme/"
 			if len(src.Path) < len(wantPrefix) || src.Path[:len(wantPrefix)] != wantPrefix {
 				t.Errorf("Path = %q, want prefix %q", src.Path, wantPrefix)
@@ -132,7 +132,7 @@ func TestPutUnsupportedType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			s := filestorage.New(t.TempDir())
-			_, err := s.Put(tenantCtx(t, "acme"), tt.data)
+			_, err := s.Put(userCtx(t, "acme"), tt.data)
 			if !errors.Is(err, filestorage.ErrUnsupportedType) {
 				t.Fatalf("Put() error = %v, want errors.Is(err, ErrUnsupportedType)", err)
 			}
@@ -140,15 +140,15 @@ func TestPutUnsupportedType(t *testing.T) {
 	}
 }
 
-// TestPutFileOnDisk verifies the file written at the tenant-scoped path
-// (dir/<tenant>/... matching Source.Path) matches the input data byte-for-byte.
+// TestPutFileOnDisk verifies the file written at the user-scoped path
+// (dir/<user>/... matching Source.Path) matches the input data byte-for-byte.
 func TestPutFileOnDisk(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	s := filestorage.New(dir)
 	input := []byte("%PDF-1.4\nfile-on-disk content")
 
-	src, err := s.Put(tenantCtx(t, "acme"), input)
+	src, err := s.Put(userCtx(t, "acme"), input)
 	if err != nil {
 		t.Fatalf("Put() error = %v, want nil", err)
 	}
@@ -168,7 +168,7 @@ func TestPutSHA256(t *testing.T) {
 	s := filestorage.New(t.TempDir())
 	input := []byte("%PDF-1.4\nsha content")
 
-	src, err := s.Put(tenantCtx(t, "acme"), input)
+	src, err := s.Put(userCtx(t, "acme"), input)
 	if err != nil {
 		t.Fatalf("Put() error = %v, want nil", err)
 	}
@@ -180,16 +180,16 @@ func TestPutSHA256(t *testing.T) {
 	}
 }
 
-// TestPutPathFormat verifies Source.Path is <tenant>/<uuid><ext> where the uuid
+// TestPutPathFormat verifies Source.Path is <user>/<uuid><ext> where the uuid
 // is a 36-character 8-4-4-4-12 hex string, and that the physical file exists
-// at dir/<tenant>/<uuid><ext>.
+// at dir/<user>/<uuid><ext>.
 func TestPutPathFormat(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	s := filestorage.New(dir)
 	input := []byte("%PDF-1.4\npath format content")
 
-	src, err := s.Put(tenantCtx(t, "acme"), input)
+	src, err := s.Put(userCtx(t, "acme"), input)
 	if err != nil {
 		t.Fatalf("Put() error = %v, want nil", err)
 	}
@@ -206,7 +206,7 @@ func TestPutPathFormat(t *testing.T) {
 	if m[1] != src.ID {
 		t.Errorf("Path uuid = %q, want ID %q", m[1], src.ID)
 	}
-	// The physical file must live under dir/<tenant>/.
+	// The physical file must live under dir/<user>/.
 	physical := filepath.Join(dir, "acme", src.ID+m[2])
 	if _, err := os.Stat(physical); err != nil {
 		t.Errorf("file at %q: %v, want it to exist", physical, err)
@@ -222,7 +222,7 @@ func TestPutPDFMagicPriority(t *testing.T) {
 	// %PDF- magic but no PDF structure that net/http's sniffing recognizes.
 	input := []byte("%PDF-XX")
 
-	src, err := s.Put(tenantCtx(t, "acme"), input)
+	src, err := s.Put(userCtx(t, "acme"), input)
 	if err != nil {
 		t.Fatalf("Put() error = %v, want nil", err)
 	}
@@ -231,16 +231,16 @@ func TestPutPDFMagicPriority(t *testing.T) {
 	}
 }
 
-// TestPutTenantScopedKey verifies that for a context carrying tenant "acme",
+// TestPutUserScopedKey verifies that for a context carrying user "acme",
 // the file bytes land on disk at acme/<uuid><ext> and Source.Path is exactly
-// that tenant-relative key.
-func TestPutTenantScopedKey(t *testing.T) {
+// that user-relative key.
+func TestPutUserScopedKey(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	s := filestorage.New(dir)
-	input := []byte("%PDF-1.4\ntenant scoped content")
+	input := []byte("%PDF-1.4\nuser scoped content")
 
-	src, err := s.Put(tenantCtx(t, "acme"), input)
+	src, err := s.Put(userCtx(t, "acme"), input)
 	if err != nil {
 		t.Fatalf("Put() error = %v, want nil", err)
 	}
@@ -259,17 +259,17 @@ func TestPutTenantScopedKey(t *testing.T) {
 	}
 }
 
-// TestPutNoTenantFailsClosed verifies that Put without a tenant in the context
-// fails with tenant.ErrNoTenant before sniffing or any I/O: no file is written
+// TestPutNoUserFailsClosed verifies that Put without a user in the context
+// fails with user.ErrNoUser before sniffing or any I/O: no file is written
 // to disk.
-func TestPutNoTenantFailsClosed(t *testing.T) {
+func TestPutNoUserFailsClosed(t *testing.T) {
 	tests := []struct {
 		name string
 		data []byte
 	}{
-		{name: "valid pdf payload", data: []byte("%PDF-1.4\nno tenant content")},
-		// No tenant must win over the unsupported-type check: proves the
-		// tenant check runs before sniffing.
+		{name: "valid pdf payload", data: []byte("%PDF-1.4\nno user content")},
+		// No user must win over the unsupported-type check: proves the
+		// user check runs before sniffing.
 		{name: "unsupported plain text payload", data: []byte("hello world")},
 	}
 
@@ -281,8 +281,8 @@ func TestPutNoTenantFailsClosed(t *testing.T) {
 			s := filestorage.New(dir)
 
 			_, err := s.Put(context.Background(), tt.data)
-			if !errors.Is(err, tenant.ErrNoTenant) {
-				t.Fatalf("Put() error = %v, want errors.Is(err, tenant.ErrNoTenant)", err)
+			if !errors.Is(err, user.ErrNoUser) {
+				t.Fatalf("Put() error = %v, want errors.Is(err, user.ErrNoUser)", err)
 			}
 
 			if n := countFiles(t, dir); n != 0 {
@@ -292,28 +292,28 @@ func TestPutNoTenantFailsClosed(t *testing.T) {
 	}
 }
 
-// TestPutTenantPrefixDisjoint verifies that uploads under different tenants
-// are strictly scoped: every key begins with its own tenant prefix and no file
-// appears under the other tenant's directory.
-func TestPutTenantPrefixDisjoint(t *testing.T) {
+// TestPutUserPrefixDisjoint verifies that uploads under different Users
+// are strictly scoped: every key begins with its own user prefix and no file
+// appears under the other user's directory.
+func TestPutUserPrefixDisjoint(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	s := filestorage.New(dir)
 
 	for _, tc := range []struct {
-		tenant string
-		data   []byte
+		user string
+		data []byte
 	}{
-		{tenant: "acme", data: []byte("%PDF-1.4\nacme payload")},
-		{tenant: "acme", data: []byte("\x89PNG\r\n\x1a\n" + "acme png")},
-		{tenant: "globex", data: []byte("%PDF-1.4\nglobex payload")},
-		{tenant: "globex", data: []byte("\xFF\xD8\xFF\xDB" + "globex jpeg")},
+		{user: "acme", data: []byte("%PDF-1.4\nacme payload")},
+		{user: "acme", data: []byte("\x89PNG\r\n\x1a\n" + "acme png")},
+		{user: "globex", data: []byte("%PDF-1.4\nglobex payload")},
+		{user: "globex", data: []byte("\xFF\xD8\xFF\xDB" + "globex jpeg")},
 	} {
-		src, err := s.Put(tenantCtx(t, tc.tenant), tc.data)
+		src, err := s.Put(userCtx(t, tc.user), tc.data)
 		if err != nil {
-			t.Fatalf("Put(tenant %q) error = %v, want nil", tc.tenant, err)
+			t.Fatalf("Put(user %q) error = %v, want nil", tc.user, err)
 		}
-		wantPrefix := tc.tenant + "/"
+		wantPrefix := tc.user + "/"
 		if len(src.Path) < len(wantPrefix) || src.Path[:len(wantPrefix)] != wantPrefix {
 			t.Errorf("Path = %q, want prefix %q", src.Path, wantPrefix)
 		}
@@ -324,8 +324,8 @@ func TestPutTenantPrefixDisjoint(t *testing.T) {
 		}
 	}
 
-	// Every file on disk must sit exactly one level below its own tenant
-	// directory: dir/<tenant>/<file>, with nothing under the other tenant's
+	// Every file on disk must sit exactly one level below its own user
+	// directory: dir/<user>/<file>, with nothing under the other user's
 	// directory and nothing loose in the root.
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -340,7 +340,7 @@ func TestPutTenantPrefixDisjoint(t *testing.T) {
 		}
 		parts := strings.Split(filepath.ToSlash(rel), "/")
 		if len(parts) != 2 || (parts[0] != "acme" && parts[0] != "globex") {
-			t.Errorf("file %q is not tenant-scoped (expected acme/<file> or globex/<file>)", rel)
+			t.Errorf("file %q is not user-scoped (expected acme/<file> or globex/<file>)", rel)
 			return nil
 		}
 		return nil

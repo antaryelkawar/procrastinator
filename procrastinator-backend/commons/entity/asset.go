@@ -19,26 +19,24 @@ func ValidDocType(s string) bool {
 	return s == DocTypeInvoice || s == DocTypeWarranty || s == DocTypeAMC || s == DocTypeOther
 }
 
-// Asset represents a tenant-scoped device record with structured core fields and open metadata.
+// Asset represents an owner-scoped device record with structured core fields and open metadata.
 type Asset struct {
-	ID           string
-	TenantID     string
-	Brand        *string
-	Model        *string
-	SerialNumber *string
-	NormSerial   *string
-	NormBrand    *string
-	NormModel    *string
-	PurchaseDate *time.Time
-	WarrantyEnd  *time.Time
-	Price        *string
-	Currency     *string
-	DocType      string
-	Metadata     map[string]any
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	// ScopeType is the scope_type column: "personal" or "household".
-	ScopeType string
+	ID               string
+	OwnerID          string
+	Brand            *string
+	Model            *string
+	SerialNumber     *string
+	NormSerial       *string
+	NormBrand        *string
+	NormModel        *string
+	PurchaseDate     *time.Time
+	WarrantyEnd      *time.Time
+	Price            *string
+	Currency         *string
+	DocType          string
+	Metadata         map[string]any
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 	// OwnerHouseholdID is the owner_household_id column; nil means NULL
 	// (a personal row has no household owner).
 	OwnerHouseholdID *string

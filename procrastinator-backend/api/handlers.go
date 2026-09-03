@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -16,32 +17,11 @@ import (
 	"procrastinator-backend/infra/filestorage"
 )
 
-// scopedAssetLister and scopedDocumentLister are narrow views over the
-// concrete repositories that expose the scope-aware ListScoped method. The
-// generic repo.Repository[T] interface intentionally omits ListScoped, so the
-// handlers reach it through these assertions. The real postgres repositories
-// always satisfy them; a failed assertion is a wiring bug mapped to 500.
-type scopedAssetLister interface {
-	ListScoped(ctx context.Context, opts ...repo.Option) ([]entity.Asset, error)
-}
-
-type scopedDocumentLister interface {
-	ListScoped(ctx context.Context, opts ...repo.Option) ([]entity.Document, error)
-}
-
-// errDocumentsNotScopeAware reports a factory whose documents repository does
-// not expose ListScoped. It is a programming error surfaced as a 500.
-var errDocumentsNotScopeAware = errors.New("documents repository is not scope-aware")
-
 // findAssetScoped returns the single asset with id visible to the user under
 // the scope access rule, or nil when the user cannot see it (unknown or
-// foreign-tenant assets both surface as not-found).
+// another user's assets both surface as not-found).
 func (s *Server) findAssetScoped(ctx context.Context, tid, id string) (*entity.Asset, error) {
-	scoped, ok := s.factory.Assets.(scopedAssetLister)
-	if !ok {
-		return nil, errors.New("assets repository is not scope-aware")
-	}
-	assets, err := scoped.ListScoped(ctx, repo.Tenant(tid), repo.Where("id", "=", id))
+	assets, err := s.factory.Assets.List(ctx, repo.Owner(tid), repo.Where("id", "=", id))
 	if err != nil {
 		return nil, err
 	}
@@ -53,8 +33,14 @@ func (s *Server) findAssetScoped(ctx context.Context, tid, id string) (*entity.A
 }
 
 // handleUpload processes a multipart document upload: it enforces the size
-// limit, reads the "file" part, and runs the full ingest pipeline.
+// limit, reads the "file" part, resolves the optional owner household scope,
+// and runs the full ingest pipeline.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	tid, ok := userFromCtx(w, r.Context())
+	if !ok {
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxBytes)
 
 	if err := r.ParseMultipartForm(0); err != nil {
@@ -83,12 +69,43 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asset, err := s.svc.Process(r.Context(), header.Filename, payload, header.Header.Get("Content-Type"))
+	// Resolve the optional owner-household scope. Absent or blank means a
+	// personal upload (ownerHH stays nil). When present, the requester must be
+	// a member of that household.
+	ownerHH := (*string)(nil)
+	if hh := strings.TrimSpace(r.FormValue("owner_household_id")); hh != "" {
+		member, err := s.isHouseholdMember(r.Context(), tid, hh)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if !member {
+			httpx.WriteError(w, http.StatusForbidden, "not a member of the household")
+			return
+		}
+		ownerHH = &hh
+	}
+
+	asset, err := s.svc.Process(r.Context(), header.Filename, payload, header.Header.Get("Content-Type"), ownerHH)
 	if err != nil {
 		s.writeProcessError(w, err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, toAssetJSON(asset))
+}
+
+// isHouseholdMember reports whether userID is a member of householdID.
+func (s *Server) isHouseholdMember(ctx context.Context, userID, householdID string) (bool, error) {
+	hhs, err := s.factory.Households.HouseholdsForUser(ctx, userID, repo.Owner(userID))
+	if err != nil {
+		return false, err
+	}
+	for _, h := range hhs {
+		if h == householdID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // writeProcessError maps an ingest service error onto the HTTP status
@@ -112,16 +129,11 @@ func (s *Server) writeProcessError(w http.ResponseWriter, err error) {
 // handleListAssets returns all assets visible to the requesting user under the
 // scope access rule.
 func (s *Server) handleListAssets(w http.ResponseWriter, r *http.Request) {
-	tid, ok := tenantFromCtx(w, r.Context())
+	tid, ok := userFromCtx(w, r.Context())
 	if !ok {
 		return
 	}
-	scoped, ok := s.factory.Assets.(scopedAssetLister)
-	if !ok {
-		httpx.WriteError(w, http.StatusInternalServerError, "asset list: internal error")
-		return
-	}
-	assets, err := scoped.ListScoped(r.Context(), repo.Tenant(tid))
+	assets, err := s.factory.Assets.List(r.Context(), repo.Owner(tid))
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "asset list: internal error")
 		return
@@ -136,9 +148,9 @@ func (s *Server) handleListAssets(w http.ResponseWriter, r *http.Request) {
 
 // handleGetAsset returns a single asset by ID when the requesting user can
 // see it under the scope access rule; an asset the user can't see (unknown or
-// foreign-tenant) fails with 404.
+// another user's) fails with 404.
 func (s *Server) handleGetAsset(w http.ResponseWriter, r *http.Request) {
-	tid, ok := tenantFromCtx(w, r.Context())
+	tid, ok := userFromCtx(w, r.Context())
 	if !ok {
 		return
 	}
@@ -157,10 +169,10 @@ func (s *Server) handleGetAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleListDocuments returns all documents attached to one asset. The asset
-// is looked up first so that unknown or foreign-tenant assets fail with 404
+// is looked up first so that unknown or another user's assets fail with 404
 // instead of an empty list.
 func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
-	tid, ok := tenantFromCtx(w, r.Context())
+	tid, ok := userFromCtx(w, r.Context())
 	if !ok {
 		return
 	}

@@ -90,7 +90,7 @@ func (s *Server) createMovement(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, toMovementJSON(mv))
 }
 
-// listMovements returns the requesting tenant's movements filtered by the
+// listMovements returns the requesting user's movements filtered by the
 // optional account_id (source OR destination) and inclusive from/to
 // occurred-on bounds. The result is never nil.
 func (s *Server) listMovements(w http.ResponseWriter, r *http.Request) {
@@ -131,8 +131,8 @@ func (s *Server) listMovements(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-// getMovement returns the requesting tenant's movement by ID. Unknown or
-// foreign-tenant IDs yield 404.
+// getMovement returns the requesting user's movement by ID. Unknown or
+// another user's IDs yield 404.
 func (s *Server) getMovement(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 

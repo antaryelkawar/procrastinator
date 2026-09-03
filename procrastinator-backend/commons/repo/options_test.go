@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-func TestTenant(t *testing.T) {
+func TestOwner(t *testing.T) {
 	t.Parallel()
 
-	got := ApplyOptions(Tenant("t1"))
+	got := ApplyOptions(Owner("t1"))
 
-	if got.TenantID != "t1" {
-		t.Errorf("TenantID = %q, want %q", got.TenantID, "t1")
+	if got.OwnerID != "t1" {
+		t.Errorf("OwnerID = %q, want %q", got.OwnerID, "t1")
 	}
 }
 
@@ -80,7 +80,7 @@ func TestApplyOptions_Multiple(t *testing.T) {
 	t.Parallel()
 
 	got := ApplyOptions(
-		Tenant("t1"),
+		Owner("t1"),
 		Where("brand", "=", "Samsung"),
 		Limit(10),
 		Offset(5),
@@ -88,11 +88,11 @@ func TestApplyOptions_Multiple(t *testing.T) {
 	)
 
 	want := &Options{
-		TenantID: "t1",
-		Filters:  []Filter{{Field: "brand", Op: "=", Value: "Samsung"}},
-		Limit:    10,
-		Offset:   5,
-		OrderBy:  "created_at",
+		OwnerID: "t1",
+		Filters: []Filter{{Field: "brand", Op: "=", Value: "Samsung"}},
+		Limit:   10,
+		Offset:  5,
+		OrderBy: "created_at",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ApplyOptions(...) = %+v, want %+v", got, want)

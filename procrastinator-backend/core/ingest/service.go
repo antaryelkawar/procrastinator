@@ -9,7 +9,7 @@ import (
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/parse"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 	"procrastinator-backend/core/identity"
 )
 
@@ -44,9 +44,10 @@ func New(factory *repo.Factory, extractor repo.Extractor, storage repo.FileStora
 // survives later failures), call the LLM extractor, parse the payload, then
 // atomically resolve the asset identity and create the document. The
 // filename is accepted for the API contract but the storage derives the
-// Source from the bytes.
-func (s *Service) Process(ctx context.Context, filename string, payload []byte, contentType string) (entity.Asset, error) {
-	tid, err := tenant.TenantFrom(ctx)
+// Source from the bytes. ownerHouseholdID fences the resolution and stamps
+// the source + document to a household scope (nil = personal).
+func (s *Service) Process(ctx context.Context, filename string, payload []byte, contentType string, ownerHouseholdID *string) (entity.Asset, error) {
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.Asset{}, err
 	}
@@ -63,7 +64,8 @@ func (s *Service) Process(ctx context.Context, filename string, payload []byte, 
 	}
 
 	// 3. Persist source (before tx, survives later failures)
-	source, err = s.factory.Sources.Create(ctx, source, repo.Tenant(tid))
+	source.OwnerHouseholdID = ownerHouseholdID
+	source, err = s.factory.Sources.Create(ctx, source, repo.Owner(tid))
 	if err != nil {
 		return entity.Asset{}, err
 	}
@@ -83,20 +85,21 @@ func (s *Service) Process(ctx context.Context, filename string, payload []byte, 
 	// 6. Transaction: resolve identity + create document
 	var resolved entity.Asset
 	err = s.factory.InTx(ctx, func(ctx context.Context, repos *repo.Repos) error {
-		a, _, err := identity.Resolve(ctx, repos.Assets, ext)
+		a, _, err := identity.Resolve(ctx, repos.Assets, ext, ownerHouseholdID)
 		if err != nil {
 			return err
 		}
 		resolved = a
 
 		doc := entity.Document{
-			SourceID:        source.ID,
-			AssetID:         a.ID,
-			DocType:         ext.Classification,
-			ExtractedFields: extractionFields(ext),
-			RawExtraction:   ext.RawPayload,
+			SourceID:         source.ID,
+			AssetID:          a.ID,
+			DocType:          ext.Classification,
+			ExtractedFields:  extractionFields(ext),
+			RawExtraction:    ext.RawPayload,
+			OwnerHouseholdID: ownerHouseholdID,
 		}
-		_, err = repos.Documents.Create(ctx, doc, repo.Tenant(tid))
+		_, err = repos.Documents.Create(ctx, doc, repo.Owner(tid))
 		return err
 	})
 	if err != nil {

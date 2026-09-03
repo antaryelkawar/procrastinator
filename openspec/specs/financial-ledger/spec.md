@@ -1,12 +1,14 @@
-# Spec: financial-ledger
+# financial-ledger
 
-Delta for change `statement-ledger-ingestion`. Introduces the new `financial-ledger` capability.
+## Purpose
 
-## ADDED Requirements
+Defines the financial-ledger capability: financial accounts, money movements, derived balances, and movement–document links, scoped per owner.
+
+## Requirements
 
 ### Requirement: Financial account model
 
-The system SHALL persist Financial Accounts scoped per tenant. A Financial Account SHALL have: an opaque identifier, a non-empty display name, an account type from the controlled vocabulary {`bank`, `wallet`, `cash`, `credit_card`}, an ISO 4217 currency assigned at creation, optional institution name and optional external account descriptor (e.g., masked account number) retained as descriptive metadata, and creation/update timestamps. The currency SHALL be immutable after creation. Account names SHALL NOT be treated as identity; two accounts may share a name.
+The system SHALL persist Financial Accounts scoped per owner (`owner_id` with a nullable `owner_household_id`). A Financial Account SHALL have: an opaque identifier, a non-empty display name, an account type from the controlled vocabulary {`bank`, `wallet`, `cash`, `credit_card`}, an ISO 4217 currency assigned at creation, optional institution name and optional external account descriptor (e.g., masked account number) retained as descriptive metadata, and creation/update timestamps. The currency SHALL be immutable after creation. Account names SHALL NOT be treated as identity; two accounts may share a name.
 
 #### Scenario: Account persists its full field set
 
@@ -30,26 +32,26 @@ The system SHALL persist Financial Accounts scoped per tenant. A Financial Accou
 
 ### Requirement: Financial account API
 
-The system SHALL expose `POST /api/finance/accounts` returning `201 Created` with the created account JSON, `GET /api/finance/accounts` returning `200 OK` with a JSON array of the tenant's accounts ordered by creation timestamp ascending with ties broken by identifier ascending, and `GET /api/finance/accounts/{id}` returning `200 OK` with the account JSON including its current derived balance, or `404 Not Found` for an unknown identifier. Invalid creation bodies SHALL be rejected with `400 Bad Request`.
+The system SHALL expose `POST /api/users/{userId}/finance/accounts` returning `201 Created` with the created account JSON, `GET /api/users/{userId}/finance/accounts` returning `200 OK` with a JSON array of the owner's accounts ordered by creation timestamp ascending with ties broken by identifier ascending, and `GET /api/users/{userId}/finance/accounts/{id}` returning `200 OK` with the account JSON including its current derived balance, or `404 Not Found` for an unknown identifier. Invalid creation bodies SHALL be rejected with `400 Bad Request`.
 
 #### Scenario: Create and read back an account
 
-- **WHEN** a client POSTs a valid account to `/api/finance/accounts` and then requests `GET /api/finance/accounts/{id}` with the returned identifier
+- **WHEN** a client POSTs a valid account to `/api/users/{userId}/finance/accounts` and then requests `GET /api/users/{userId}/finance/accounts/{id}` with the returned identifier
 - **THEN** the read response is `200 OK` and includes the created fields and a derived balance of `0`
 
 #### Scenario: Empty ledger returns an empty array
 
-- **WHEN** no accounts exist and a client requests `GET /api/finance/accounts`
+- **WHEN** no accounts exist and a client requests `GET /api/users/{userId}/finance/accounts`
 - **THEN** the response is `200 OK` with body `[]`
 
 #### Scenario: Unknown account returns 404
 
-- **WHEN** a client requests `GET /api/finance/accounts/{id}` for an identifier that does not exist
+- **WHEN** a client requests `GET /api/users/{userId}/finance/accounts/{id}` for an identifier that does not exist
 - **THEN** the response is `404 Not Found`
 
 ### Requirement: Money movement model
 
-The system SHALL persist Money Movements scoped per tenant. A Money Movement SHALL have: an opaque identifier; a kind from the controlled vocabulary {`expense`, `income`, `transfer`}; an exact-decimal amount strictly greater than zero; an ISO 4217 currency; an `occurred_on` calendar date on which the movement happened in the real world; a `recorded_at` timestamp of when the system persisted it; a non-empty counterparty description; an origin of `manual` or `import`; and account references constrained by kind. Kind constraints: an `expense` SHALL reference a source account and no destination account (money leaves to an external counterparty); an `income` SHALL reference a destination account and no source account (money enters from an external counterparty); a `transfer` SHALL reference both a source and a destination account belonging to the same tenant, which SHALL be distinct. The movement's currency SHALL equal the currency of every account it references; transfers across currencies are not representable.
+The system SHALL persist Money Movements scoped per owner (`owner_id` with a nullable `owner_household_id`). A Money Movement SHALL have: an opaque identifier; a kind from the controlled vocabulary {`expense`, `income`, `transfer`}; an exact-decimal amount strictly greater than zero; an ISO 4217 currency; an `occurred_on` calendar date on which the movement happened in the real world; a `recorded_at` timestamp of when the system persisted it; a non-empty counterparty description; an origin of `manual` or `import`; and account references constrained by kind. Kind constraints: an `expense` SHALL reference a source account and no destination account (money leaves to an external counterparty); an `income` SHALL reference a destination account and no source account (money enters from an external counterparty); a `transfer` SHALL reference both a source and a destination account belonging to the same owner scope, which SHALL be distinct. The movement's currency SHALL equal the currency of every account it references; transfers across currencies are not representable.
 
 #### Scenario: Expense movement is persisted
 
@@ -87,16 +89,16 @@ Movement amounts and derived balances SHALL be stored and transmitted as exact d
 
 ### Requirement: Manual money movement API
 
-The system SHALL expose `POST /api/finance/movements` creating a movement with origin `manual` and returning `201 Created` with the movement JSON; `GET /api/finance/movements` returning `200 OK` with the tenant's movements ordered by creation timestamp ascending with ties broken by identifier ascending, supporting optional filtering by account identifier and by `occurred_on` date range; and `GET /api/finance/movements/{id}` returning `200 OK` or `404 Not Found`. Validation failures SHALL return `400 Bad Request`; a reference to an unknown account SHALL return `404 Not Found` and persist nothing.
+The system SHALL expose `POST /api/users/{userId}/finance/movements` creating a movement with origin `manual` and returning `201 Created` with the movement JSON; `GET /api/users/{userId}/finance/movements` returning `200 OK` with the owner's movements ordered by creation timestamp ascending with ties broken by identifier ascending, supporting optional filtering by account identifier and by `occurred_on` date range; and `GET /api/users/{userId}/finance/movements/{id}` returning `200 OK` or `404 Not Found`. Validation failures SHALL return `400 Bad Request`; a reference to an unknown account SHALL return `404 Not Found` and persist nothing.
 
 #### Scenario: Manual movement is created with manual origin
 
-- **WHEN** a client POSTs a valid expense movement to `/api/finance/movements`
+- **WHEN** a client POSTs a valid expense movement to `/api/users/{userId}/finance/movements`
 - **THEN** the response is `201 Created`, the body shows origin `manual`, and the account's derived balance reflects the movement
 
 #### Scenario: List filters by account
 
-- **WHEN** movements exist on accounts A and B and a client requests `GET /api/finance/movements?account_id={A}`
+- **WHEN** movements exist on accounts A and B and a client requests `GET /api/users/{userId}/finance/movements?account_id={A}`
 - **THEN** the response is `200 OK` containing only movements referencing account A
 
 #### Scenario: List filters by occurred date range
@@ -116,7 +118,7 @@ Each account's current balance SHALL be derived from its money movements: `incom
 #### Scenario: Balance accumulates movements
 
 - **WHEN** account A has an income of `250` and an expense of `100`
-- **THEN** `GET /api/finance/accounts/{A}` reports a derived balance of `150`
+- **THEN** `GET /api/users/{userId}/finance/accounts/{A}` reports a derived balance of `150`
 
 #### Scenario: Transfer moves value between accounts
 
@@ -134,31 +136,31 @@ Every movement SHALL record its origin. A movement created through the manual mo
 
 #### Scenario: Imported movement exposes its provenance
 
-- **WHEN** a movement was created by an import batch commit and a client requests `GET /api/finance/movements/{id}`
+- **WHEN** a movement was created by an import batch commit and a client requests `GET /api/users/{userId}/finance/movements/{id}`
 - **THEN** the response shows origin `import` with `import_batch_id` and `import_line` identifying the batch and statement line it was created from
 
 #### Scenario: External reference is retained when the statement provides one
 
-- **WHEN** a movement was created by an import batch commit from a statement line carrying an external reference identifier and a client requests `GET /api/finance/movements/{id}`
+- **WHEN** a movement was created by an import batch commit from a statement line carrying an external reference identifier and a client requests `GET /api/users/{userId}/finance/movements/{id}`
 - **THEN** the response shows `external_reference` with that identifier
 
 #### Scenario: Manual movement shows manual origin
 
-- **WHEN** a client reads a movement created via `POST /api/finance/movements`
+- **WHEN** a client reads a movement created via `POST /api/users/{userId}/finance/movements`
 - **THEN** the response shows origin `manual` and no import provenance fields
 
 ### Requirement: Movement–document link creation
 
-A movement MAY be linked to at most one existing Document of the same tenant (for example a receipt or invoice captured earlier via document ingestion), and a Document SHALL be linked from at most one movement at a time. The system SHALL expose `POST /api/finance/movements/{id}/link` accepting a JSON body with a `document_id` field naming the link target. On success the endpoint SHALL respond `200 OK` with the updated movement JSON and the link SHALL record creator kind `manual`. Repeating the same link (same movement, same document) SHALL be an idempotent no-op returning `200 OK`. Linking an already-linked movement to a different document SHALL be rejected with `409 Conflict`; linking a document that is already linked to another movement SHALL be rejected with `409 Conflict`. An unknown movement, an unknown document, or a document belonging to another tenant SHALL yield `404 Not Found` and create no link.
+A movement MAY be linked to at most one existing Document of the same owner scope (for example a receipt or invoice captured earlier via document ingestion), and a Document SHALL be linked from at most one movement at a time. The system SHALL expose `POST /api/users/{userId}/finance/movements/{id}/link` accepting a JSON body with a `document_id` field naming the link target. On success the endpoint SHALL respond `200 OK` with the updated movement JSON and the link SHALL record creator kind `manual`. Repeating the same link (same movement, same document) SHALL be an idempotent no-op returning `200 OK`. Linking an already-linked movement to a different document SHALL be rejected with `409 Conflict`; linking a document that is already linked to another movement SHALL be rejected with `409 Conflict`. An unknown movement, an unknown document, or a document belonging to another owner SHALL yield `404 Not Found` and create no link.
 
 #### Scenario: Manual link is created and visible
 
-- **WHEN** a captured receipt Document exists and a client POSTs its identifier to `/api/finance/movements/{id}/link` of an unlinked movement
+- **WHEN** a captured receipt Document exists and a client POSTs its identifier to `/api/users/{userId}/finance/movements/{id}/link` of an unlinked movement
 - **THEN** the response is `200 OK`, reading the movement shows the link with creator kind `manual`, and neither the movement nor the Document fields are changed
 
 #### Scenario: Repeating the same link is an idempotent no-op
 
-- **WHEN** a client POSTs a `document_id` to `/api/finance/movements/{id}/link` of a movement already linked to that same document
+- **WHEN** a client POSTs a `document_id` to `/api/users/{userId}/finance/movements/{id}/link` of a movement already linked to that same document
 - **THEN** the response is `200 OK` and exactly one link exists between the movement and the document
 
 #### Scenario: Already-linked movement rejects a second link
@@ -171,23 +173,23 @@ A movement MAY be linked to at most one existing Document of the same tenant (fo
 - **WHEN** a client attempts to link a Document that is already linked to movement M1 to a different movement M2
 - **THEN** the request is rejected with `409 Conflict` and the existing link is unchanged
 
-#### Scenario: Cross-tenant link target is invisible
+#### Scenario: Cross-owner link target is invisible
 
-- **WHEN** a client attempts to link a movement to a Document identifier belonging to another tenant
+- **WHEN** a client attempts to link a movement to a Document identifier belonging to another owner
 - **THEN** the response is `404 Not Found` and no link is created
 
 ### Requirement: Movement–document link removal
 
-The system SHALL expose `DELETE /api/finance/movements/{id}/link` which removes the movement's link if one exists and responds `204 No Content`. The operation SHALL be idempotent: unlinking a movement that has no link SHALL also succeed with `204 No Content` as a no-op. An unknown movement identifier, including one belonging to another tenant, SHALL yield `404 Not Found`.
+The system SHALL expose `DELETE /api/users/{userId}/finance/movements/{id}/link` which removes the movement's link if one exists and responds `204 No Content`. The operation SHALL be idempotent: unlinking a movement that has no link SHALL also succeed with `204 No Content` as a no-op. An unknown movement identifier, including one belonging to another owner, SHALL yield `404 Not Found`.
 
 #### Scenario: Unlink removes the link
 
-- **WHEN** a client DELETEs `/api/finance/movements/{id}/link` of a linked movement
+- **WHEN** a client DELETEs `/api/users/{userId}/finance/movements/{id}/link` of a linked movement
 - **THEN** the response is `204 No Content`, reading the movement shows no link, and the previously linked Document is linkable again
 
 #### Scenario: Unlinking an unlinked movement is an idempotent no-op
 
-- **WHEN** a client DELETEs `/api/finance/movements/{id}/link` of a movement that has no link
+- **WHEN** a client DELETEs `/api/users/{userId}/finance/movements/{id}/link` of a movement that has no link
 - **THEN** the response is `204 No Content` and no state changes
 
 ### Requirement: Link metadata and non-modification
@@ -196,7 +198,7 @@ Every movement–document link SHALL record whether it was created `manual`ly by
 
 #### Scenario: Auto-created link exposes its creator kind
 
-- **WHEN** a movement was linked to a Document automatically during an import batch commit and a client requests `GET /api/finance/movements/{id}`
+- **WHEN** a movement was linked to a Document automatically during an import batch commit and a client requests `GET /api/users/{userId}/finance/movements/{id}`
 - **THEN** the response shows the link with creator kind `auto`
 
 #### Scenario: Link and unlink leave both sides unchanged
@@ -220,7 +222,7 @@ When a linked Document carries an extracted price or currency that disagrees wit
 
 ### Requirement: Movement field immutability
 
-A persisted movement's amount, currency, `occurred_on`, kind, and account references SHALL NOT be editable through any API operation. A request attempting to modify any of them — including via `PATCH /api/finance/movements/{id}` carrying any of those fields — SHALL be rejected with `400 Bad Request`, and the movement SHALL remain unchanged. Only the description and the document link MAY change after persistence.
+A persisted movement's amount, currency, `occurred_on`, kind, and account references SHALL NOT be editable through any API operation. A request attempting to modify any of them — including via `PATCH /api/users/{userId}/finance/movements/{id}` carrying any of those fields — SHALL be rejected with `400 Bad Request`, and the movement SHALL remain unchanged. Only the description and the document link MAY change after persistence.
 
 #### Scenario: Core fields of a persisted movement cannot be edited
 
@@ -229,7 +231,7 @@ A persisted movement's amount, currency, `occurred_on`, kind, and account refere
 
 ### Requirement: Manual movement lifecycle
 
-The system SHALL expose `PATCH /api/finance/movements/{id}` accepting a JSON body with a `description` field. On success it SHALL respond `200 OK` with the updated movement JSON. A blank or whitespace-only description SHALL be rejected with `400 Bad Request`; an unknown movement identifier SHALL yield `404 Not Found`. Description correction SHALL be available for movements of any origin. The system SHALL expose `DELETE /api/finance/movements/{id}` which deletes a movement with origin `manual` and responds `204 No Content`; deletion SHALL update derived balances accordingly; an unknown movement identifier SHALL yield `404 Not Found`.
+The system SHALL expose `PATCH /api/users/{userId}/finance/movements/{id}` accepting a JSON body with a `description` field. On success it SHALL respond `200 OK` with the updated movement JSON. A blank or whitespace-only description SHALL be rejected with `400 Bad Request`; an unknown movement identifier SHALL yield `404 Not Found`. Description correction SHALL be available for movements of any origin. The system SHALL expose `DELETE /api/users/{userId}/finance/movements/{id}` which deletes a movement with origin `manual` and responds `204 No Content`; deletion SHALL update derived balances accordingly; an unknown movement identifier SHALL yield `404 Not Found`.
 
 #### Scenario: Description correction succeeds
 
@@ -248,33 +250,33 @@ The system SHALL expose `PATCH /api/finance/movements/{id}` accepting a JSON bod
 
 #### Scenario: Deleting an unknown movement returns 404
 
-- **WHEN** a client DELETEs `/api/finance/movements/{id}` for an identifier that does not exist
+- **WHEN** a client DELETEs `/api/users/{userId}/finance/movements/{id}` for an identifier that does not exist
 - **THEN** the response is `404 Not Found`
 
 ### Requirement: Imported movement lifecycle constraints
 
-A movement with origin `import` SHALL NOT be individually deleted or amount-corrected: `DELETE /api/finance/movements/{id}` for an imported movement SHALL be rejected with `409 Conflict` and the movement SHALL remain unchanged. Its lifecycle is owned by its import batch; rollback of committed batches and reversal or correction of committed imported movements are out of scope for this change.
+A movement with origin `import` SHALL NOT be individually deleted or amount-corrected: `DELETE /api/users/{userId}/finance/movements/{id}` for an imported movement SHALL be rejected with `409 Conflict` and the movement SHALL remain unchanged. Its lifecycle is owned by its import batch; rollback of committed batches and reversal or correction of committed imported movements are out of scope for this change.
 
 #### Scenario: Imported movement cannot be individually deleted
 
 - **WHEN** a client DELETEs a movement with origin `import`
 - **THEN** the response is `409 Conflict` and the movement is unchanged
 
-### Requirement: Tenant scoping of ledger data
+### Requirement: Owner scoping of ledger data
 
-All ledger records (financial accounts, money movements, and their document links) SHALL be tenant-scoped: every ledger table SHALL carry a `tenant_id`, every persistence operation SHALL resolve the tenant from the explicit tenant option or the request context and SHALL restrict reads and writes to that tenant, and a persistence operation with no resolvable tenant SHALL fail closed with an error rather than operate across tenants. No API response SHALL expose another tenant's ledger data; account and movement identifiers of another tenant SHALL behave as non-existent.
+All ledger records (financial accounts, money movements, and their document links) SHALL be owner-scoped: every ledger table SHALL carry an `owner_id` (NOT NULL) and a nullable `owner_household_id`, every persistence operation SHALL resolve the owner from the explicit owner option or the request context and SHALL restrict reads and writes by the owner visibility rule (the owner's own rows plus rows in households the user belongs to), and a persistence operation with no resolvable owner SHALL fail closed with an error rather than operate across owners. No API response SHALL expose another owner's ledger data; account and movement identifiers of another owner SHALL behave as non-existent.
 
-#### Scenario: Same account name in two tenants yields two accounts
+#### Scenario: Same account name in two owners yields two accounts
 
-- **WHEN** tenant `acme` and tenant `globex` each create an account named "Cash"
-- **THEN** two distinct accounts exist and each tenant's reads see only its own account
+- **WHEN** owner `acme` and owner `globex` each create an account named "Cash"
+- **THEN** two distinct accounts exist and each owner's reads see only its own account
 
-#### Scenario: Other tenant's account id is not found
+#### Scenario: Other owner's account id is not found
 
-- **WHEN** tenant `acme` requests `GET /api/finance/accounts/{id}` for an account created under tenant `globex`
+- **WHEN** owner `acme` requests `GET /api/users/{userId}/finance/accounts/{id}` for an account created under owner `globex`
 - **THEN** the response is `404 Not Found`
 
-#### Scenario: Persistence without tenant fails closed
+#### Scenario: Persistence without owner fails closed
 
-- **WHEN** a ledger persistence operation is invoked with neither an explicit tenant option nor a context tenant
+- **WHEN** a ledger persistence operation is invoked with neither an explicit owner option nor a context owner
 - **THEN** it returns an error and performs no query

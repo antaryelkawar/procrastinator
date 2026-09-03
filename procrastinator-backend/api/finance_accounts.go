@@ -9,7 +9,7 @@ import (
 
 	"procrastinator-backend/api/httpx"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 	"procrastinator-backend/core/ledger"
 )
 
@@ -46,10 +46,10 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, toAccountJSON(acc, "0"))
 }
 
-// listAccounts returns all of the requesting tenant's accounts with each
+// listAccounts returns all of the requesting user's accounts with each
 // account's derived balance. The result is never nil.
 func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
-	tid, ok := tenantFromCtx(w, r.Context())
+	tid, ok := userFromCtx(w, r.Context())
 	if !ok {
 		return
 	}
@@ -62,7 +62,7 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]accountJSON, 0, len(accs))
 	for _, a := range accs {
-		balance, err := s.balancer.BalanceForAccount(r.Context(), a.ID, repo.Tenant(tid))
+		balance, err := s.balancer.BalanceForAccount(r.Context(), a.ID, repo.Owner(tid))
 		if err != nil {
 			writeFinanceError(w, err)
 			return
@@ -72,11 +72,11 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-// getAccount returns the requesting tenant's account by ID together with its
-// derived balance. Unknown or foreign-tenant IDs yield 404. The ledger
-// service resolves the tenant from the context; the check here is defensive.
+// getAccount returns the requesting user's account by ID together with its
+// derived balance. Unknown or another user's IDs yield 404. The ledger
+// service resolves the user from the context; the check here is defensive.
 func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
-	if _, ok := tenantFromCtx(w, r.Context()); !ok {
+	if _, ok := userFromCtx(w, r.Context()); !ok {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -91,7 +91,7 @@ func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
 
 // writeFinanceError maps core/ledger and persistence sentinels onto the HTTP
 // status contract (D11): ErrInvalid -> 400, ErrConflict -> 409,
-// repo.ErrNotFound -> 404, tenant.ErrNoTenant -> 401 (defensive), else 500.
+// repo.ErrNotFound -> 404, user.ErrNoUser -> 401 (defensive), else 500.
 func writeFinanceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ledger.ErrInvalid):
@@ -100,8 +100,8 @@ func writeFinanceError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusConflict, "conflicting state")
 	case errors.Is(err, repo.ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "not found")
-	case errors.Is(err, tenant.ErrNoTenant):
-		httpx.WriteError(w, http.StatusUnauthorized, "missing or invalid X-Tenant-ID header")
+	case errors.Is(err, user.ErrNoUser):
+		httpx.WriteError(w, http.StatusUnauthorized, "missing or invalid user identity")
 	default:
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 	}

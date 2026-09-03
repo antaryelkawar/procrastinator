@@ -12,57 +12,60 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
 )
 
-// listScopedQuerier extends recordingQuerier with a canned household-membership
-// result: the household query is the FIRST query issued, so the recorded
-// sql/args are from the membership call; the List SQL is captured separately
-// as listSQL/listArgs.
-type listScopedQuerier struct {
+// visQuerier is a fake Querier for unit-driving the engine's scope-aware
+// methods (List/Get/Update) through the generic pgRepository. The first Query
+// is the household-membership lookup (its canned rows are served by
+// visHHRows); every other query (the actual SELECT/UPDATE) records its SQL and
+// args as lastSQL/lastArgs so tests can assert on the generated visibility
+// fragment. The membership lookup is always issued before the data query, so
+// the "first query" is unambiguously the membership call.
+type visQuerier struct {
 	households []string
 	hhErr      error
+	firstQuery bool // true until the membership lookup has been served
 
-	listSQL  string
-	listArgs []any
-	queried  bool
-	queryErr error
-	rowErr   error // returned by Rows.Err(); nil = no error
+	// lastSQL/lastArgs capture the non-membership query.
+	lastSQL  string
+	lastArgs []any
+
+	// rowErr is surfaced by the data rows' Err() to test error propagation.
+	rowErr error
 }
 
-func (q *listScopedQuerier) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+func (q *visQuerier) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	q.lastSQL, q.lastArgs = sql, args
 	return pgconn.CommandTag{}, nil
 }
 
-func (q *listScopedQuerier) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	if !q.queried {
-		// First query is the household-membership lookup.
-		q.queried = true
-		return &scopedHHRows{q: q}, nil
+func (q *visQuerier) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if q.firstQuery {
+		q.firstQuery = false
+		return &visHHRows{q: q}, nil
 	}
-	q.listSQL = sql
-	q.listArgs = args
-	if q.queryErr != nil {
-		return nil, q.queryErr
-	}
-	return scopedListRows{q: q}, nil
+	q.lastSQL, q.lastArgs = sql, args
+	return visDataRows{q: q}, nil
 }
 
-func (q *listScopedQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+func (q *visQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	// A Get/Update against a fake that has no data returns ErrNoRows; the
+	// membership lookup is a Query, so QueryRow here is the data fetch.
+	q.lastSQL, q.lastArgs = sql, args
 	return errorRow{err: pgx.ErrNoRows}
 }
 
-// scopedHHRows is a pgx.Rows over the canned household ids.
-type scopedHHRows struct {
-	q   *listScopedQuerier
-	idx int // next household to hand out
-	cur int // household handed out by the most recent Next
+// visHHRows is a pgx.Rows over the canned household ids.
+type visHHRows struct {
+	q   *visQuerier
+	idx int
+	cur int
 }
 
-func (r scopedHHRows) Close()                                       {}
-func (r scopedHHRows) Err() error                                   { return r.q.hhErr }
-func (r scopedHHRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (r *scopedHHRows) Next() bool {
+func (r visHHRows) Close()                                       {}
+func (r visHHRows) Err() error                                   { return r.q.hhErr }
+func (r visHHRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *visHHRows) Next() bool {
 	if r.idx >= len(r.q.households) {
 		return false
 	}
@@ -70,236 +73,232 @@ func (r *scopedHHRows) Next() bool {
 	r.idx++
 	return true
 }
-func (r *scopedHHRows) Scan(dest ...any) error {
+func (r *visHHRows) Scan(dest ...any) error {
 	if len(dest) != 1 {
-		return fmt.Errorf("scopedHHRows: want 1 dest, got %d", len(dest))
+		return fmt.Errorf("visHHRows: want 1 dest, got %d", len(dest))
 	}
 	p, ok := dest[0].(*string)
 	if !ok {
-		return fmt.Errorf("scopedHHRows: dest[0] = %T, want *string", dest[0])
+		return fmt.Errorf("visHHRows: dest[0] = %T, want *string", dest[0])
 	}
 	*p = r.q.households[r.cur]
 	return nil
 }
-func (r scopedHHRows) Values() ([]any, error) { return nil, nil }
-func (r scopedHHRows) RawValues() [][]byte    { return nil }
-func (r scopedHHRows) CommandTag() pgconn.CommandTag {
+func (r visHHRows) Values() ([]any, error) { return nil, nil }
+func (r visHHRows) RawValues() [][]byte    { return nil }
+func (r visHHRows) CommandTag() pgconn.CommandTag {
 	return pgconn.CommandTag{}
 }
-func (r scopedHHRows) Conn() *pgx.Conn { return nil }
+func (r visHHRows) Conn() *pgx.Conn { return nil }
 
-// scopedListRows is a pgx.Rows with no data rows (List returns empty).
-type scopedListRows struct {
-	q *listScopedQuerier
+// visDataRows is a pgx.Rows with no data rows (List returns empty / Get no row).
+type visDataRows struct {
+	q *visQuerier
 }
 
-func (r scopedListRows) Close()                                       {}
-func (r scopedListRows) Err() error                                   { return r.q.rowErr }
-func (r scopedListRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (r scopedListRows) Next() bool                                   { return false }
-func (r scopedListRows) Scan(dest ...any) error                       { return pgx.ErrNoRows }
-func (r scopedListRows) Values() ([]any, error)                       { return nil, nil }
-func (r scopedListRows) RawValues() [][]byte                          { return nil }
-func (r scopedListRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
-func (r scopedListRows) Conn() *pgx.Conn                              { return nil }
+func (r visDataRows) Close()                                       {}
+func (r visDataRows) Err() error                                   { return r.q.rowErr }
+func (r visDataRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r visDataRows) Next() bool                                   { return false }
+func (r visDataRows) Scan(dest ...any) error                       { return pgx.ErrNoRows }
+func (r visDataRows) Values() ([]any, error)                       { return nil, nil }
+func (r visDataRows) RawValues() [][]byte                          { return nil }
+func (r visDataRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r visDataRows) Conn() *pgx.Conn                              { return nil }
 
-func scopeAssetRepo(q Querier) *pgRepository[entity.Asset] {
+// visAssetRepo builds a shareable asset repository (the generic engine) over the
+// given querier, mirroring NewAssetRepository but with a noop scope so no real
+// DB is touched.
+func visAssetRepo(q Querier) *pgRepository[entity.Asset] {
 	return &pgRepository[entity.Asset]{
+		scope:     &noopScope{q: q},
+		table:     "assets",
+		scanRow:   scanAsset,
+		toMap:     assetToMap,
+		filters:   assetFilters,
+		shareable: true,
+	}
+}
+
+// visHouseholdRepo builds a non-shareable household repository (the generic
+// engine), mirroring NewHouseholdRepository with a noop scope.
+func visHouseholdRepo(q Querier) *pgRepository[entity.Household] {
+	return &pgRepository[entity.Household]{
 		scope:   &noopScope{q: q},
-		table:   "assets",
-		scanRow: scanAsset,
-		toMap:   assetToMap,
-		filters: assetFilters,
+		table:   "households",
+		scanRow: scanHousehold,
+		toMap:   householdToMap,
+		filters: householdFilters,
+		// shareable intentionally left false (zero value).
 	}
 }
 
-// TestListScoped_NoHouseholds verifies the spec rule for a user with no
-// household memberships: the query is tenant-scoped AND restricted to
-// personal rows, with no empty IN () anywhere.
-func TestListScoped_NoHouseholds(t *testing.T) {
+// TestVisibility_ListWithHouseholds verifies the List SQL for a shareable
+// repository whose user belongs to two households: the fragment is
+// (owner_id = $1 OR owner_household_id IN ($2, $3)) with one bind arg per
+// household id and no scope_type remnants.
+func TestVisibility_ListWithHouseholds(t *testing.T) {
 	t.Parallel()
 
-	q := &listScopedQuerier{}
-	r := scopeAssetRepo(q)
+	q := &visQuerier{households: []string{"hh-1", "hh-2"}, firstQuery: true}
+	r := visAssetRepo(q)
 
-	res, err := r.ListScoped(context.Background(), repo.Tenant("acme"))
+	_, err := r.List(context.Background(), repo.Owner("acme"))
 	if err != nil {
-		t.Fatalf("ListScoped: %v", err)
-	}
-	if res == nil {
-		t.Fatal("ListScoped = nil, want non-nil empty slice")
-	}
-	if len(res) != 0 {
-		t.Fatalf("len = %d, want 0", len(res))
+		t.Fatalf("List: %v", err)
 	}
 
-	if !q.queried {
-		t.Fatal("household-membership query was not issued")
+	want := "(owner_id = $1 OR owner_household_id IN ($2, $3))"
+	if !strings.Contains(q.lastSQL, want) {
+		t.Fatalf("sql = %q, want fragment %q", q.lastSQL, want)
 	}
-	if !strings.Contains(q.listSQL, "tenant_id = $1") {
-		t.Fatalf("list sql = %q, want tenant_id = $1", q.listSQL)
+	if strings.Contains(q.lastSQL, "scope_type") {
+		t.Fatalf("sql = %q, must not reference scope_type", q.lastSQL)
 	}
-	if !strings.Contains(q.listSQL, "scope_type = 'personal'") {
-		t.Fatalf("list sql = %q, want scope_type = 'personal' condition", q.listSQL)
+	if strings.Contains(q.lastSQL, "IN ()") {
+		t.Fatalf("sql = %q, must not contain empty IN ()", q.lastSQL)
 	}
-	if strings.Contains(q.listSQL, "IN ()") {
-		t.Fatalf("list sql = %q, must not contain empty IN ()", q.listSQL)
+	if !strings.Contains(q.lastSQL, "SELECT * FROM assets") {
+		t.Fatalf("sql = %q, want SELECT * FROM assets", q.lastSQL)
 	}
-	if !strings.Contains(q.listSQL, "SELECT * FROM assets") {
-		t.Fatalf("list sql = %q, want SELECT * FROM assets", q.listSQL)
+	got := []any(q.lastArgs)
+	wantArgs := []any{"acme", "hh-1", "hh-2"}
+	if len(got) != len(wantArgs) {
+		t.Fatalf("args = %v, want %v", got, wantArgs)
 	}
-	if len(q.listArgs) != 1 || q.listArgs[0] != "acme" {
-		t.Fatalf("list args = %v, want [acme]", q.listArgs)
-	}
-}
-
-// TestListScoped_WithHouseholds verifies the spec rule for a user in
-// households: personal rows plus rows owned by any of the user's households,
-// with one bind placeholder per household id.
-func TestListScoped_WithHouseholds(t *testing.T) {
-	t.Parallel()
-
-	q := &listScopedQuerier{households: []string{"hh-1", "hh-2"}}
-	r := scopeAssetRepo(q)
-
-	_, err := r.ListScoped(context.Background(), repo.Tenant("acme"))
-	if err != nil {
-		t.Fatalf("ListScoped: %v", err)
-	}
-
-	if !strings.Contains(q.listSQL, "tenant_id = $1") {
-		t.Fatalf("list sql = %q, want tenant_id = $1", q.listSQL)
-	}
-	if !strings.Contains(q.listSQL, "(scope_type = 'personal' OR owner_household_id IN ($2, $3))") {
-		t.Fatalf("list sql = %q, want scope condition with one $-placeholder per household", q.listSQL)
-	}
-	want := []any{"acme", "hh-1", "hh-2"}
-	if len(q.listArgs) != len(want) {
-		t.Fatalf("list args = %v, want %v", q.listArgs, want)
-	}
-	for i := range want {
-		if q.listArgs[i] != want[i] {
-			t.Fatalf("list args = %v, want %v", q.listArgs, want)
+	for i := range wantArgs {
+		if got[i] != wantArgs[i] {
+			t.Fatalf("args = %v, want %v", got, wantArgs)
 		}
 	}
-	if strings.Contains(q.listSQL, "hh-1") || strings.Contains(q.listSQL, "hh-2") {
-		t.Fatalf("list sql = %q, must not interpolate household ids", q.listSQL)
+	if strings.Contains(q.lastSQL, "hh-1") || strings.Contains(q.lastSQL, "hh-2") {
+		t.Fatalf("sql = %q, must not interpolate household ids", q.lastSQL)
 	}
 }
 
-// TestListScoped_Pagination verifies that OrderBy, Limit, and Offset are
-// applied after the scope condition exactly like the generic List.
-func TestListScoped_Pagination(t *testing.T) {
+// TestVisibility_ListNoHouseholds verifies the List SQL for a shareable
+// repository whose user belongs to NO household: only owner_id = $1, with no
+// IN clause at all and a single bind arg.
+func TestVisibility_ListNoHouseholds(t *testing.T) {
 	t.Parallel()
 
-	q := &listScopedQuerier{households: []string{"hh-1"}}
-	r := scopeAssetRepo(q)
+	q := &visQuerier{firstQuery: true}
+	r := visAssetRepo(q)
 
-	_, err := r.ListScoped(context.Background(),
-		repo.Tenant("acme"), repo.OrderBy("created_at, id"), repo.Limit(10), repo.Offset(5))
+	_, err := r.List(context.Background(), repo.Owner("acme"))
 	if err != nil {
-		t.Fatalf("ListScoped: %v", err)
+		t.Fatalf("List: %v", err)
 	}
 
-	if !strings.Contains(q.listSQL, "ORDER BY created_at, id") {
-		t.Fatalf("list sql = %q, want ORDER BY created_at, id", q.listSQL)
+	if !strings.Contains(q.lastSQL, "owner_id = $1") {
+		t.Fatalf("sql = %q, want owner_id = $1", q.lastSQL)
 	}
-	if !strings.Contains(q.listSQL, "LIMIT $3") {
-		t.Fatalf("list sql = %q, want LIMIT $3", q.listSQL)
+	if strings.Contains(q.lastSQL, "owner_household_id") {
+		t.Fatalf("sql = %q, must not reference owner_household_id for a user with no households", q.lastSQL)
 	}
-	if !strings.Contains(q.listSQL, "OFFSET $4") {
-		t.Fatalf("list sql = %q, want OFFSET $4", q.listSQL)
+	if strings.Contains(q.lastSQL, "IN (") {
+		t.Fatalf("sql = %q, must not contain an IN clause for a user with no households", q.lastSQL)
 	}
-	want := []any{"acme", "hh-1", 10, 5}
-	if len(q.listArgs) != len(want) {
-		t.Fatalf("list args = %v, want %v", q.listArgs, want)
+	if strings.Contains(q.lastSQL, "scope_type") {
+		t.Fatalf("sql = %q, must not reference scope_type", q.lastSQL)
 	}
-	for i := range want {
-		if q.listArgs[i] != want[i] {
-			t.Fatalf("list args = %v, want %v", q.listArgs, want)
-		}
+	if len(q.lastArgs) != 1 || q.lastArgs[0] != "acme" {
+		t.Fatalf("args = %v, want [acme]", q.lastArgs)
 	}
 }
 
-// TestListScoped_FiltersAppended verifies that caller filters are validated
-// and appended after the scope condition.
-func TestListScoped_FiltersAppended(t *testing.T) {
+// TestVisibility_Get verifies the Get SQL keeps id = $1 AND the visibility
+// fragment (owner_id = $2 OR owner_household_id IN ($3)) for a user with one
+// household.
+func TestVisibility_Get(t *testing.T) {
 	t.Parallel()
 
-	q := &listScopedQuerier{households: []string{"hh-1"}}
-	r := scopeAssetRepo(q)
+	q := &visQuerier{households: []string{"hh-1"}, firstQuery: true}
+	r := visAssetRepo(q)
 
-	_, err := r.ListScoped(context.Background(),
-		repo.Tenant("acme"), repo.Where("doc_type", "=", "invoice"))
-	if err != nil {
-		t.Fatalf("ListScoped: %v", err)
+	// Get returns ErrNotFound (fake row has no data); we only assert on the
+	// generated SQL and args.
+	_, err := r.Get(context.Background(), "the-id", repo.Owner("acme"))
+	if !errors.Is(err, repo.ErrNotFound) {
+		t.Fatalf("Get: err = %v, want ErrNotFound from fake row", err)
 	}
 
-	if !strings.Contains(q.listSQL, "doc_type = $3") {
-		t.Fatalf("list sql = %q, want doc_type = $3 after the scope condition", q.listSQL)
+	if !strings.Contains(q.lastSQL, "id = $1") {
+		t.Fatalf("sql = %q, want id = $1", q.lastSQL)
 	}
-	if !strings.HasSuffix(q.listSQL, "AND doc_type = $3") {
-		t.Fatalf("list sql = %q, want caller filter appended last", q.listSQL)
+	if !strings.Contains(q.lastSQL, "(owner_id = $2 OR owner_household_id IN ($3))") {
+		t.Fatalf("sql = %q, want (owner_id = $2 OR owner_household_id IN ($3))", q.lastSQL)
 	}
-	want := []any{"acme", "hh-1", "invoice"}
-	if len(q.listArgs) != len(want) {
-		t.Fatalf("list args = %v, want %v", q.listArgs, want)
+	if strings.Contains(q.lastSQL, "scope_type") {
+		t.Fatalf("sql = %q, must not reference scope_type", q.lastSQL)
 	}
-	for i := range want {
-		if q.listArgs[i] != want[i] {
-			t.Fatalf("list args = %v, want %v", q.listArgs, want)
+	wantArgs := []any{"the-id", "acme", "hh-1"}
+	if len(q.lastArgs) != len(wantArgs) {
+		t.Fatalf("args = %v, want %v", q.lastArgs, wantArgs)
+	}
+	for i := range wantArgs {
+		if q.lastArgs[i] != wantArgs[i] {
+			t.Fatalf("args = %v, want %v", q.lastArgs, wantArgs)
 		}
 	}
 }
 
-// TestListScoped_ValidationErrors verifies that unknown filter fields, unknown
-// order columns, and a missing tenant are rejected before any query is
-// issued (zero SQL).
-func TestListScoped_ValidationErrors(t *testing.T) {
+// TestVisibility_DeleteOwnerOnly verifies Delete is strictly owner-scoped:
+// the SQL is id = $1 AND owner_id = $2 with NO household disjunct, and the
+// membership lookup is NOT consulted (args = [id, user] only).
+func TestVisibility_DeleteOwnerOnly(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name    string
-		opts    []repo.Option
-		wantErr string
-	}{
-		{"no tenant", nil, tenant.ErrNoTenant.Error()},
-		{"unknown filter field", []repo.Option{
-			repo.Tenant("acme"), repo.Where("1; DROP TABLE assets--", "=", "x"),
-		}, "unknown filter field"},
-		{"unknown order column", []repo.Option{
-			repo.Tenant("acme"), repo.OrderBy("secret"),
-		}, "unknown order column"},
+	q := &visQuerier{households: []string{"hh-1", "hh-2"}}
+	r := visAssetRepo(q)
+
+	if err := r.Delete(context.Background(), "the-id", repo.Owner("acme")); err != nil {
+		t.Fatalf("Delete: %v", err)
 	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			q := &panicQuerier{}
-			r := scopeAssetRepo(q)
-			_, err := r.ListScoped(context.Background(), tc.opts...)
-			if err == nil {
-				t.Fatal("err = nil, want validation error")
-			}
-			if !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("err = %q, want %q", err, tc.wantErr)
-			}
-		})
+
+	if !strings.Contains(q.lastSQL, "id = $1 AND owner_id = $2") {
+		t.Fatalf("sql = %q, want id = $1 AND owner_id = $2", q.lastSQL)
+	}
+	if strings.Contains(q.lastSQL, "owner_household_id") {
+		t.Fatalf("sql = %q, must NOT include the household disjunct", q.lastSQL)
+	}
+	if strings.Contains(q.lastSQL, "OR") {
+		t.Fatalf("sql = %q, Delete must be owner-only (no OR disjunct)", q.lastSQL)
+	}
+	// Delete does not consult household membership: only id + user args.
+	if len(q.lastArgs) != 2 {
+		t.Fatalf("args = %v, want exactly [id, user] (no membership args)", q.lastArgs)
+	}
+	if q.lastArgs[0] != "the-id" || q.lastArgs[1] != "acme" {
+		t.Fatalf("args = %v, want [the-id, acme]", q.lastArgs)
 	}
 }
 
-// TestListScoped_RowError verifies that row-level errors from the household
-// membership lookup propagate out of ListScoped.
-func TestListScoped_RowError(t *testing.T) {
+// TestVisibility_NonShareable verifies a non-shareable repository (household
+// shape, shareable=false) emits owner_id = $1 with NO owner_household_id
+// disjunct, even for a user who belongs to households.
+func TestVisibility_NonShareable(t *testing.T) {
 	t.Parallel()
 
-	wantErr := errors.New("boom: row error")
-	q := &listScopedQuerier{households: []string{"hh-1"}, rowErr: wantErr}
-	r := scopeAssetRepo(q)
+	q := &visQuerier{households: []string{"hh-1", "hh-2"}}
+	r := visHouseholdRepo(q)
 
-	_, err := r.ListScoped(context.Background(), repo.Tenant("acme"))
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("err = %v, want %v", err, wantErr)
+	_, err := r.List(context.Background(), repo.Owner("acme"))
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if !strings.Contains(q.lastSQL, "owner_id = $1") {
+		t.Fatalf("sql = %q, want owner_id = $1", q.lastSQL)
+	}
+	if strings.Contains(q.lastSQL, "owner_household_id") {
+		t.Fatalf("sql = %q, non-shareable repo must not reference owner_household_id", q.lastSQL)
+	}
+	if strings.Contains(q.lastSQL, "IN (") {
+		t.Fatalf("sql = %q, non-shareable repo must not emit an IN clause", q.lastSQL)
+	}
+	if len(q.lastArgs) != 1 || q.lastArgs[0] != "acme" {
+		t.Fatalf("args = %v, want [acme] (membership not consulted)", q.lastArgs)
 	}
 }
 
@@ -310,7 +309,7 @@ func TestHouseholdsForUser(t *testing.T) {
 
 	t.Run("with households", func(t *testing.T) {
 		t.Parallel()
-		q := &listScopedQuerier{households: []string{"hh-1", "hh-2"}}
+		q := &visQuerier{households: []string{"hh-1", "hh-2"}, firstQuery: true}
 		got, err := householdsForUser(context.Background(), q, "acme")
 		if err != nil {
 			t.Fatalf("householdsForUser: %v", err)
@@ -328,7 +327,7 @@ func TestHouseholdsForUser(t *testing.T) {
 
 	t.Run("no households", func(t *testing.T) {
 		t.Parallel()
-		q := &listScopedQuerier{}
+		q := &visQuerier{firstQuery: true}
 		got, err := householdsForUser(context.Background(), q, "acme")
 		if err != nil {
 			t.Fatalf("householdsForUser: %v", err)
@@ -344,7 +343,7 @@ func TestHouseholdsForUser(t *testing.T) {
 	t.Run("row error propagates", func(t *testing.T) {
 		t.Parallel()
 		wantErr := errors.New("boom")
-		q := &listScopedQuerier{hhErr: wantErr}
+		q := &visQuerier{hhErr: wantErr, firstQuery: true}
 		_, err := householdsForUser(context.Background(), q, "acme")
 		if !errors.Is(err, wantErr) {
 			t.Fatalf("err = %v, want %v", err, wantErr)

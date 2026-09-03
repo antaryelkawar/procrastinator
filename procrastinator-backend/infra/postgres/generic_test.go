@@ -12,7 +12,7 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 	"procrastinator-backend/infra/postgres"
 )
 
@@ -61,7 +61,7 @@ func genericFactoryRepo(t *testing.T) *repo.Factory {
 	return genericFactory
 }
 
-// registryPool returns the p_generic pool bound to the tenant registry. It is
+// registryPool returns the p_generic pool bound to the user registry. It is
 // lazily initialized inside genericOnce alongside the repositories.
 func registryPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -83,19 +83,19 @@ func TestGenericAssetGetByID(t *testing.T) {
 	assets, _, _ := genericRepos(t)
 	truncateGeneric(t)
 
-	created, err := assets.Create(context.Background(), testAsset(), repo.Tenant(tenantA))
+	created, err := assets.Create(context.Background(), testAsset(), repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := assets.Get(context.Background(), created.ID, repo.Tenant(tenantA))
+	got, err := assets.Get(context.Background(), created.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	assertAssetEqual(t, "asset", got, created)
 }
 
-func TestGenericAssetListWithTenantAndWhere(t *testing.T) {
+func TestGenericAssetListWithUserAndWhere(t *testing.T) {
 	assets, _, _ := genericRepos(t)
 	truncateGeneric(t)
 	ctx := context.Background()
@@ -104,11 +104,11 @@ func TestGenericAssetListWithTenantAndWhere(t *testing.T) {
 	for i, dt := range []string{entity.DocTypeInvoice, entity.DocTypeAMC, entity.DocTypeInvoice} {
 		serial := serials[i]
 		// Distinct serial per row: 00001_init added the partial unique index
-		// uniq_assets_tenant_norm_serial on (tenant_id, norm_serial).
+		// partial unique index on (owner_id, norm_serial).
 		if _, err := assets.Create(ctx, testAsset(func(a *entity.Asset) {
 			a.DocType = dt
 			a.SerialNumber = &serial
-		}), repo.Tenant(tenantA)); err != nil {
+		}), repo.Owner(userA)); err != nil {
 			t.Fatalf("Create(%s): %v", dt, err)
 		}
 	}
@@ -127,7 +127,7 @@ func TestGenericAssetListWithTenantAndWhere(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := assets.List(ctx, repo.Tenant(tenantA), repo.Where("doc_type", tc.op, tc.val))
+			got, err := assets.List(ctx, repo.Owner(userA), repo.Where("doc_type", tc.op, tc.val))
 			if err != nil {
 				t.Fatalf("List: %v", err)
 			}
@@ -147,15 +147,15 @@ func TestGenericAssetCreate(t *testing.T) {
 	assets, _, _ := genericRepos(t)
 	truncateGeneric(t)
 
-	created, err := assets.Create(context.Background(), testAsset(), repo.Tenant(tenantA))
+	created, err := assets.Create(context.Background(), testAsset(), repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if created.ID == "" {
 		t.Error("Create returned empty ID, want DB-generated uuid")
 	}
-	if created.TenantID != tenantA {
-		t.Errorf("TenantID = %q, want %q", created.TenantID, tenantA)
+	if created.OwnerID != userA {
+		t.Errorf("OwnerID = %q, want %q", created.OwnerID, userA)
 	}
 	if created.CreatedAt.IsZero() {
 		t.Error("CreatedAt is zero, want DB default now()")
@@ -170,7 +170,7 @@ func TestGenericAssetUpdatePartial(t *testing.T) {
 	truncateGeneric(t)
 	ctx := context.Background()
 
-	created, err := assets.Create(ctx, testAsset(), repo.Tenant(tenantA))
+	created, err := assets.Create(ctx, testAsset(), repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestGenericAssetUpdatePartial(t *testing.T) {
 	// Only ID + Brand set; every other field is zero.
 	lg := "LG"
 	partial := entity.Asset{ID: created.ID, Brand: &lg}
-	updated, err := assets.Update(ctx, partial, repo.Tenant(tenantA))
+	updated, err := assets.Update(ctx, partial, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestGenericAssetUpdatePartial(t *testing.T) {
 	}
 
 	// Re-fetch and verify unchanged fields survived the partial update.
-	got, err := assets.Get(ctx, created.ID, repo.Tenant(tenantA))
+	got, err := assets.Get(ctx, created.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -204,14 +204,14 @@ func TestGenericAssetDelete(t *testing.T) {
 	truncateGeneric(t)
 	ctx := context.Background()
 
-	created, err := assets.Create(ctx, testAsset(), repo.Tenant(tenantA))
+	created, err := assets.Create(ctx, testAsset(), repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := assets.Delete(ctx, created.ID, repo.Tenant(tenantA)); err != nil {
+	if err := assets.Delete(ctx, created.ID, repo.Owner(userA)); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, err := assets.Get(ctx, created.ID, repo.Tenant(tenantA)); !errors.Is(err, repo.ErrNotFound) {
+	if _, err := assets.Get(ctx, created.ID, repo.Owner(userA)); !errors.Is(err, repo.ErrNotFound) {
 		t.Errorf("Get after Delete: err = %v, want ErrNotFound", err)
 	}
 }
@@ -223,7 +223,7 @@ func TestGenericSourceCreateGetRoundTrip(t *testing.T) {
 
 	want := testSource()
 	want.UploadedAt = time.Date(2025, 6, 1, 12, 30, 45, 0, time.UTC)
-	created, err := sources.Create(ctx, want, repo.Tenant(tenantA))
+	created, err := sources.Create(ctx, want, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestGenericSourceCreateGetRoundTrip(t *testing.T) {
 		t.Fatal("Create returned empty ID")
 	}
 
-	got, err := sources.Get(ctx, created.ID, repo.Tenant(tenantA))
+	got, err := sources.Get(ctx, created.ID, repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -243,13 +243,13 @@ func TestGenericDocumentListOrderByLimit(t *testing.T) {
 	truncateGeneric(t)
 	ctx := context.Background()
 
-	asset, err := assets.Create(ctx, testAsset(), repo.Tenant(tenantA))
+	asset, err := assets.Create(ctx, testAsset(), repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("seed asset: %v", err)
 	}
 
 	for i := 0; i < 3; i++ {
-		src, err := sources.Create(ctx, testSource(), repo.Tenant(tenantA))
+		src, err := sources.Create(ctx, testSource(), repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("seed source[%d]: %v", i, err)
 		}
@@ -260,13 +260,13 @@ func TestGenericDocumentListOrderByLimit(t *testing.T) {
 			ExtractedFields: map[string]any{},
 			// 00001_init requires documents.raw_extraction NOT NULL.
 			RawExtraction: "raw extraction fixture",
-		}, repo.Tenant(tenantA)); err != nil {
+		}, repo.Owner(userA)); err != nil {
 			t.Fatalf("Create document[%d]: %v", i, err)
 		}
 		time.Sleep(time.Millisecond) // distinct created_at values
 	}
 
-	got, err := docs.List(ctx, repo.Tenant(tenantA), repo.OrderBy("created_at"), repo.Limit(2))
+	got, err := docs.List(ctx, repo.Owner(userA), repo.OrderBy("created_at"), repo.Limit(2))
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -280,27 +280,27 @@ func TestGenericDocumentListOrderByLimit(t *testing.T) {
 	}
 }
 
-func TestGenericTenantIsolation(t *testing.T) {
+func TestGenericUserIsolation(t *testing.T) {
 	assets, _, _ := genericRepos(t)
 	truncateGeneric(t)
 
-	created, err := assets.Create(context.Background(), testAsset(), repo.Tenant(tenantA))
+	created, err := assets.Create(context.Background(), testAsset(), repo.Owner(userA))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	// Get under the other tenant must not see the row.
-	if _, err := assets.Get(context.Background(), created.ID, repo.Tenant(tenantB)); !errors.Is(err, repo.ErrNotFound) {
-		t.Errorf("Get(other tenant): err = %v, want ErrNotFound", err)
+	// Get under the other user must not see the row.
+	if _, err := assets.Get(context.Background(), created.ID, repo.Owner(userB)); !errors.Is(err, repo.ErrNotFound) {
+		t.Errorf("Get(other user): err = %v, want ErrNotFound", err)
 	}
 
-	// List under the other tenant must be empty.
-	list, err := assets.List(context.Background(), repo.Tenant(tenantB))
+	// List under the other user must be empty.
+	list, err := assets.List(context.Background(), repo.Owner(userB))
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if len(list) != 0 {
-		t.Errorf("List(other tenant) = %d rows, want 0", len(list))
+		t.Errorf("List(other user) = %d rows, want 0", len(list))
 	}
 }
 
@@ -314,7 +314,7 @@ func TestGenericFactoryInTx(t *testing.T) {
 		err := f.InTx(context.Background(), func(ctx context.Context, repos *repo.Repos) error {
 			var err error
 			var created entity.Asset
-			created, err = repos.Assets.Create(ctx, testAsset(), repo.Tenant(tenantA))
+			created, err = repos.Assets.Create(ctx, testAsset(), repo.Owner(userA))
 			if err != nil {
 				return err
 			}
@@ -327,7 +327,7 @@ func TestGenericFactoryInTx(t *testing.T) {
 
 		// Committed: visible after the transaction via the pool-bound repo.
 		assets, _, _ := genericRepos(t)
-		got, err := assets.Get(context.Background(), createdID, repo.Tenant(tenantA))
+		got, err := assets.Get(context.Background(), createdID, repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("Get after commit: %v, want visible row", err)
 		}
@@ -341,7 +341,7 @@ func TestGenericFactoryInTx(t *testing.T) {
 
 		forcedErr := errors.New("forced rollback")
 		err := f.InTx(context.Background(), func(ctx context.Context, repos *repo.Repos) error {
-			if _, err := repos.Assets.Create(ctx, testAsset(), repo.Tenant(tenantA)); err != nil {
+			if _, err := repos.Assets.Create(ctx, testAsset(), repo.Owner(userA)); err != nil {
 				return err
 			}
 			return forcedErr
@@ -352,7 +352,7 @@ func TestGenericFactoryInTx(t *testing.T) {
 
 		// Rolled back: no rows visible after the transaction.
 		assets, _, _ := genericRepos(t)
-		list, err := assets.List(context.Background(), repo.Tenant(tenantA))
+		list, err := assets.List(context.Background(), repo.Owner(userA))
 		if err != nil {
 			t.Fatalf("List after rollback: %v", err)
 		}
@@ -362,71 +362,71 @@ func TestGenericFactoryInTx(t *testing.T) {
 	})
 }
 
-// TestGenericCtxFallback verifies that the repository resolves the tenant
-// from context when no explicit repo.Tenant option is provided.
+// TestGenericCtxFallback verifies that the repository resolves the user
+// from context when no explicit repo.Owner option is provided.
 func TestGenericCtxFallback(t *testing.T) {
 	assets, _, _ := genericRepos(t)
 	truncateGeneric(t)
 
-	ctx := tenant.WithTenant(context.Background(), tenantA)
+	ctx := user.WithUser(context.Background(), userA)
 
-	// Create via ctx tenant (no repo.Tenant option).
+	// Create via ctx user (no repo.Owner option).
 	created, err := assets.Create(ctx, testAsset())
 	if err != nil {
-		t.Fatalf("Create (ctx tenant): %v", err)
+		t.Fatalf("Create (ctx user): %v", err)
 	}
-	if created.TenantID != tenantA {
-		t.Errorf("TenantID = %q, want %q", created.TenantID, tenantA)
+	if created.OwnerID != userA {
+		t.Errorf("OwnerID = %q, want %q", created.OwnerID, userA)
 	}
 
-	// Get via ctx tenant.
+	// Get via ctx user.
 	got, err := assets.Get(ctx, created.ID)
 	if err != nil {
-		t.Fatalf("Get (ctx tenant): %v", err)
+		t.Fatalf("Get (ctx user): %v", err)
 	}
 	if got.ID != created.ID {
 		t.Errorf("Get ID = %q, want %q", got.ID, created.ID)
 	}
 
-	// List via ctx tenant.
+	// List via ctx user.
 	list, err := assets.List(ctx)
 	if err != nil {
-		t.Fatalf("List (ctx tenant): %v", err)
+		t.Fatalf("List (ctx user): %v", err)
 	}
 	if len(list) != 1 {
 		t.Fatalf("List = %d rows, want 1", len(list))
 	}
 
-	// Delete via ctx tenant.
+	// Delete via ctx user.
 	if err := assets.Delete(ctx, created.ID); err != nil {
-		t.Fatalf("Delete (ctx tenant): %v", err)
+		t.Fatalf("Delete (ctx user): %v", err)
 	}
 	if _, err := assets.Get(ctx, created.ID); !errors.Is(err, repo.ErrNotFound) {
 		t.Errorf("Get after Delete: err = %v, want ErrNotFound", err)
 	}
 }
 
-// TestGenericNoTenantErr verifies that a repository call with neither an
-// explicit option nor a context tenant returns ErrNoTenant.
-func TestGenericNoTenantErr(t *testing.T) {
+// TestGenericNoUserErr verifies that a repository call with neither an
+// explicit option nor a context user returns ErrNoUser.
+func TestGenericNoUserErr(t *testing.T) {
 	assets, _, _ := genericRepos(t)
 	truncateGeneric(t)
 
-	ctx := context.Background() // no tenant
+	ctx := context.Background() // no user
 
-	if _, err := assets.Create(ctx, testAsset()); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("Create: err = %v, want ErrNoTenant", err)
+	if _, err := assets.Create(ctx, testAsset()); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("Create: err = %v, want ErrNoUser", err)
 	}
-	if _, err := assets.Get(ctx, "some-id"); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("Get: err = %v, want ErrNoTenant", err)
+	if _, err := assets.Get(ctx, "some-id"); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("Get: err = %v, want ErrNoUser", err)
 	}
-	if _, err := assets.List(ctx); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("List: err = %v, want ErrNoTenant", err)
+	if _, err := assets.List(ctx); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("List: err = %v, want ErrNoUser", err)
 	}
-	if _, err := assets.Update(ctx, entity.Asset{ID: "some-id"}); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("Update: err = %v, want ErrNoTenant", err)
+	if _, err := assets.Update(ctx, entity.Asset{ID: "some-id"}); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("Update: err = %v, want ErrNoUser", err)
 	}
-	if err := assets.Delete(ctx, "some-id"); !errors.Is(err, tenant.ErrNoTenant) {
-		t.Errorf("Delete: err = %v, want ErrNoTenant", err)
+	if err := assets.Delete(ctx, "some-id"); !errors.Is(err, user.ErrNoUser) {
+		t.Errorf("Delete: err = %v, want ErrNoUser", err)
 	}
 }

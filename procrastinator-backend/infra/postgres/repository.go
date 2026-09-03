@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 )
 
 var (
@@ -24,18 +24,25 @@ type pgRepository[T any] struct {
 	scanRow func(rowScanner) (T, error)
 	toMap   func(T) map[string]any
 	filters filterConfig
+	// shareable enables the household disjunct in the visibility predicate for
+	// Get/List/Update. It is true only for tables that have an
+	// owner_household_id column (assets, sources, documents). Zero value false
+	// means owner-only scoping — correct for households (no such column) and
+	// for finance tables (shareability is a later task, T5).
+	shareable bool
 }
 
 // validOps is the fixed set of operators accepted in filter conditions.
 var validOps = map[string]bool{
-	"=":    true,
-	"!=":   true,
-	"<":    true,
-	"<=":   true,
-	">":    true,
-	">=":   true,
-	"LIKE": true,
-	"IN":   true,
+	"=":       true,
+	"!=":      true,
+	"<":       true,
+	"<=":      true,
+	">":       true,
+	">=":      true,
+	"LIKE":    true,
+	"IN":      true,
+	"IS NULL": true,
 }
 
 // validateFilters rejects any filter whose field or operator is not in the
@@ -93,6 +100,10 @@ func addFilterCond(cfg filterConfig, conds *[]string, args *[]any, f repo.Filter
 		*conds = append(*conds, fmt.Sprintf("%s IN (%s)", col, strings.Join(placeholders, ", ")))
 		return
 	}
+	if f.Op == "IS NULL" {
+		*conds = append(*conds, col+" IS NULL")
+		return
+	}
 	*args = append(*args, f.Value)
 	*conds = append(*conds, fmt.Sprintf("%s %s $%d", col, f.Op, len(*args)))
 }
@@ -108,21 +119,21 @@ func orderClause(cfg filterConfig, orderBy string) string {
 	return strings.Join(mapped, ", ")
 }
 
-// resolveTenant resolves the tenant ID from the option (preferred) or context.
-// Returns tenant.ErrNoTenant if neither is available.
-func resolveTenant(ctx context.Context, o *repo.Options) (string, error) {
-	if o.TenantID != "" {
-		return o.TenantID, nil
+// resolveOwner resolves the user ID from the option (preferred) or context.
+// Returns user.ErrNoUser if neither is available.
+func resolveOwner(ctx context.Context, o *repo.Options) (string, error) {
+	if o.OwnerID != "" {
+		return o.OwnerID, nil
 	}
-	return tenant.TenantFrom(ctx)
+	return user.UserFrom(ctx)
 }
 
-// Get retrieves a single row by ID, scoped by tenant and optionally filtered.
+// Get retrieves a single row by ID, scoped by user and optionally filtered.
 func (r *pgRepository[T]) Get(ctx context.Context, id string, opts ...repo.Option) (T, error) {
 	var zero T
 	o := repo.ApplyOptions(opts...)
 
-	tid, err := resolveTenant(ctx, o)
+	tid, err := resolveOwner(ctx, o)
 	if err != nil {
 		return zero, err
 	}
@@ -135,13 +146,13 @@ func (r *pgRepository[T]) Get(ctx context.Context, id string, opts ...repo.Optio
 	err = r.scope.run(ctx, tid, func(q Querier) error {
 		var conds []string
 		var args []any
-		addCond := func(clause string, arg any) {
-			args = append(args, arg)
-			conds = append(conds, fmt.Sprintf("%s = $%d", clause, len(args)))
-		}
 		args = append(args, id)
 		conds = append(conds, "id = $1")
-		addCond("tenant_id", tid)
+		vis, err := visibilityCond(ctx, q, tid, r.shareable, "", &args)
+		if err != nil {
+			return err
+		}
+		conds = append(conds, vis)
 		for _, f := range o.Filters {
 			addFilterCond(r.filters, &conds, &args, f)
 		}
@@ -153,11 +164,11 @@ func (r *pgRepository[T]) Get(ctx context.Context, id string, opts ...repo.Optio
 	return result, err
 }
 
-// List retrieves multiple rows scoped by tenant, with optional filters, ordering, and pagination.
+// List retrieves multiple rows scoped by user, with optional filters, ordering, and pagination.
 func (r *pgRepository[T]) List(ctx context.Context, opts ...repo.Option) ([]T, error) {
 	o := repo.ApplyOptions(opts...)
 
-	tid, err := resolveTenant(ctx, o)
+	tid, err := resolveOwner(ctx, o)
 	if err != nil {
 		return nil, err
 	}
@@ -173,11 +184,11 @@ func (r *pgRepository[T]) List(ctx context.Context, opts ...repo.Option) ([]T, e
 	err = r.scope.run(ctx, tid, func(q Querier) error {
 		var conds []string
 		var args []any
-		addCond := func(clause string, arg any) {
-			args = append(args, arg)
-			conds = append(conds, fmt.Sprintf("%s = $%d", clause, len(args)))
+		vis, err := visibilityCond(ctx, q, tid, r.shareable, "", &args)
+		if err != nil {
+			return err
 		}
-		addCond("tenant_id", tid)
+		conds = append(conds, vis)
 		for _, f := range o.Filters {
 			addFilterCond(r.filters, &conds, &args, f)
 		}
@@ -221,19 +232,19 @@ func (r *pgRepository[T]) List(ctx context.Context, opts ...repo.Option) ([]T, e
 	return result, err
 }
 
-// Create inserts a new entity stamped with the resolved tenant.
+// Create inserts a new entity stamped with the resolved user.
 // The DB generates the id via gen_random_uuid().
 func (r *pgRepository[T]) Create(ctx context.Context, ent T, opts ...repo.Option) (T, error) {
 	var zero T
 	o := repo.ApplyOptions(opts...)
 
-	tid, err := resolveTenant(ctx, o)
+	tid, err := resolveOwner(ctx, o)
 	if err != nil {
 		return zero, err
 	}
 
 	m := r.toMap(ent)
-	m["tenant_id"] = tid
+	m["owner_id"] = tid
 	delete(m, "id")
 
 	var cols []string
@@ -251,6 +262,18 @@ func (r *pgRepository[T]) Create(ctx context.Context, ent T, opts ...repo.Option
 
 	var result T
 	err = r.scope.run(ctx, tid, func(q Querier) error {
+		// A household-scoped row may only be created by a member of that
+		// household. For tables without an owner_household_id column (e.g.
+		// households) m has no such key, so this is a no-op.
+		if hid := strFromAny(m["owner_household_id"]); hid != "" {
+			member, err := isMember(ctx, q, tid, hid)
+			if err != nil {
+				return err
+			}
+			if !member {
+				return repo.ErrNotMember
+			}
+		}
 		var scanErr error
 		result, scanErr = r.scanRow(q.QueryRow(ctx, stmt, args...))
 		return scanErr
@@ -264,7 +287,7 @@ func (r *pgRepository[T]) Update(ctx context.Context, ent T, opts ...repo.Option
 	var zero T
 	o := repo.ApplyOptions(opts...)
 
-	tid, err := resolveTenant(ctx, o)
+	tid, err := resolveOwner(ctx, o)
 	if err != nil {
 		return zero, err
 	}
@@ -286,16 +309,21 @@ func (r *pgRepository[T]) Update(ctx context.Context, ent T, opts ...repo.Option
 		args = append(args, val)
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", col, len(args)))
 	}
-	whereArgs := append(args, idVal)
-	whereClause := fmt.Sprintf("id = $%d", len(whereArgs))
-	whereArgs = append(whereArgs, tid)
-	whereClause += fmt.Sprintf(" AND tenant_id = $%d", len(whereArgs))
-
-	stmt := fmt.Sprintf("UPDATE %s SET %s WHERE %s RETURNING *",
-		r.table, strings.Join(setClauses, ", "), whereClause)
+	whereArgs := append([]any(nil), args...)
+	whereArgs = append(whereArgs, idVal)
+	idPos := len(whereArgs)
 
 	var result T
 	err = r.scope.run(ctx, tid, func(q Querier) error {
+		vis, err := visibilityCond(ctx, q, tid, r.shareable, "", &whereArgs)
+		if err != nil {
+			return err
+		}
+		whereClause := fmt.Sprintf("id = $%d AND %s", idPos, vis)
+
+		stmt := fmt.Sprintf("UPDATE %s SET %s WHERE %s RETURNING *",
+			r.table, strings.Join(setClauses, ", "), whereClause)
+
 		var scanErr error
 		result, scanErr = r.scanRow(q.QueryRow(ctx, stmt, whereArgs...))
 		return scanErr
@@ -303,11 +331,11 @@ func (r *pgRepository[T]) Update(ctx context.Context, ent T, opts ...repo.Option
 	return result, err
 }
 
-// Delete removes a row by ID, scoped by tenant.
+// Delete removes a row by ID, scoped by user.
 func (r *pgRepository[T]) Delete(ctx context.Context, id string, opts ...repo.Option) error {
 	o := repo.ApplyOptions(opts...)
 
-	tid, err := resolveTenant(ctx, o)
+	tid, err := resolveOwner(ctx, o)
 	if err != nil {
 		return err
 	}
@@ -317,7 +345,7 @@ func (r *pgRepository[T]) Delete(ctx context.Context, id string, opts ...repo.Op
 	args = append(args, id)
 	conds = append(conds, "id = $1")
 	args = append(args, tid)
-	conds = append(conds, fmt.Sprintf("tenant_id = $%d", len(args)))
+	conds = append(conds, fmt.Sprintf("owner_id = $%d", len(args)))
 
 	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s", r.table, strings.Join(conds, " AND "))
 

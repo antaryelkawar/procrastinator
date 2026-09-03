@@ -12,10 +12,10 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 )
 
-// panicQuerier panics on any query — used to verify zero SQL on ErrNoTenant.
+// panicQuerier panics on any query — used to verify zero SQL on ErrNouser.
 type panicQuerier struct{}
 
 func (p *panicQuerier) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
@@ -40,9 +40,9 @@ func (s *noopScope) run(_ context.Context, _ string, fn func(q Querier) error) e
 	return fn(s.q)
 }
 
-// TestNoTenant_NoSQL verifies that every repository method fails closed with
-// tenant.ErrNoTenant when no tenant is resolvable, issuing zero SQL.
-func TestNoTenant_NoSQL(t *testing.T) {
+// TestNoUser_NoSQL verifies that every repository method fails closed with
+// user.ErrNoUser when no user is resolvable, issuing zero SQL.
+func TestNoUser_NoSQL(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -71,15 +71,15 @@ func TestNoTenant_NoSQL(t *testing.T) {
 			t.Parallel()
 			r := &pgRepository[entity.Asset]{scope: &noopScope{q: &panicQuerier{}}}
 			_, err := tc.call(r)
-			if !errors.Is(err, tenant.ErrNoTenant) {
-				t.Fatalf("err = %v, want %v", err, tenant.ErrNoTenant)
+			if !errors.Is(err, user.ErrNoUser) {
+				t.Fatalf("err = %v, want %v", err, user.ErrNoUser)
 			}
 		})
 	}
 }
 
 // recordingQuerier records the SQL and args of the first call so tests can
-// assert on tenant scoping without a database.
+// assert on user scoping without a database.
 type recordingQuerier struct {
 	sql  string
 	args []any
@@ -121,16 +121,16 @@ type errorRow struct {
 func (e errorRow) Scan(dest ...any) error { return e.err }
 func (e errorRow) Err() error             { return e.err }
 
-// TestOptionBeatsCtx verifies that an explicit repo.Tenant option takes
-// precedence over the tenant carried in the context.
+// TestOptionBeatsCtx verifies that an explicit repo.Owner option takes
+// precedence over the user carried in the context.
 func TestOptionBeatsCtx(t *testing.T) {
 	t.Parallel()
 
-	ctx := tenant.WithTenant(context.Background(), "globex")
+	ctx := user.WithUser(context.Background(), "globex")
 	q := &recordingQuerier{}
 	r := &pgRepository[entity.Asset]{scope: &noopScope{q: q}, table: "assets", scanRow: scanAsset}
 
-	_, err := r.Get(ctx, "some-id", repo.Tenant("acme"))
+	_, err := r.Get(ctx, "some-id", repo.Owner("acme"))
 	if !errors.Is(err, repo.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound from fake row", err)
 	}
@@ -141,14 +141,14 @@ func TestOptionBeatsCtx(t *testing.T) {
 			found = true
 		}
 		if a == "globex" {
-			t.Fatalf("tenant_id arg = %q, want option %q to beat ctx", a, "acme")
+			t.Fatalf("owner_id arg = %q, want option %q to beat ctx", a, "acme")
 		}
 	}
 	if !found {
-		t.Fatalf("args = %v, want tenant_id = %q", q.args, "acme")
+		t.Fatalf("args = %v, want owner_id = %q", q.args, "acme")
 	}
-	if !strings.Contains(q.sql, "tenant_id = $") {
-		t.Fatalf("sql = %q, want tenant_id scoping", q.sql)
+	if !strings.Contains(q.sql, "owner_id = $") {
+		t.Fatalf("sql = %q, want owner_id scoping", q.sql)
 	}
 }
 
@@ -181,7 +181,7 @@ func TestUnknownFilterField(t *testing.T) {
 			t.Parallel()
 			r := assetRepo(&panicQuerier{})
 			opts := []repo.Option{
-				repo.Tenant("acme"),
+				repo.Owner("acme"),
 				repo.Where("1; DROP TABLE assets--", tc.op, "x"),
 			}
 			var err error
@@ -220,7 +220,7 @@ func TestUnknownOperator(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			r := assetRepo(&panicQuerier{})
-			opts := []repo.Option{repo.Tenant("acme"), repo.Where("brand", tc.op, "x")}
+			opts := []repo.Option{repo.Owner("acme"), repo.Where("brand", tc.op, "x")}
 			var err error
 			if tc.method == "Get" {
 				_, err = r.Get(context.Background(), "some-id", opts...)
@@ -255,7 +255,7 @@ func TestUnknownOrderColumn(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			r := assetRepo(&panicQuerier{})
-			_, err := r.List(context.Background(), repo.Tenant("acme"), repo.OrderBy(tc.orderBy))
+			_, err := r.List(context.Background(), repo.Owner("acme"), repo.OrderBy(tc.orderBy))
 			if err == nil {
 				t.Fatal("err = nil, want unknown order column error")
 			}
@@ -278,12 +278,12 @@ func TestInjectionShapeRejected(t *testing.T) {
 	}{
 		{"Get", func(r *pgRepository[entity.Asset]) error {
 			_, err := r.Get(context.Background(), "some-id",
-				repo.Tenant("acme"), repo.Where("1; DROP TABLE assets--", "=", "x"))
+				repo.Owner("acme"), repo.Where("1; DROP TABLE assets--", "=", "x"))
 			return err
 		}},
 		{"List", func(r *pgRepository[entity.Asset]) error {
 			_, err := r.List(context.Background(),
-				repo.Tenant("acme"), repo.Where("1; DROP TABLE assets--", "=", "x"))
+				repo.Owner("acme"), repo.Where("1; DROP TABLE assets--", "=", "x"))
 			return err
 		}},
 	}
@@ -322,7 +322,7 @@ func TestIN_NonSlice(t *testing.T) {
 			t.Parallel()
 			r := assetRepo(&panicQuerier{})
 			_, err := r.List(context.Background(),
-				repo.Tenant("acme"), repo.Where("doc_type", "IN", tc.value))
+				repo.Owner("acme"), repo.Where("doc_type", "IN", tc.value))
 			if err == nil {
 				t.Fatal("err = nil, want non-slice IN error")
 			}
@@ -343,13 +343,13 @@ func TestIN_Slice(t *testing.T) {
 	r := assetRepo(q)
 
 	_, err := r.List(context.Background(),
-		repo.Tenant("acme"), repo.Where("doc_type", "IN", []string{"invoice", "warranty"}))
+		repo.Owner("acme"), repo.Where("doc_type", "IN", []string{"invoice", "warranty"}))
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 
-	if !strings.Contains(q.sql, "tenant_id = $1") {
-		t.Fatalf("sql = %q, want tenant_id = $1", q.sql)
+	if !strings.Contains(q.sql, "owner_id = $1") {
+		t.Fatalf("sql = %q, want owner_id = $1", q.sql)
 	}
 	if !strings.Contains(q.sql, "doc_type IN ($2, $3)") {
 		t.Fatalf("sql = %q, want doc_type IN ($2, $3)", q.sql)
@@ -378,7 +378,7 @@ func TestIN_EmptySlice(t *testing.T) {
 	r := assetRepo(q)
 
 	_, err := r.List(context.Background(),
-		repo.Tenant("acme"), repo.Where("doc_type", "IN", []string{}))
+		repo.Owner("acme"), repo.Where("doc_type", "IN", []string{}))
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -387,7 +387,7 @@ func TestIN_EmptySlice(t *testing.T) {
 		t.Fatalf("sql = %q, want FALSE condition for empty IN", q.sql)
 	}
 	if len(q.args) != 1 {
-		t.Fatalf("len(args) = %d (%v), want 1 (tenant only)", len(q.args), q.args)
+		t.Fatalf("len(args) = %d (%v), want 1 (user only)", len(q.args), q.args)
 	}
 }
 
@@ -400,7 +400,7 @@ func TestValidFilterAndOrderBy(t *testing.T) {
 	r := assetRepo(q)
 
 	_, err := r.List(context.Background(),
-		repo.Tenant("acme"),
+		repo.Owner("acme"),
 		repo.Where("norm_brand", "=", "samsung"),
 		repo.Where("norm_model", "LIKE", "wf%"),
 		repo.OrderBy("created_at, id"),

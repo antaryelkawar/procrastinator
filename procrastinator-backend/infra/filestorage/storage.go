@@ -1,6 +1,6 @@
 // Package filestorage implements repo.FileStorage as a local-filesystem
-// storage backed by content-type sniffing and tenant-scoped, UUID-named
-// files under {tenantID}/{uuid}{ext}.
+// storage backed by content-type sniffing and user-scoped, UUID-named
+// files under {OwnerID}/{uuid}{ext}.
 package filestorage
 
 import (
@@ -17,7 +17,7 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 )
 
 // ErrUnsupportedType is returned when the content type is not PDF, PNG, or JPEG.
@@ -30,19 +30,19 @@ type Storage struct {
 
 var _ repo.FileStorage = (*Storage)(nil)
 
-// New creates a Storage that writes files under dir/<tenant>/ for each
-// tenant present in the context.
+// New creates a Storage that writes files under dir/<userID>/ for each
+// user present in the context.
 func New(dir string) *Storage {
 	return &Storage{dir: dir}
 }
 
-// Put stores the given bytes on disk under the tenant-scoped key
-// <tenant>/<uuid><ext> and returns the Source record. The tenant ID must be
-// present in ctx (see tenant.WithTenant); otherwise Put fails closed with
-// tenant.ErrNoTenant before sniffing or any I/O. Source.Path is the
-// tenant-relative key, not an absolute path.
+// Put stores the given bytes on disk under the user-scoped key
+// <userID>/<uuid><ext> and returns the Source record. The user ID must be
+// present in ctx (see user.WithUser); otherwise Put fails closed with
+// user.ErrNoUser before sniffing or any I/O. Source.Path is the
+// user-relative key, not an absolute path.
 func (s *Storage) Put(ctx context.Context, payload []byte) (entity.Source, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.Source{}, err
 	}

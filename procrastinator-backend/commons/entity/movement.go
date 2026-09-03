@@ -28,11 +28,11 @@ const LinkCreatorManual = "manual"
 // LinkCreatorAuto represents an automatically created document link.
 const LinkCreatorAuto = "auto"
 
-// MoneyMovement represents one tenant-scoped ledger movement (one row in money_movements table).
+// MoneyMovement represents one owner-scoped ledger movement (one row in money_movements table).
 // Money Amount is an exact-decimal string, never a float.
 type MoneyMovement struct {
 	ID                   string
-	TenantID             string
+	OwnerID              string
 	Kind                 string
 	Amount               string
 	Currency             string
@@ -51,4 +51,7 @@ type MoneyMovement struct {
 	LinkConflicting      bool
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	// OwnerHouseholdID is the owner_household_id column; nil means NULL
+	// (a personal row has no household owner).
+	OwnerHouseholdID *string
 }

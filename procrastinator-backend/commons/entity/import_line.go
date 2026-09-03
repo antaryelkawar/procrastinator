@@ -22,7 +22,7 @@ func ValidStatus(s string) bool {
 // ImportLine represents one parsed line of an import batch (one row in import_lines table).
 type ImportLine struct {
 	ID                string
-	TenantID          string
+	OwnerID           string
 	BatchID           string
 	LineRef           int
 	RawLine           string
@@ -35,4 +35,7 @@ type ImportLine struct {
 	Status            string
 	ErrorReason       *string
 	CreatedAt         time.Time
+	// OwnerHouseholdID is the owner_household_id column; nil means NULL
+	// (a personal row has no household owner).
+	OwnerHouseholdID *string
 }

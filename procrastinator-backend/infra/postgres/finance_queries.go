@@ -22,34 +22,41 @@ type DocumentRepository struct {
 // BalanceForAccount returns the derived balance of one account as an exact
 // decimal string: money in (movements with the account as destination) minus
 // money out (movements with the account as source), across all of the
-// tenant's movements. Transfers count in both directions naturally. An
+// user's movements. Transfers count in both directions naturally. An
 // account with no movements yields "0".
 func (r *MovementRepository) BalanceForAccount(ctx context.Context, accountID string, opts ...repo.Option) (string, error) {
 	o := repo.ApplyOptions(opts...)
 
-	tid, err := resolveTenant(ctx, o)
+	tid, err := resolveOwner(ctx, o)
 	if err != nil {
 		return "", err
 	}
 
-	const stmt = `SELECT COALESCE(SUM(amount) FILTER (WHERE destination_account_id = $2), 0)
-		- COALESCE(SUM(amount) FILTER (WHERE source_account_id = $2), 0)
-	FROM money_movements WHERE tenant_id = $1`
 	var balance string
 	err = r.scope.run(ctx, tid, func(q Querier) error {
-		return q.QueryRow(ctx, stmt, tid, accountID).Scan(&balance)
+		var args []any
+		vis, err := visibilityCond(ctx, q, tid, true, "", &args)
+		if err != nil {
+			return err
+		}
+		args = append(args, accountID)
+		accN := len(args)
+		stmt := fmt.Sprintf(
+			"SELECT COALESCE(SUM(amount) FILTER (WHERE destination_account_id = $%d), 0) - COALESCE(SUM(amount) FILTER (WHERE source_account_id = $%d), 0) FROM money_movements WHERE %s",
+			accN, accN, vis)
+		return q.QueryRow(ctx, stmt, args...).Scan(&balance)
 	})
 	return balance, err
 }
 
-// MovementsForAccount returns every movement of the tenant that touches
+// MovementsForAccount returns every movement of the user that touches
 // accountID as source or destination. Caller-supplied filters, ordering,
 // limit, and offset are validated against the movement whitelist and applied
 // exactly like the generic List. Returns a non-nil empty slice when no rows.
 func (r *MovementRepository) MovementsForAccount(ctx context.Context, accountID string, opts ...repo.Option) ([]entity.MoneyMovement, error) {
 	o := repo.ApplyOptions(opts...)
 
-	tid, err := resolveTenant(ctx, o)
+	tid, err := resolveOwner(ctx, o)
 	if err != nil {
 		return nil, err
 	}
@@ -64,12 +71,11 @@ func (r *MovementRepository) MovementsForAccount(ctx context.Context, accountID 
 	err = r.scope.run(ctx, tid, func(q Querier) error {
 		var conds []string
 		var args []any
-		addCond := func(clause string, arg any) {
-			args = append(args, arg)
-			conds = append(conds, fmt.Sprintf("%s = $%d", clause, len(args)))
+		vis, err := visibilityCond(ctx, q, tid, true, "", &args)
+		if err != nil {
+			return err
 		}
-
-		addCond("tenant_id", tid)
+		conds = append(conds, vis)
 		conds = append(conds, fmt.Sprintf("(source_account_id = $%d OR destination_account_id = $%d)", len(args)+1, len(args)+2))
 		args = append(args, accountID, accountID)
 		for _, f := range o.Filters {
@@ -111,16 +117,16 @@ func (r *MovementRepository) MovementsForAccount(ctx context.Context, accountID 
 	return result, err
 }
 
-// LinkCandidates returns the tenant's documents that could be auto-linked to a
+// LinkCandidates returns the user's documents that could be auto-linked to a
 // movement by exact amount+currency match in extracted_fields, excluding any
-// document already linked to a same-tenant movement. Caller-supplied
+// document already linked to a same-user movement. Caller-supplied
 // filters, ordering, limit, and offset are validated against the document
 // whitelist and applied exactly like the generic List. Returns a non-nil
 // empty slice.
 func (r *DocumentRepository) LinkCandidates(ctx context.Context, amount, currency string, opts ...repo.Option) ([]entity.Document, error) {
 	o := repo.ApplyOptions(opts...)
 
-	tid, err := resolveTenant(ctx, o)
+	tid, err := resolveOwner(ctx, o)
 	if err != nil {
 		return nil, err
 	}
@@ -140,12 +146,34 @@ func (r *DocumentRepository) LinkCandidates(ctx context.Context, amount, currenc
 			conds = append(conds, fmt.Sprintf("%s = $%d", clause, len(args)))
 		}
 
-		addCond("tenant_id", tid)
+		vis, err := visibilityCond(ctx, q, tid, true, "", &args)
+		if err != nil {
+			return err
+		}
+		conds = append(conds, vis)
+		// hhCount is the number of bind args consumed by the visibility
+		// fragment: 1 (no households) or 1 + (#households). The NOT EXISTS
+		// subquery below must reference exactly these placeholders ($1 = user,
+		// $2..$hhCount = households) and append nothing of its own — so capture
+		// it NOW, before the price/currency args are added.
+		hhCount := len(args)
 		addCond("extracted_fields ->> 'price'", amount)
 		addCond("extracted_fields ->> 'currency'", currency)
+
+		// The NOT EXISTS subquery is owner-scoped by default; it adds the
+		// aliased household disjunct only when the user actually has household
+		// memberships, reusing the same household placeholders as the main
+		// visibility fragment (no new bind args).
+		sub := "m.owner_id = $1"
+		if hhCount > 1 {
+			placeholders := make([]string, hhCount-1)
+			for i := 0; i < hhCount-1; i++ {
+				placeholders[i] = fmt.Sprintf("$%d", i+2)
+			}
+			sub = "(m.owner_id = $1 OR m.owner_household_id IN (" + strings.Join(placeholders, ", ") + "))"
+		}
 		conds = append(conds, fmt.Sprintf(
-			"NOT EXISTS (SELECT 1 FROM money_movements m WHERE m.tenant_id = $%d AND m.linked_document_id = documents.id)", len(args)+1))
-		args = append(args, tid)
+			"NOT EXISTS (SELECT 1 FROM money_movements m WHERE %s AND m.linked_document_id = documents.id)", sub))
 		for _, f := range o.Filters {
 			addFilterCond(r.filters, &conds, &args, f)
 		}

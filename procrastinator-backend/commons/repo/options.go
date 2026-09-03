@@ -5,7 +5,7 @@ type Option func(*Options)
 
 // Options holds query parameters for repository operations.
 type Options struct {
-	TenantID string
+	OwnerID string
 	Filters  []Filter
 	Limit    int
 	Offset   int
@@ -19,10 +19,10 @@ type Filter struct {
 	Value any
 }
 
-// Tenant sets the tenant ID for tenant-scoped queries.
-func Tenant(id string) Option {
+// Owner sets the owner ID for owner-scoped queries.
+func Owner(id string) Option {
 	return func(o *Options) {
-		o.TenantID = id
+		o.OwnerID = id
 	}
 }
 

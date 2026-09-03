@@ -10,9 +10,6 @@
 //	GET  /api/users/{userId}/assets/{assetId}       single asset
 //	GET  /api/users/{userId}/assets/{assetId}/documents  documents for one asset
 //
-// The /api/finance/... endpoints still use the X-Tenant-ID header (transitional
-// fallback in the tenant middleware).
-//
 // Every test runs against a real Postgres database in a private schema and a
 // real llm.Client pointed at a per-test httptest fake, so the full stack
 // (handler → service → extractor → storage → postgres) is exercised.
@@ -41,6 +38,7 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
+	"procrastinator-backend/core/household"
 	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/core/ledger"
 	"procrastinator-backend/core/statement"
@@ -194,7 +192,7 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 	// dev server), concludes the schema is already migrated, and skips creating
 	// tables in the private schema; every test then reads/writes the shared
 	// public tables, leaking data across runs. Private-only forces goose to
-	// migrate this schema in isolation (tables + the 00002 test tenants).
+	// migrate this schema in isolation (tables + the 00002 test Users).
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
 
 	// Drop any leftover schema with the same name (should not happen).
@@ -254,7 +252,7 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 		maxBytes, // the statement size limit follows the env's upload limit (oversize tests use maxBytes: 64)
 		stmtMaxLines,
 	)
-	srv := New(svc, factory, ledgerSvc, movRepo, maxBytes, statementSvc, maxBytes)
+	srv := New(svc, factory, ledgerSvc, movRepo, maxBytes, statementSvc, maxBytes, household.New(factory))
 
 	t.Cleanup(func() {
 		llmServer.Close()
@@ -273,16 +271,20 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 // and returns the recorded response. A nil body is passed as a nil io.Reader
 // (not a typed-nil *bytes.Buffer) because Go 1.27's httptest.NewRequest
 // dereferences *bytes.Buffer bodies without a nil check.
-func do(t *testing.T, handler http.Handler, method, path, tenant string, body *bytes.Buffer, contentType string) *httptest.ResponseRecorder {
+//
+// When userID is non-empty and the path starts with /api/finance, the path is
+// folded to /api/users/{userID}/finance/... so that legacy call sites keep
+// working.
+func do(t *testing.T, handler http.Handler, method, path, userID string, body *bytes.Buffer, contentType string) *httptest.ResponseRecorder {
 	t.Helper()
+	if userID != "" && strings.HasPrefix(path, "/api/finance") {
+		path = "/api/users/" + userID + "/finance" + strings.TrimPrefix(path, "/api/finance")
+	}
 	var reader io.Reader
 	if body != nil {
 		reader = body
 	}
 	req := httptest.NewRequest(method, path, reader)
-	if tenant != "" {
-		req.Header.Set("X-Tenant-ID", tenant)
-	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -320,13 +322,13 @@ func pdfBytes(n int) []byte {
 	return out
 }
 
-// uploadFile posts a multipart file to /api/users/{tenant}/documents and
+// uploadFile posts a multipart file to /api/users/{userID}/documents and
 // returns the recorded response plus the decoded asset (when the response is
-// asset JSON). The user id is in the path; no X-Tenant-ID header is sent.
-func (e *testEnv) uploadFile(t *testing.T, tenant string, filename string, contentType string, content []byte) (*httptest.ResponseRecorder, map[string]any) {
+// asset JSON).
+func (e *testEnv) uploadFile(t *testing.T, userID string, filename string, contentType string, content []byte) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
 	body, ct := buildMultipart(t, "file", filename, contentType, content)
-	rec := do(t, e.handler, http.MethodPost, "/api/users/"+tenant+"/documents", "", body, ct)
+	rec := do(t, e.handler, http.MethodPost, "/api/users/"+userID+"/documents", "", body, ct)
 
 	var asset map[string]any
 	if rec.Code == http.StatusCreated {
@@ -375,7 +377,7 @@ func TestUpload(t *testing.T) {
 
 	t.Run("HappyPath", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
-		rec, asset := e.uploadFile(t, "test-tenant", "invoice.pdf", "application/pdf", pdfBytes(24))
+		rec, asset := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(24))
 
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
@@ -412,6 +414,10 @@ func TestUpload(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), `"price":"39999.99"`) {
 			t.Errorf("raw body missing %q (price must be a JSON string): %s", `"price":"39999.99"`, rec.Body.String())
 		}
+		// Personal uploads carry no owner_household_id.
+		if _, present := asset["owner_household_id"]; present {
+			t.Errorf("owner_household_id present for a personal upload, want absent (body: %s)", rec.Body.String())
+		}
 	})
 
 	t.Run("MissingFileField", func(t *testing.T) {
@@ -426,14 +432,14 @@ func TestUpload(t *testing.T) {
 			t.Fatalf("close writer: %v", err)
 		}
 
-		rec := do(t, e.handler, http.MethodPost, "/api/users/test-tenant/documents", "", &buf, w.FormDataContentType())
+		rec := do(t, e.handler, http.MethodPost, "/api/users/test-user/documents", "", &buf, w.FormDataContentType())
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 	})
 
-	t.Run("MissingTenant", func(t *testing.T) {
+	t.Run("MissingUser", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
 
 		uuid := "00000000-0000-4000-8000-000000000000"
@@ -465,7 +471,7 @@ func TestUpload(t *testing.T) {
 		}
 	})
 
-	t.Run("MalformedTenant", func(t *testing.T) {
+	t.Run("MalformedUser", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
 
 		uuid := "00000000-0000-4000-8000-000000000000"
@@ -476,8 +482,8 @@ func TestUpload(t *testing.T) {
 			userID string
 		}{
 			{name: "65 chars", userID: strings.Repeat("a", 65)},
-			{name: "bad char slash", userID: "bad%2Ftenant"},
-			{name: "bad char space", userID: "bad%20tenant"},
+			{name: "bad char slash", userID: "bad%2Fuser"},
+			{name: "bad char space", userID: "bad%20user"},
 		}
 		routes := []struct {
 			method string
@@ -502,7 +508,7 @@ func TestUpload(t *testing.T) {
 		}
 	})
 
-	t.Run("UnregisteredTenant", func(t *testing.T) {
+	t.Run("UnregisteredUser", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
 
 		uuid := "00000000-0000-4000-8000-000000000000"
@@ -510,10 +516,10 @@ func TestUpload(t *testing.T) {
 			method string
 			path   string
 		}{
-			{http.MethodGet, "/api/users/unknown-tenant/assets"},
-			{http.MethodGet, "/api/users/unknown-tenant/assets/" + uuid},
-			{http.MethodGet, "/api/users/unknown-tenant/assets/" + uuid + "/documents"},
-			{http.MethodPost, "/api/users/unknown-tenant/documents"},
+			{http.MethodGet, "/api/users/unknown-user/assets"},
+			{http.MethodGet, "/api/users/unknown-user/assets/" + uuid},
+			{http.MethodGet, "/api/users/unknown-user/assets/" + uuid + "/documents"},
+			{http.MethodPost, "/api/users/unknown-user/documents"},
 		}
 		for _, ep := range routes {
 			t.Run(ep.method+" "+ep.path, func(t *testing.T) {
@@ -528,7 +534,7 @@ func TestUpload(t *testing.T) {
 
 	t.Run("UnsupportedType", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
-		rec, _ := e.uploadFile(t, "test-tenant", "notes.txt", "text/plain", []byte("hello world"))
+		rec, _ := e.uploadFile(t, "test-user", "notes.txt", "text/plain", []byte("hello world"))
 		if rec.Code != http.StatusUnsupportedMediaType {
 			t.Fatalf("status = %d, want 415 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -537,7 +543,7 @@ func TestUpload(t *testing.T) {
 
 	t.Run("Oversize", func(t *testing.T) {
 		e := newEnv(t, envOpts{maxBytes: 64})
-		rec, _ := e.uploadFile(t, "test-tenant", "big.pdf", "application/pdf", pdfBytes(200))
+		rec, _ := e.uploadFile(t, "test-user", "big.pdf", "application/pdf", pdfBytes(200))
 		if rec.Code != http.StatusRequestEntityTooLarge {
 			t.Fatalf("status = %d, want 413 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -546,7 +552,7 @@ func TestUpload(t *testing.T) {
 
 	t.Run("LLMOutage", func(t *testing.T) {
 		e := newEnv(t, envOpts{llmStatus: http.StatusInternalServerError})
-		rec, _ := e.uploadFile(t, "test-tenant", "invoice.pdf", "application/pdf", pdfBytes(16))
+		rec, _ := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(16))
 		if rec.Code != http.StatusBadGateway {
 			t.Fatalf("status = %d, want 502 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -555,12 +561,136 @@ func TestUpload(t *testing.T) {
 
 	t.Run("NoIdentity", func(t *testing.T) {
 		e := newEnv(t, envOpts{llmPayload: noIdentityPayload})
-		rec, _ := e.uploadFile(t, "test-tenant", "other.pdf", "application/pdf", pdfBytes(16))
+		rec, _ := e.uploadFile(t, "test-user", "other.pdf", "application/pdf", pdfBytes(16))
 		if rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422 (body: %s)", rec.Code, rec.Body.String())
 		}
 		assertErrorEnvelope(t, rec)
 	})
+
+	t.Run("HouseholdScope", func(t *testing.T) {
+		e := newEnv(t, envOpts{})
+		ctx := context.Background()
+		hh, err := e.factory.Households.Create(ctx, entity.Household{DisplayName: "H"}, repo.Owner("test-user"))
+		if err != nil {
+			t.Fatalf("create household: %v", err)
+		}
+		if err := e.factory.Households.AddMember(ctx, hh.ID, "test-user", repo.Owner("test-user")); err != nil {
+			t.Fatalf("add member: %v", err)
+		}
+		rec, asset := e.uploadWithOwnerHousehold(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(16), hh.ID)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
+		}
+		if got := strVal(asset, "owner_household_id"); got != hh.ID {
+			t.Errorf("owner_household_id = %q, want %q", got, hh.ID)
+		}
+	})
+
+	t.Run("NonMemberScope", func(t *testing.T) {
+		e := newEnv(t, envOpts{})
+		ctx := context.Background()
+		hh, err := e.factory.Households.Create(ctx, entity.Household{DisplayName: "H"}, repo.Owner("test-user"))
+		if err != nil {
+			t.Fatalf("create household: %v", err)
+		}
+		if err := e.factory.Households.AddMember(ctx, hh.ID, "test-user", repo.Owner("test-user")); err != nil {
+			t.Fatalf("add member: %v", err)
+		}
+		rec, _ := e.uploadWithOwnerHousehold(t, "test-user-b", "invoice.pdf", "application/pdf", pdfBytes(16), hh.ID)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403 (body: %s)", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+// uploadWithOwnerHousehold posts a multipart file with an owner_household_id
+// form field to /api/users/{userID}/documents.
+func (e *testEnv) uploadWithOwnerHousehold(t *testing.T, userID, filename, contentType string, content []byte, ownerHouseholdID string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreatePart(map[string][]string{
+		"Content-Disposition": {fmt.Sprintf(`form-data; name="file"; filename=%q`, filename)},
+		"Content-Type":        {contentType},
+	})
+	if err != nil {
+		t.Fatalf("create multipart part: %v", err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatalf("write multipart part: %v", err)
+	}
+	if err := w.WriteField("owner_household_id", ownerHouseholdID); err != nil {
+		t.Fatalf("write owner_household_id field: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	rec := do(t, e.handler, http.MethodPost, "/api/users/"+userID+"/documents", "", &buf, w.FormDataContentType())
+	var asset map[string]any
+	if rec.Code == http.StatusCreated {
+		if err := json.Unmarshal(rec.Body.Bytes(), &asset); err != nil {
+			t.Fatalf("unmarshal upload asset JSON: %v (body: %s)", err, rec.Body.String())
+		}
+	}
+	return rec, asset
+}
+
+// TestRouteTable verifies that every registered route returns a JSON response
+// (Content-Type contains application/json) when reached, and that the old
+// /api/finance/... paths are no longer routable.
+func TestRouteTable(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, envOpts{})
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/users/test-user/documents"},
+		{http.MethodGet, "/api/users/test-user/assets"},
+		{http.MethodGet, "/api/users/test-user/assets/" + unknownUUID},
+		{http.MethodGet, "/api/users/test-user/assets/" + unknownUUID + "/documents"},
+		{http.MethodPost, "/api/users/test-user/finance/accounts"},
+		{http.MethodGet, "/api/users/test-user/finance/accounts"},
+		{http.MethodGet, "/api/users/test-user/finance/accounts/" + unknownUUID},
+		{http.MethodPost, "/api/users/test-user/finance/movements"},
+		{http.MethodGet, "/api/users/test-user/finance/movements"},
+		{http.MethodGet, "/api/users/test-user/finance/movements/" + unknownUUID},
+		{http.MethodPatch, "/api/users/test-user/finance/movements/" + unknownUUID},
+		{http.MethodDelete, "/api/users/test-user/finance/movements/" + unknownUUID},
+		{http.MethodPost, "/api/users/test-user/finance/movements/" + unknownUUID + "/link"},
+		{http.MethodDelete, "/api/users/test-user/finance/movements/" + unknownUUID + "/link"},
+		{http.MethodPost, "/api/users/test-user/finance/import-batches"},
+		{http.MethodGet, "/api/users/test-user/finance/import-batches"},
+		{http.MethodGet, "/api/users/test-user/finance/import-batches/" + unknownUUID},
+		{http.MethodPost, "/api/users/test-user/finance/import-batches/" + unknownUUID + "/commit"},
+		{http.MethodPost, "/api/users/test-user/finance/import-batches/" + unknownUUID + "/discard"},
+	}
+	for _, rt := range routes {
+		t.Run(rt.method+" "+rt.path, func(t *testing.T) {
+			rec := do(t, e.handler, rt.method, rt.path, "", nil, "")
+			ct := rec.Header().Get("Content-Type")
+			if !strings.Contains(ct, "application/json") {
+				t.Errorf("Content-Type = %q, want application/json (status %d)", ct, rec.Code)
+			}
+		})
+	}
+
+	legacy := []string{
+		"/api/finance/accounts",
+		"/api/finance/movements",
+		"/api/finance/import-batches",
+	}
+	for _, path := range legacy {
+		t.Run("legacy "+path, func(t *testing.T) {
+			rec := do(t, e.handler, http.MethodGet, path, "", nil, "")
+			ct := rec.Header().Get("Content-Type")
+			if strings.Contains(ct, "application/json") {
+				t.Errorf("legacy path %q returned Content-Type %q, want no JSON (status %d)", path, ct, rec.Code)
+			}
+		})
+	}
 }
 
 // TestListAssets exercises GET /api/users/{userId}/assets.
@@ -569,7 +699,7 @@ func TestListAssets(t *testing.T) {
 
 	t.Run("Empty", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets", "", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user/assets", "", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -580,12 +710,12 @@ func TestListAssets(t *testing.T) {
 
 	t.Run("WithData", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
-		up, asset := e.uploadFile(t, "test-tenant", "invoice.pdf", "application/pdf", pdfBytes(16))
+		up, asset := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(16))
 		if up.Code != http.StatusCreated {
 			t.Fatalf("upload status = %d, want 201 (body: %s)", up.Code, up.Body.String())
 		}
 
-		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets", "", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user/assets", "", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -612,12 +742,12 @@ func TestGetAsset(t *testing.T) {
 
 	t.Run("Found", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
-		up, asset := e.uploadFile(t, "test-tenant", "invoice.pdf", "application/pdf", pdfBytes(16))
+		up, asset := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(16))
 		if up.Code != http.StatusCreated {
 			t.Fatalf("upload status = %d, want 201 (body: %s)", up.Code, up.Body.String())
 		}
 
-		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets/"+strVal(asset, "id"), "", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user/assets/"+strVal(asset, "id"), "", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -635,7 +765,7 @@ func TestGetAsset(t *testing.T) {
 
 	t.Run("NotFound", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets/00000000-0000-4000-8000-000000000000", "", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user/assets/00000000-0000-4000-8000-000000000000", "", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -652,7 +782,7 @@ func TestListDocuments(t *testing.T) {
 			llmPayload: `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"ORD-1","purchase_date":"2024-01-12","price":"39999.99","currency":"INR","metadata":{}}`,
 		})
 
-		up1, asset := e.uploadFile(t, "test-tenant", "invoice.pdf", "application/pdf", pdfBytes(16))
+		up1, asset := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(16))
 		if up1.Code != http.StatusCreated {
 			t.Fatalf("upload 1 status = %d, want 201 (body: %s)", up1.Code, up1.Body.String())
 		}
@@ -663,7 +793,7 @@ func TestListDocuments(t *testing.T) {
 		// document created_at values (and ordering) distinct.
 		time.Sleep(10 * time.Millisecond)
 		e.setLLMPayload(`{"classification":"amc","serial_number":"ORD-1","metadata":{"amc_card_number":"AMC-777"}}`)
-		up2, asset2 := e.uploadFile(t, "test-tenant", "amc.pdf", "application/pdf", pdfBytes(16))
+		up2, asset2 := e.uploadFile(t, "test-user", "amc.pdf", "application/pdf", pdfBytes(16))
 		if up2.Code != http.StatusCreated {
 			t.Fatalf("upload 2 status = %d, want 201 (body: %s)", up2.Code, up2.Body.String())
 		}
@@ -671,7 +801,7 @@ func TestListDocuments(t *testing.T) {
 			t.Fatalf("upload 2 asset id = %q, want same asset id %q (same serial links to one asset)", id2, strVal(asset, "id"))
 		}
 
-		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets/"+strVal(asset, "id")+"/documents", "", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user/assets/"+strVal(asset, "id")+"/documents", "", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -704,7 +834,7 @@ func TestListDocuments(t *testing.T) {
 
 	t.Run("NotFound", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
-		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant/assets/00000000-0000-4000-8000-000000000000/documents", "", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user/assets/00000000-0000-4000-8000-000000000000/documents", "", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -712,56 +842,56 @@ func TestListDocuments(t *testing.T) {
 	})
 }
 
-// TestTenantIsolation verifies that data is fully tenant-scoped: one tenant's
-// assets and documents are invisible to another tenant, and the same serial
-// uploaded by two tenants creates two distinct assets.
-func TestTenantIsolation(t *testing.T) {
+// TestUserIsolation verifies that data is fully user-scoped: one user's
+// assets and documents are invisible to another user, and the same serial
+// uploaded by two Users creates two distinct assets.
+func TestUserIsolation(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOpts{
 		llmPayload: `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"ISO-1","purchase_date":"2024-01-12","price":"39999.99","currency":"INR","metadata":{}}`,
 	})
 
-	// Tenant A uploads serial ISO-1.
-	upA, assetA := e.uploadFile(t, "test-tenant", "invoice.pdf", "application/pdf", pdfBytes(16))
+	// User A uploads serial ISO-1.
+	upA, assetA := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(16))
 	if upA.Code != http.StatusCreated {
-		t.Fatalf("tenant A upload status = %d, want 201 (body: %s)", upA.Code, upA.Body.String())
+		t.Fatalf("user A upload status = %d, want 201 (body: %s)", upA.Code, upA.Body.String())
 	}
 	idA := strVal(assetA, "id")
 	if idA == "" {
-		t.Fatalf("tenant A asset id is empty")
+		t.Fatalf("user A asset id is empty")
 	}
 
-	// Tenant B sees no assets and cannot read tenant A's asset or documents.
-	rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant-b/assets", "", nil, "")
+	// User B sees no assets and cannot read user A's asset or documents.
+	rec := do(t, e.handler, http.MethodGet, "/api/users/test-user-b/assets", "", nil, "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("tenant B list status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+		t.Fatalf("user B list status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 	}
 	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
-		t.Fatalf("tenant B list body = %q, want exactly %q (never null)", got, "[]")
+		t.Fatalf("user B list body = %q, want exactly %q (never null)", got, "[]")
 	}
 
-	rec = do(t, e.handler, http.MethodGet, "/api/users/test-tenant-b/assets/"+idA, "", nil, "")
+	rec = do(t, e.handler, http.MethodGet, "/api/users/test-user-b/assets/"+idA, "", nil, "")
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("tenant B get asset status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
+		t.Fatalf("user B get asset status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 	}
 
-	rec = do(t, e.handler, http.MethodGet, "/api/users/test-tenant-b/assets/"+idA+"/documents", "", nil, "")
+	rec = do(t, e.handler, http.MethodGet, "/api/users/test-user-b/assets/"+idA+"/documents", "", nil, "")
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("tenant B list documents status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
+		t.Fatalf("user B list documents status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 	}
 
-	// Tenant B uploads the SAME serial: a distinct asset must be created.
-	upB, assetB := e.uploadFile(t, "test-tenant-b", "invoice-b.pdf", "application/pdf", pdfBytes(16))
+	// User B uploads the SAME serial: a distinct asset must be created.
+	upB, assetB := e.uploadFile(t, "test-user-b", "invoice-b.pdf", "application/pdf", pdfBytes(16))
 	if upB.Code != http.StatusCreated {
-		t.Fatalf("tenant B upload status = %d, want 201 (body: %s)", upB.Code, upB.Body.String())
+		t.Fatalf("user B upload status = %d, want 201 (body: %s)", upB.Code, upB.Body.String())
 	}
 	idB := strVal(assetB, "id")
 	if idB == "" {
-		t.Fatalf("tenant B asset id is empty")
+		t.Fatalf("user B asset id is empty")
 	}
 	if idB == idA {
-		t.Fatalf("tenant B asset id %q equals tenant A asset id %q, want distinct assets across tenants", idB, idA)
+		t.Fatalf("user B asset id %q equals user A asset id %q, want distinct assets across Users", idB, idA)
 	}
 }
 
@@ -774,24 +904,23 @@ func TestScopeAccess(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	ctx := context.Background()
 
-	// Household owned by test-tenant, with test-tenant as a member.
-	hh, err := e.factory.Households.Create(ctx, entity.Household{DisplayName: "H1"}, repo.Tenant("test-tenant"))
+	// Household owned by test-user, with test-user as a member.
+	hh, err := e.factory.Households.Create(ctx, entity.Household{DisplayName: "H1"}, repo.Owner("test-user"))
 	if err != nil {
 		t.Fatalf("create household: %v", err)
 	}
 	if hh.ID == "" {
 		t.Fatal("household id is empty")
 	}
-	if err := e.factory.Households.AddMember(ctx, hh.ID, "test-tenant", repo.Tenant("test-tenant")); err != nil {
+	if err := e.factory.Households.AddMember(ctx, hh.ID, "test-user", repo.Owner("test-user")); err != nil {
 		t.Fatalf("add household member: %v", err)
 	}
 
 	// Household-scoped asset owned by the household.
 	hhAsset, err := e.factory.Assets.Create(ctx, entity.Asset{
 		DocType:          "invoice",
-		ScopeType:        entity.ScopeHousehold,
 		OwnerHouseholdID: &hh.ID,
-	}, repo.Tenant("test-tenant"))
+	}, repo.Owner("test-user"))
 	if err != nil {
 		t.Fatalf("create household asset: %v", err)
 	}
@@ -799,8 +928,8 @@ func TestScopeAccess(t *testing.T) {
 		t.Fatal("household asset id is empty")
 	}
 
-	// Personal asset for test-tenant (via the HTTP upload).
-	up, personal := e.uploadFile(t, "test-tenant", "invoice.pdf", "application/pdf", pdfBytes(16))
+	// Personal asset for test-user (via the HTTP upload).
+	up, personal := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(16))
 	if up.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, want 201 (body: %s)", up.Code, up.Body.String())
 	}
@@ -828,32 +957,32 @@ func TestScopeAccess(t *testing.T) {
 	}
 
 	t.Run("PersonalVisible", func(t *testing.T) {
-		ids := listIDs(t, "/api/users/test-tenant/assets")
+		ids := listIDs(t, "/api/users/test-user/assets")
 		if !ids[personalID] {
 			t.Errorf("personal asset %q not visible to its owner (ids: %v)", personalID, ids)
 		}
 	})
 
 	t.Run("HouseholdVisibleWhenMember", func(t *testing.T) {
-		ids := listIDs(t, "/api/users/test-tenant/assets")
+		ids := listIDs(t, "/api/users/test-user/assets")
 		if !ids[hhAsset.ID] {
 			t.Errorf("household asset %q not visible to owner+member (ids: %v)", hhAsset.ID, ids)
 		}
 	})
 
 	t.Run("AnotherUsersPersonalInvisible", func(t *testing.T) {
-		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant-b/assets/"+personalID, "", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user-b/assets/"+personalID, "", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
 	})
 
 	t.Run("NonMemberHouseholdInvisible", func(t *testing.T) {
-		ids := listIDs(t, "/api/users/test-tenant-b/assets")
+		ids := listIDs(t, "/api/users/test-user-b/assets")
 		if ids[hhAsset.ID] {
 			t.Errorf("household asset %q visible to non-member (ids: %v)", hhAsset.ID, ids)
 		}
-		rec := do(t, e.handler, http.MethodGet, "/api/users/test-tenant-b/assets/"+hhAsset.ID, "", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user-b/assets/"+hhAsset.ID, "", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}

@@ -8,7 +8,7 @@ import (
 
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/tenant"
+	"procrastinator-backend/commons/user"
 )
 
 // Error sentinels returned by the Service methods. They map to HTTP status
@@ -62,14 +62,14 @@ type StatementSourceStore interface {
 }
 
 // MovementsForAccountLister lists existing ledger movements for one account
-// (tenant-scoped by the caller via opts), used for duplicate detection during
+// (user-scoped by the caller via opts), used for duplicate detection during
 // Upload.
 type MovementsForAccountLister interface {
 	MovementsForAccount(ctx context.Context, accountID string, opts ...repo.Option) ([]entity.MoneyMovement, error)
 }
 
 // LinkCandidateLister lists documents that could be auto-linked to a movement
-// by exact amount and currency (tenant-scoped by the caller via opts). A
+// by exact amount and currency (user-scoped by the caller via opts). A
 // document already linked to any movement is not a candidate.
 type LinkCandidateLister interface {
 	LinkCandidates(ctx context.Context, amount, currency string, opts ...repo.Option) ([]entity.Document, error)
@@ -81,8 +81,8 @@ type LinkCandidateLister interface {
 // movement creation for valid lines + batch transition + idempotent
 // auto-link), Discard, and read/list operations.
 //
-// Tenant is fail-closed: the tenant ID is resolved once from the context per
-// call (tenant.ErrNoTenant before any query when absent) and repo.Tenant(tid)
+// User identity is fail-closed: the user ID is resolved once from the context
+// per call (user.ErrNoUser before any query when absent) and repo.Owner(tid)
 // is applied to every repository call.
 type Service struct {
 	factory   *repo.Factory
@@ -112,7 +112,7 @@ func New(factory *repo.Factory, src StatementSourceStore, movs MovementsForAccou
 
 // Upload runs the statement import pipeline for one upload:
 //
-//  1. Resolve the tenant from ctx (fail-closed: no query runs without it).
+//  1. Resolve the user from ctx (fail-closed: no query runs without it).
 //  2. Reject data larger than maxBytes with ErrTooLarge (the store is never
 //     called).
 //  3. Store the bytes via the statement store, then persist the Source as a
@@ -126,14 +126,14 @@ func New(factory *repo.Factory, src StatementSourceStore, movs MovementsForAccou
 //     text lines); zero lines is ErrNoLines.
 //  6. Reject more than maxLines lines with ErrTooManyLines (Source retained).
 //  7. Extract fields from each raw line (1-based line refs).
-//  8. Load the existing movements for the account (tenant-scoped).
+//  8. Load the existing movements for the account (user-scoped).
 //  9. Classify the lines against the existing movements (pure, deterministic).
 //  10. Atomically create the batch (state preview, per-status counts) and all
 //     its lines in a single transaction.
 //
 // It returns the created batch (with repo-assigned ID) and its lines.
 func (s *Service) Upload(ctx context.Context, accountID, filename string, data []byte) (entity.ImportBatch, []entity.ImportLine, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.ImportBatch{}, nil, err
 	}
@@ -157,7 +157,7 @@ func (s *Service) Upload(ctx context.Context, accountID, filename string, data [
 	// assigns the id via gen_random_uuid() (the store's client-side id is
 	// dropped on insert), so capture the returned row: the batch FK must
 	// reference the committed source id, not the store's provisional one.
-	source, err = s.factory.Sources.Create(ctx, source, repo.Tenant(tid))
+	source, err = s.factory.Sources.Create(ctx, source, repo.Owner(tid))
 	if err != nil {
 		return entity.ImportBatch{}, nil, err
 	}
@@ -165,7 +165,7 @@ func (s *Service) Upload(ctx context.Context, accountID, filename string, data [
 	// 4. Account check (ErrNotFound propagates; the Source is retained). The
 	// account is loaded here (and again inside the commit transaction) so
 	// that a missing account fails fast before any batch is persisted.
-	if _, err := s.factory.Accounts.Get(ctx, accountID, repo.Tenant(tid)); err != nil {
+	if _, err := s.factory.Accounts.Get(ctx, accountID, repo.Owner(tid)); err != nil {
 		return entity.ImportBatch{}, nil, err
 	}
 
@@ -202,8 +202,8 @@ func (s *Service) Upload(ctx context.Context, accountID, filename string, data [
 		lines[i] = ExtractFields(i+1, raw)
 	}
 
-	// 8. Existing movements for the account (tenant-scoped).
-	existing, err := s.movs.MovementsForAccount(ctx, accountID, repo.Tenant(tid))
+	// 8. Existing movements for the account (user-scoped).
+	existing, err := s.movs.MovementsForAccount(ctx, accountID, repo.Owner(tid))
 	if err != nil {
 		return entity.ImportBatch{}, nil, err
 	}
@@ -225,7 +225,7 @@ func (s *Service) Upload(ctx context.Context, accountID, filename string, data [
 			LineCountPossibleDup: countStatus(classified, entity.LineStatusPossibleDuplicate),
 			LineCountError:       countStatus(classified, entity.LineStatusError),
 		}
-		created, err := repos.ImportBatches.Create(ctx, batch, repo.Tenant(tid))
+		created, err := repos.ImportBatches.Create(ctx, batch, repo.Owner(tid))
 		if err != nil {
 			return err
 		}
@@ -248,7 +248,7 @@ func (s *Service) Upload(ctx context.Context, accountID, filename string, data [
 			}
 		}
 		for i := range importLines {
-			if _, err := repos.ImportLines.Create(ctx, importLines[i], repo.Tenant(tid)); err != nil {
+			if _, err := repos.ImportLines.Create(ctx, importLines[i], repo.Owner(tid)); err != nil {
 				return err
 			}
 		}
@@ -259,7 +259,7 @@ func (s *Service) Upload(ctx context.Context, accountID, filename string, data [
 	}
 
 	// 11. Return the created (repo-assigned-ID) batch and lines.
-	createdLines, err := s.factory.ImportLines.List(ctx, repo.Tenant(tid), repo.Where("batch_id", "=", createdBatch.ID), repo.OrderBy("line_ref"))
+	createdLines, err := s.factory.ImportLines.List(ctx, repo.Owner(tid), repo.Where("batch_id", "=", createdBatch.ID), repo.OrderBy("line_ref"))
 	if err != nil {
 		return entity.ImportBatch{}, nil, err
 	}
@@ -278,12 +278,12 @@ func (s *Service) Upload(ctx context.Context, accountID, filename string, data [
 // discarded batch returns ErrConflict; any unrecognized state is treated
 // defensively as ErrConflict.
 func (s *Service) Commit(ctx context.Context, batchID string) (CommitSummary, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return CommitSummary{}, err
 	}
 
-	batch, err := s.factory.ImportBatches.Get(ctx, batchID, repo.Tenant(tid))
+	batch, err := s.factory.ImportBatches.Get(ctx, batchID, repo.Owner(tid))
 	if err != nil {
 		return CommitSummary{}, err
 	}
@@ -295,7 +295,7 @@ func (s *Service) Commit(ctx context.Context, batchID string) (CommitSummary, er
 	case entity.BatchStateCommitted:
 		// Idempotent re-commit: summary recomputed from the persisted
 		// movements and the batch's line counts.
-		movs, err := s.factory.Movements.List(ctx, repo.Tenant(tid), repo.Where("import_batch_id", "=", batchID))
+		movs, err := s.factory.Movements.List(ctx, repo.Owner(tid), repo.Where("import_batch_id", "=", batchID))
 		if err != nil {
 			return CommitSummary{}, err
 		}
@@ -311,11 +311,11 @@ func (s *Service) Commit(ctx context.Context, batchID string) (CommitSummary, er
 	case entity.BatchStatePreview:
 		var validCount int
 		err := s.factory.InTx(ctx, func(ctx context.Context, repos *repo.Repos) error {
-			lines, err := repos.ImportLines.List(ctx, repo.Tenant(tid), repo.Where("batch_id", "=", batchID), repo.OrderBy("line_ref"))
+			lines, err := repos.ImportLines.List(ctx, repo.Owner(tid), repo.Where("batch_id", "=", batchID), repo.OrderBy("line_ref"))
 			if err != nil {
 				return err
 			}
-			acct, err := repos.Accounts.Get(ctx, batch.AccountID, repo.Tenant(tid))
+			acct, err := repos.Accounts.Get(ctx, batch.AccountID, repo.Owner(tid))
 			if err != nil {
 				return err
 			}
@@ -351,7 +351,7 @@ func (s *Service) Commit(ctx context.Context, batchID string) (CommitSummary, er
 				} else {
 					mv.DestinationAccountID = &acct.ID
 				}
-				if _, err := repos.Movements.Create(ctx, mv, repo.Tenant(tid)); err != nil {
+				if _, err := repos.Movements.Create(ctx, mv, repo.Owner(tid)); err != nil {
 					return err
 				}
 				validCount++
@@ -364,7 +364,7 @@ func (s *Service) Commit(ctx context.Context, batchID string) (CommitSummary, er
 			committed.LineCountDuplicate = countImportStatus(lines, entity.LineStatusDuplicate)
 			committed.LineCountPossibleDup = countImportStatus(lines, entity.LineStatusPossibleDuplicate)
 			committed.LineCountError = countImportStatus(lines, entity.LineStatusError)
-			if _, err := repos.ImportBatches.Update(ctx, committed, repo.Tenant(tid)); err != nil {
+			if _, err := repos.ImportBatches.Update(ctx, committed, repo.Owner(tid)); err != nil {
 				return err
 			}
 			batch = committed
@@ -392,12 +392,12 @@ func (s *Service) Commit(ctx context.Context, batchID string) (CommitSummary, er
 // Discarding an already-discarded batch is idempotent and returns the batch
 // unchanged. Discarding a committed batch returns ErrConflict.
 func (s *Service) Discard(ctx context.Context, batchID string) (entity.ImportBatch, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.ImportBatch{}, err
 	}
 
-	batch, err := s.factory.ImportBatches.Get(ctx, batchID, repo.Tenant(tid))
+	batch, err := s.factory.ImportBatches.Get(ctx, batchID, repo.Owner(tid))
 	if err != nil {
 		return entity.ImportBatch{}, err
 	}
@@ -406,7 +406,7 @@ func (s *Service) Discard(ctx context.Context, batchID string) (entity.ImportBat
 	case entity.BatchStatePreview:
 		// Pool-bound (no tx): a single state transition.
 		batch.State = entity.BatchStateDiscarded
-		updated, err := s.factory.ImportBatches.Update(ctx, batch, repo.Tenant(tid))
+		updated, err := s.factory.ImportBatches.Update(ctx, batch, repo.Owner(tid))
 		if err != nil {
 			return entity.ImportBatch{}, err
 		}
@@ -421,32 +421,32 @@ func (s *Service) Discard(ctx context.Context, batchID string) (entity.ImportBat
 // GetBatch returns one batch with all of its lines ordered by line_ref.
 // The returned line slice is non-nil (empty) when the batch has no lines.
 func (s *Service) GetBatch(ctx context.Context, batchID string) (entity.ImportBatch, []entity.ImportLine, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.ImportBatch{}, nil, err
 	}
 
-	batch, err := s.factory.ImportBatches.Get(ctx, batchID, repo.Tenant(tid))
+	batch, err := s.factory.ImportBatches.Get(ctx, batchID, repo.Owner(tid))
 	if err != nil {
 		return entity.ImportBatch{}, nil, err
 	}
 
-	lines, err := s.factory.ImportLines.List(ctx, repo.Tenant(tid), repo.Where("batch_id", "=", batchID), repo.OrderBy("line_ref"))
+	lines, err := s.factory.ImportLines.List(ctx, repo.Owner(tid), repo.Where("batch_id", "=", batchID), repo.OrderBy("line_ref"))
 	if err != nil {
 		return entity.ImportBatch{}, nil, err
 	}
 	return batch, lines, nil
 }
 
-// ListBatches returns all batches of the tenant ordered by created_at
+// ListBatches returns all batches of the user ordered by created_at
 // ascending with ties broken by id ascending. The returned slice is non-nil
-// (empty) when the tenant has no batches.
+// (empty) when the user has no batches.
 func (s *Service) ListBatches(ctx context.Context) ([]entity.ImportBatch, error) {
-	tid, err := tenant.TenantFrom(ctx)
+	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return nil, err
 	}
-	batches, err := s.factory.ImportBatches.List(ctx, repo.Tenant(tid), repo.OrderBy("created_at, id"))
+	batches, err := s.factory.ImportBatches.List(ctx, repo.Owner(tid), repo.OrderBy("created_at, id"))
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +460,7 @@ func (s *Service) ListBatches(ctx context.Context) ([]entity.ImportBatch, error)
 // unlinked. Already-linked documents are not candidates, so two movements in
 // the same batch can never both take the same document.
 func (s *Service) applyAutoLinks(ctx context.Context, tid string, batch entity.ImportBatch) error {
-	movs, err := s.factory.Movements.List(ctx, repo.Tenant(tid), repo.Where("import_batch_id", "=", batch.ID))
+	movs, err := s.factory.Movements.List(ctx, repo.Owner(tid), repo.Where("import_batch_id", "=", batch.ID))
 	if err != nil {
 		return fmt.Errorf("apply auto links for batch %s: list movements: %w", batch.ID, err)
 	}
@@ -468,7 +468,7 @@ func (s *Service) applyAutoLinks(ctx context.Context, tid string, batch entity.I
 		if mv.Origin != entity.OriginImport || mv.LinkedDocumentID != nil {
 			continue
 		}
-		cands, err := s.linkCands.LinkCandidates(ctx, mv.Amount, mv.Currency, repo.Tenant(tid))
+		cands, err := s.linkCands.LinkCandidates(ctx, mv.Amount, mv.Currency, repo.Owner(tid))
 		if err != nil {
 			return fmt.Errorf("apply auto links for batch %s: list candidates for movement %s: %w", batch.ID, mv.ID, err)
 		}
@@ -479,7 +479,7 @@ func (s *Service) applyAutoLinks(ctx context.Context, tid string, batch entity.I
 		auto := entity.LinkCreatorAuto
 		mv.LinkedDocumentID = &docID
 		mv.LinkCreator = &auto
-		if _, err := s.factory.Movements.Update(ctx, mv, repo.Tenant(tid)); err != nil {
+		if _, err := s.factory.Movements.Update(ctx, mv, repo.Owner(tid)); err != nil {
 			return fmt.Errorf("apply auto links for batch %s: link movement %s: %w", batch.ID, mv.ID, err)
 		}
 	}

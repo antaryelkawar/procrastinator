@@ -1,4 +1,4 @@
-package tenant
+package user
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestWithTenant_TenantFrom_RoundTrip(t *testing.T) {
+func TestWithUser_UserFrom_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -15,8 +15,8 @@ func TestWithTenant_TenantFrom_RoundTrip(t *testing.T) {
 		id   string
 	}{
 		{"acme", "acme"},
-		{"tenant-123", "tenant-123"},
-		{"tenant_1", "tenant_1"},
+		{"user-123", "user-123"},
+		{"user_1", "user_1"},
 		{"Acme-Corp", "Acme-Corp"},
 		{"max-length-64", strings.Repeat("a", 64)},
 	}
@@ -25,8 +25,8 @@ func TestWithTenant_TenantFrom_RoundTrip(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := WithTenant(context.Background(), tc.id)
-			got, err := TenantFrom(ctx)
+			ctx := WithUser(context.Background(), tc.id)
+			got, err := UserFrom(ctx)
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
@@ -37,13 +37,13 @@ func TestWithTenant_TenantFrom_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestTenantFrom_NoTenant(t *testing.T) {
+func TestUserFrom_NoUser(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	got, err := TenantFrom(ctx)
-	if !errors.Is(err, ErrNoTenant) {
-		t.Fatalf("expected ErrNoTenant, got %v", err)
+	got, err := UserFrom(ctx)
+	if !errors.Is(err, ErrNoUser) {
+		t.Fatalf("expected ErrNoUser, got %v", err)
 	}
 	if got != "" {
 		t.Fatalf("expected empty string, got %q", got)
@@ -59,8 +59,8 @@ func TestValid(t *testing.T) {
 		want bool
 	}{
 		{"valid simple", "acme", true},
-		{"valid hyphen and digits", "tenant-123", true},
-		{"valid underscore", "tenant_1", true},
+		{"valid hyphen and digits", "user-123", true},
+		{"valid underscore", "user_1", true},
 		{"valid mixed case", "Acme-Corp", true},
 		{"valid max length 64", strings.Repeat("a", 64), true},
 		{"valid single char", "a", true},
@@ -85,7 +85,7 @@ func TestValid(t *testing.T) {
 	}
 }
 
-func TestWithTenant_InvalidIDRejected(t *testing.T) {
+func TestWithUser_InvalidIDRejected(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -104,10 +104,10 @@ func TestWithTenant_InvalidIDRejected(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := WithTenant(context.Background(), tc.id)
-			got, err := TenantFrom(ctx)
-			if !errors.Is(err, ErrNoTenant) {
-				t.Fatalf("expected ErrNoTenant for invalid id %q, got %v", tc.id, err)
+			ctx := WithUser(context.Background(), tc.id)
+			got, err := UserFrom(ctx)
+			if !errors.Is(err, ErrNoUser) {
+				t.Fatalf("expected ErrNoUser for invalid id %q, got %v", tc.id, err)
 			}
 			if got != "" {
 				t.Fatalf("expected empty string for invalid id %q, got %q", tc.id, got)

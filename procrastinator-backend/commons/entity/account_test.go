@@ -14,7 +14,7 @@ func TestFinancialAccountFieldRoundTrip(t *testing.T) {
 
 	fa := FinancialAccount{
 		ID:                 "acc-1",
-		TenantID:           "tenant-1",
+		OwnerID:            "user-1",
 		Name:               "Checking",
 		Type:               AccountTypeBank,
 		Currency:           "USD",
@@ -27,8 +27,8 @@ func TestFinancialAccountFieldRoundTrip(t *testing.T) {
 	if fa.ID != "acc-1" {
 		t.Fatalf("ID = %q, want %q", fa.ID, "acc-1")
 	}
-	if fa.TenantID != "tenant-1" {
-		t.Fatalf("TenantID = %q, want %q", fa.TenantID, "tenant-1")
+	if fa.OwnerID != "user-1" {
+		t.Fatalf("OwnerID = %q, want %q", fa.OwnerID, "user-1")
 	}
 	if fa.Name != "Checking" {
 		t.Fatalf("Name = %q, want %q", fa.Name, "Checking")
@@ -116,8 +116,8 @@ func TestAccountTypeConstantValues(t *testing.T) {
 func TestAccountsMayShareName(t *testing.T) {
 	t.Parallel()
 
-	a := FinancialAccount{ID: "acc-1", TenantID: "tenant-1", Name: "Checking", Type: AccountTypeBank, Currency: "USD"}
-	b := FinancialAccount{ID: "acc-2", TenantID: "tenant-1", Name: "Checking", Type: AccountTypeWallet, Currency: "USD"}
+	a := FinancialAccount{ID: "acc-1", OwnerID: "user-1", Name: "Checking", Type: AccountTypeBank, Currency: "USD"}
+	b := FinancialAccount{ID: "acc-2", OwnerID: "user-1", Name: "Checking", Type: AccountTypeWallet, Currency: "USD"}
 
 	if a.Name != b.Name {
 		t.Fatalf("entity layer rejected shared name: a.Name = %q, b.Name = %q", a.Name, b.Name)

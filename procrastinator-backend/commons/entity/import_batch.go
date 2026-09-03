@@ -27,10 +27,10 @@ func CanTransition(from, to string) bool {
 		(from == BatchStatePreview && to == BatchStateDiscarded)
 }
 
-// ImportBatch represents one tenant-scoped statement import batch (one row in import_batches table).
+// ImportBatch represents one owner-scoped statement import batch (one row in import_batches table).
 type ImportBatch struct {
 	ID                   string
-	TenantID             string
+	OwnerID              string
 	State                string
 	AccountID            string
 	SourceID             string
@@ -42,4 +42,7 @@ type ImportBatch struct {
 	LineCountError       int
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	// OwnerHouseholdID is the owner_household_id column; nil means NULL
+	// (a personal row has no household owner).
+	OwnerHouseholdID *string
 }

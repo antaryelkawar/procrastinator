@@ -52,10 +52,10 @@ func (s *Store) Migrate(ctx context.Context, migrationsDir string) error {
 	return nil
 }
 
-// TruncateAll removes all rows from documents, sources, and assets.
-// Order respects FK dependencies.
+// TruncateAll removes all rows from all domain tables (documents, sources,
+// assets, finance, household). CASCADE handles FK dependencies.
 func (s *Store) TruncateAll(ctx context.Context) error {
-	const stmt = `TRUNCATE documents, sources, assets CASCADE`
+	const stmt = `TRUNCATE import_lines, import_batches, money_movements, financial_accounts, household_members, households, documents, sources, assets CASCADE`
 	if _, err := s.pool.Exec(ctx, stmt); err != nil {
 		return fmt.Errorf("postgres: truncate all: %w", err)
 	}

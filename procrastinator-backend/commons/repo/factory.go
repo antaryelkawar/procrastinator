@@ -17,7 +17,7 @@ type Factory struct {
 	ImportBatches Repository[entity.ImportBatch]
 	ImportLines   Repository[entity.ImportLine]
 	Households    HouseholdRepository
-	Tenants       TenantRegistry
+	Users         UserRegistry
 	InTx          func(ctx context.Context, fn func(ctx context.Context, repos *Repos) error) error
 }
 
