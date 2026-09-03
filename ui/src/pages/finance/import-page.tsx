@@ -77,9 +77,20 @@ export function ImportPage() {
           />
         </div>
 
-        <Button onClick={handleUpload} disabled={!selectedAccountId || !file || uploadMutation.isPending}>
-          {uploadMutation.isPending ? 'Uploading...' : 'Upload Statement'}
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button onClick={handleUpload} disabled={!selectedAccountId || !file || uploadMutation.isPending}>
+            {uploadMutation.isPending ? 'Uploading...' : 'Upload Statement'}
+          </Button>
+          {(!selectedAccountId || !file) && (
+            <p className="text-sm text-muted-foreground">
+              {!selectedAccountId && !file
+                ? 'Select an account and a file to upload'
+                : !selectedAccountId
+                ? 'Select an account to upload'
+                : 'Select a file to upload'}
+            </p>
+          )}
+        </div>
 
         {uploadMutation.isPending && (
           <Progress value={progress} className="w-full" />

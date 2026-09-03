@@ -18,7 +18,7 @@ import { MovementCreateForm, buildMovementRequest } from './movement-create-form
 import { ActiveUserProvider } from '../../context/active-user';
 import { server } from '../../mocks/server';
 import axe from 'axe-core';
-import type { Account } from '../../lib/api/types';
+import type { Account } from '../../lib/api/schema';
 
 const USER_ID = 'test-user';
 
@@ -65,7 +65,7 @@ function renderForm() {
 }
 
 function useAccountsFixture(list: Account[]): void {
-  server.use(http.get('/api/finance/accounts', () => HttpResponse.json(list)));
+  server.use(http.get('/api/users/:userId/finance/accounts', () => HttpResponse.json(list)));
 }
 
 /** Wait until the account list has loaded (the form swaps Loading for the fields). */
@@ -73,11 +73,11 @@ async function waitForForm(): Promise<void> {
   await screen.findByLabelText('Kind');
 }
 
-/** Register a spy on POST /api/finance/movements; returns the captured bodies. */
+/** Register a spy on POST /api/users/:userId/finance/movements; returns the captured bodies. */
 function trackMovementsPost(): unknown[] {
   const bodies: unknown[] = [];
   server.use(
-    http.post('/api/finance/movements', async ({ request }) => {
+    http.post('/api/users/:userId/finance/movements', async ({ request }) => {
       bodies.push((await request.json()) as unknown);
       return HttpResponse.json(
         {
@@ -417,7 +417,7 @@ describe('MovementCreateForm (rendered)', () => {
   it('keeps entered values when the server rejects the request', async () => {
     useAccountsFixture(accounts);
     server.use(
-      http.post('/api/finance/movements', () =>
+      http.post('/api/users/:userId/finance/movements', () =>
         HttpResponse.json({ error: 'Balance would go negative.' }, { status: 400 }),
       ),
     );

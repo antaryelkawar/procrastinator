@@ -36,7 +36,7 @@ function TestComponent() {
   const { activeUser, setActiveUser, clearActiveUser } = useActiveUser();
   return (
     <div>
-      <div data-testid="active-user">{activeUser || 'null'}</div>
+      <div data-testid="active-user">{activeUser || 'alice'}</div>
       <button onClick={() => setActiveUser('testUser')}>Set User</button>
       <button onClick={() => setActiveUser('invalid-user!')}>Set Invalid User</button>
       <button onClick={() => clearActiveUser()}>Clear User</button>
@@ -61,9 +61,9 @@ describe('ActiveUserProvider', () => {
     localStorageMock.clear();
   });
 
-  it('should provide the default activeUser as null if not in localStorage', () => {
+  it('should provide the default activeUser as alice if not in localStorage', () => {
     const { getByTestId } = renderWithClient(makeQueryClient());
-    expect(getByTestId('active-user')).toHaveTextContent('null');
+    expect(getByTestId('active-user')).toHaveTextContent('alice');
   });
 
   it('should load activeUser from localStorage on initial render', () => {
@@ -82,7 +82,7 @@ describe('ActiveUserProvider', () => {
   it('should not set activeUser if the format is invalid', () => {
     const { getByTestId, getByText } = renderWithClient(makeQueryClient());
     fireEvent.click(getByText('Set Invalid User'));
-    expect(getByTestId('active-user')).toHaveTextContent('null'); // Should remain null or its previous value
+    expect(getByTestId('active-user')).toHaveTextContent('alice'); // Should remain alice or its previous value
     expect(localStorageMock.getItem('activeUser')).toBeNull();
   });
 
@@ -91,7 +91,7 @@ describe('ActiveUserProvider', () => {
     const { getByText, getByTestId } = renderWithClient(makeQueryClient());
     expect(getByTestId('active-user')).toHaveTextContent('userToClear');
     fireEvent.click(getByText('Clear User'));
-    expect(getByTestId('active-user')).toHaveTextContent('null');
+    expect(getByTestId('active-user')).toHaveTextContent('alice');
     expect(localStorageMock.getItem('activeUser')).toBeNull();
   });
 

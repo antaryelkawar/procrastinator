@@ -30,7 +30,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient, UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 import { apiJson, apiVoid } from './client';
-import type { RequestScope } from './client';
 import { uploadDocument, uploadStatement } from './upload';
 import { ApiError } from './errors';
 import { useActiveUser } from '../../context/active-user';
@@ -39,11 +38,11 @@ import type {
   Asset,
   CommitSummary,
   CreateAccountRequest,
-  CreateMovementRequest,
+  CreateMovementInput,
   Document,
   ImportBatch,
   Movement,
-} from './types';
+} from './schema';
 
 // ---------------------------------------------------------------------------
 // Query keys (D5) — every key carries the active user id (D4)
@@ -118,19 +117,13 @@ export function batchKey(userId: string | null, batchId: string): readonly ['bat
 // Request plumbing (the wire shape of the request)
 // ---------------------------------------------------------------------------
 
-function userScope(userId: string): RequestScope {
-  return { kind: 'user', userId };
-}
-
-function financeScope(userId: string): RequestScope {
-  return { kind: 'finance', userId };
-}
-
 /**
  * Resource path for the movement list with ONLY the supplied filters, in wire
  * names (`account_id`, `from`, `to`). The mapping lives here only (D1).
  */
-function movementsResource(filters: MovementFilterInput | undefined): string {
+function movementsResource(
+  filters: MovementFilterInput | undefined
+): 'movements' | `movements?${string}` {
   const params = new URLSearchParams();
   const normalized = normalizeFilters(filters);
   if (normalized.accountId !== undefined) {
@@ -168,7 +161,7 @@ export function useAssets(): UseQueryResult<Asset[], Error> {
   return useQuery({
     queryKey: assetsKey(activeUser),
     enabled: activeUser !== null,
-    queryFn: () => requireUser(activeUser, (user) => apiJson<Asset[]>(userScope(user), 'assets')),
+    queryFn: () => requireUser(activeUser, (user) => apiJson(user, 'assets')),
   });
 }
 
@@ -178,7 +171,7 @@ export function useAsset(assetId: string): UseQueryResult<Asset, Error> {
   return useQuery({
     queryKey: assetKey(activeUser, assetId),
     enabled: activeUser !== null,
-    queryFn: () => requireUser(activeUser, (user) => apiJson<Asset>(userScope(user), `assets/${assetId}`)),
+    queryFn: () => requireUser(activeUser, (user) => apiJson(user, `assets/${assetId}`)),
   });
 }
 
@@ -189,7 +182,7 @@ export function useAssetDocuments(assetId: string): UseQueryResult<Document[], E
     queryKey: assetDocsKey(activeUser, assetId),
     enabled: activeUser !== null,
     queryFn: () =>
-      requireUser(activeUser, (user) => apiJson<Document[]>(userScope(user), `assets/${assetId}/documents`)),
+      requireUser(activeUser, (user) => apiJson(user, `assets/${assetId}/documents`)),
   });
 }
 
@@ -199,7 +192,8 @@ export function useAccounts(): UseQueryResult<Account[], Error> {
   return useQuery({
     queryKey: accountsKey(activeUser),
     enabled: activeUser !== null,
-    queryFn: () => requireUser(activeUser, (user) => apiJson<Account[]>(financeScope(user), 'accounts')),
+    queryFn: () =>
+      requireUser(activeUser, (user) => apiJson(user, 'finance/accounts')),
   });
 }
 
@@ -215,7 +209,7 @@ export function useMovements(filters?: MovementFilterInput): UseQueryResult<Move
     enabled: activeUser !== null,
     placeholderData: keepPreviousData,
     queryFn: () =>
-      requireUser(activeUser, (user) => apiJson<Movement[]>(financeScope(user), movementsResource(filters))),
+      requireUser(activeUser, (user) => apiJson(user, `finance/${movementsResource(filters)}`)),
   });
 }
 
@@ -225,7 +219,7 @@ export function useBatches(): UseQueryResult<ImportBatch[], Error> {
   return useQuery({
     queryKey: batchesKey(activeUser),
     enabled: activeUser !== null,
-    queryFn: () => requireUser(activeUser, (user) => apiJson<ImportBatch[]>(financeScope(user), 'import-batches')),
+    queryFn: () => requireUser(activeUser, (user) => apiJson(user, 'finance/import-batches')),
   });
 }
 
@@ -234,9 +228,9 @@ export function useBatch(batchId: string): UseQueryResult<ImportBatch, Error> {
   const { activeUser } = useActiveUser();
   return useQuery({
     queryKey: batchKey(activeUser, batchId),
-    enabled: activeUser !== null,
+    enabled: activeUser !== null && batchId !== '',
     queryFn: () =>
-      requireUser(activeUser, (user) => apiJson<ImportBatch>(financeScope(user), `import-batches/${batchId}`)),
+      requireUser(activeUser, (user) => apiJson(user, `finance/import-batches/${batchId}`)),
   });
 }
 
@@ -318,7 +312,7 @@ export function useCreateAccount(): UseMutationResult<Account, ApiError, CreateA
   const queryClient = useQueryClient();
   return useMutation<Account, ApiError, CreateAccountRequest>({
     mutationFn: (body: CreateAccountRequest) =>
-      requireUser(activeUser, (user) => apiJson<Account>(financeScope(user), 'accounts', { method: 'POST', body })),
+      requireUser(activeUser, (user) => apiJson(user, 'finance/accounts', { method: 'POST', body })),
     onSuccess: () => {
       if (activeUser === null) {
         return;
@@ -332,12 +326,12 @@ export function useCreateAccount(): UseMutationResult<Account, ApiError, CreateA
  * D5: movement create → `["movements", uid]` + `["accounts", uid]`
  * (a new movement changes account balances).
  */
-export function useCreateMovement(): UseMutationResult<Movement, ApiError, CreateMovementRequest> {
+export function useCreateMovement(): UseMutationResult<Movement, ApiError, CreateMovementInput> {
   const { activeUser } = useActiveUser();
   const queryClient = useQueryClient();
-  return useMutation<Movement, ApiError, CreateMovementRequest>({
-    mutationFn: (body: CreateMovementRequest) =>
-      requireUser(activeUser, (user) => apiJson<Movement>(financeScope(user), 'movements', { method: 'POST', body })),
+  return useMutation<Movement, ApiError, CreateMovementInput>({
+    mutationFn: (body: CreateMovementInput) =>
+      requireUser(activeUser, (user) => apiJson(user, 'finance/movements', { method: 'POST', body })),
     onSuccess: () => {
       if (activeUser === null) {
         return;
@@ -362,7 +356,7 @@ export function usePatchDescription(): UseMutationResult<Movement, ApiError, Pat
   return useMutation<Movement, ApiError, PatchDescriptionVariables>({
     mutationFn: ({ movementId, description }: PatchDescriptionVariables) =>
       requireUser(activeUser, (user) =>
-        apiJson<Movement>(financeScope(user), `movements/${movementId}`, {
+        apiJson(user, `finance/movements/${movementId}`, {
           method: 'PATCH',
           body: { description },
         }),
@@ -389,7 +383,7 @@ export function useDeleteMovement(): UseMutationResult<void, ApiError, MovementI
   const queryClient = useQueryClient();
   return useMutation<void, ApiError, MovementIdVariables>({
     mutationFn: ({ movementId }: MovementIdVariables) =>
-      requireUser(activeUser, (user) => apiVoid(financeScope(user), `movements/${movementId}`, { method: 'DELETE' })),
+      requireUser(activeUser, (user) => apiVoid(user, `finance/movements/${movementId}`, { method: 'DELETE' })),
     onSuccess: () => {
       if (activeUser === null) {
         return;
@@ -414,7 +408,7 @@ export function useLinkMovement(): UseMutationResult<Movement, ApiError, LinkMov
   return useMutation<Movement, ApiError, LinkMovementVariables>({
     mutationFn: ({ movementId, documentId }: LinkMovementVariables) =>
       requireUser(activeUser, (user) =>
-        apiJson<Movement>(financeScope(user), `movements/${movementId}/link`, {
+        apiJson(user, `finance/movements/${movementId}/link`, {
           method: 'POST',
           body: { document_id: documentId },
         }),
@@ -436,7 +430,7 @@ export function useUnlinkMovement(): UseMutationResult<void, ApiError, MovementI
   const queryClient = useQueryClient();
   return useMutation<void, ApiError, MovementIdVariables>({
     mutationFn: ({ movementId }: MovementIdVariables) =>
-      requireUser(activeUser, (user) => apiVoid(financeScope(user), `movements/${movementId}/link`, { method: 'DELETE' })),
+      requireUser(activeUser, (user) => apiVoid(user, `finance/movements/${movementId}/link`, { method: 'DELETE' })),
     onSuccess: () => {
       if (activeUser === null) {
         return;
@@ -461,7 +455,7 @@ export function useCommitBatch(): UseMutationResult<CommitSummary, ApiError, Bat
   return useMutation<CommitSummary, ApiError, BatchIdVariables>({
     mutationFn: ({ batchId }: BatchIdVariables) =>
       requireUser(activeUser, (user) =>
-        apiJson<CommitSummary>(financeScope(user), `import-batches/${batchId}/commit`, { method: 'POST' }),
+        apiJson(user, `finance/import-batches/${batchId}/commit`, { method: 'POST' }),
       ),
     onSuccess: (_summary, variables) => {
       if (activeUser === null) {
@@ -487,7 +481,7 @@ export function useDiscardBatch(): UseMutationResult<ImportBatch, ApiError, Batc
   return useMutation<ImportBatch, ApiError, BatchIdVariables>({
     mutationFn: ({ batchId }: BatchIdVariables) =>
       requireUser(activeUser, (user) =>
-        apiJson<ImportBatch>(financeScope(user), `import-batches/${batchId}/discard`, { method: 'POST' }),
+        apiJson(user, `finance/import-batches/${batchId}/discard`, { method: 'POST' }),
       ),
     onSuccess: (_batch, variables) => {
       if (activeUser === null) {

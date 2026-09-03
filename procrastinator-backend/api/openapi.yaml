@@ -1,0 +1,1478 @@
+openapi: 3.1.0
+info:
+  title: Procrastinator API
+  version: 1.0.0
+  description: |
+    The Procrastinator HTTP API. All operations live under the shared path
+    prefix `/api/users/{userId}` (path tenancy): the user is resolved from the
+    route and every resource is scoped to that user.
+
+    Wire-shape conventions (Design D7):
+    - Property names are `snake_case` (verbatim JSON keys).
+    - Optional / omitempty fields are `nullable: true` and are NOT in `required`.
+    - Money and price values are exact-decimal `string` (never a number).
+    - `link_conflicting` is a required, non-nullable boolean (always present).
+    - `lines` on an import batch is an `array` that may be `null`.
+    - `metadata` on an asset is a non-nullable free-form object (never null).
+    - Dates are `format: date`; timestamps are `format: date-time`.
+    - Non-2xx responses use the `error` envelope.
+servers:
+  - url: /
+    description: Base path (path tenancy is in the route prefix)
+paths:
+  /api/users/{userId}/documents:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+    post:
+      operationId: uploadDocument
+      summary: Upload a document
+      description: |
+        Uploads a document as `multipart/form-data`, runs the ingest pipeline,
+        and returns the created asset. An optional `owner_household_id` scopes
+        the document to a household (the requester must be a member); when
+        absent the document is personal.
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                owner_household_id:
+                  type: string
+                  nullable: true
+              required:
+                - file
+      responses:
+        "201":
+          description: Created asset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/asset'
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "413":
+          description: Upload exceeds size limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "415":
+          description: Unsupported file type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "422":
+          description: No usable identity in document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "502":
+          description: Extraction failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/assets:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+    get:
+      operationId: listAssets
+      summary: List all assets
+      description: Returns all assets visible to the user, ordered by created_at then id.
+      responses:
+        "200":
+          description: The user's assets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/asset'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/assets/{assetId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getAsset
+      summary: Get a single asset
+      description: Returns a single asset by id. Unknown or another user's assets fail with 404.
+      responses:
+        "200":
+          description: The asset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/asset'
+        "404":
+          description: Asset not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/assets/{assetId}/documents:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listAssetDocuments
+      summary: List documents for an asset
+      description: |
+        Returns all documents attached to an asset. The asset is looked up first
+        so unknown or another user's assets fail with 404 instead of an empty list.
+      responses:
+        "200":
+          description: The asset's documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/document'
+        "404":
+          description: Asset not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/finance/accounts:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+    post:
+      operationId: createAccount
+      summary: Create a finance account
+      description: Creates a finance account. A freshly created account has a derived balance of "0".
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/create_account_request'
+      responses:
+        "201":
+          description: The created account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/account'
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Conflicting state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+    get:
+      operationId: listAccounts
+      summary: List finance accounts
+      description: Returns all of the user's accounts, each with its derived balance.
+      responses:
+        "200":
+          description: The user's accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/account'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/finance/accounts/{id}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getAccount
+      summary: Get a finance account
+      description: Returns an account by id together with its derived balance. Unknown or another user's ids yield 404.
+      responses:
+        "200":
+          description: The account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/account'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/finance/movements:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+    post:
+      operationId: createMovement
+      summary: Create a money movement
+      description: Creates a manual money movement. `occurred_on` is a `YYYY-MM-DD` date.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/create_movement_request'
+      responses:
+        "201":
+          description: The created movement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/movement'
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Conflicting state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+    get:
+      operationId: listMovements
+      summary: List money movements
+      description: |
+        Returns the user's movements, filtered by an optional `account_id`
+        (source or destination) and inclusive `from`/`to` occurred-on date bounds.
+      parameters:
+        - name: account_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: The user's movements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/movement'
+        "400":
+          description: Invalid filter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/finance/movements/{id}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getMovement
+      summary: Get a money movement
+      description: Returns a movement by id. Unknown or another user's ids yield 404.
+      responses:
+        "200":
+          description: The movement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/movement'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Movement not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+    patch:
+      operationId: patchMovement
+      summary: Patch a money movement (description only)
+      description: |
+        Replaces a movement's description. Only the description is editable; a
+        request carrying any non-blank core field is rejected with 400 before any
+        state change, as are blank descriptions.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/patch_movement_request'
+      responses:
+        "200":
+          description: The updated movement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/movement'
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Conflicting state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+    delete:
+      operationId: deleteMovement
+      summary: Delete a money movement
+      description: Deletes a manual movement. Imported movements are protected and yield 409.
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Movement not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Movement cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/finance/movements/{id}/link:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: linkMovement
+      summary: Link a movement to a document
+      description: |
+        Links a movement to a document, recording the link creator and any
+        price/currency disagreement (flagged via `link_conflicting`, never
+        overwritten). Re-linking the same pair is an idempotent no-op; conflicting
+        pairs yield 409.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/link_movement_request'
+      responses:
+        "200":
+          description: The linked movement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/movement'
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Movement not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Conflicting link
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+    delete:
+      operationId: unlinkMovement
+      summary: Unlink a movement's document link
+      description: Clears a movement's document link. Unlinking a movement that has no link is a no-op.
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Movement not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Conflicting state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/finance/import-batches:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+    post:
+      operationId: createImportBatch
+      summary: Upload a statement for import
+      description: |
+        Uploads a statement as `multipart/form-data` with a required `account_id`
+        and runs the statement import pipeline. The 201 response carries the
+        created preview batch with its parsed lines and source metadata.
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                account_id:
+                  type: string
+              required:
+                - file
+                - account_id
+      responses:
+        "201":
+          description: The created import batch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/import_batch'
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Conflicting batch state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "413":
+          description: Upload exceeds size limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "415":
+          description: Unsupported statement type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "422":
+          description: Statement has no parseable lines or exceeds the line limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+    get:
+      operationId: listImportBatches
+      summary: List import batches
+      description: Returns all of the user's import batches (without their lines).
+      responses:
+        "200":
+          description: The user's import batches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/import_batch'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/finance/import-batches/{id}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getImportBatch
+      summary: Get an import batch
+      description: Returns one import batch with all of its parsed lines and source metadata.
+      responses:
+        "200":
+          description: The import batch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/import_batch'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Import batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/finance/import-batches/{id}/commit:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: commitImportBatch
+      summary: Commit an import batch
+      description: Commits a preview batch, creating a ledger movement for every valid line.
+      responses:
+        "200":
+          description: The commit summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/commit_summary'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Import batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Conflicting batch state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/finance/import-batches/{id}/discard:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: discardImportBatch
+      summary: Discard an import batch
+      description: Transitions a preview batch to the discarded (terminal) state.
+      responses:
+        "200":
+          description: The discarded batch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/import_batch'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Import batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Conflicting batch state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/households:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+    post:
+      operationId: createHousehold
+      summary: Create a household
+      description: Creates a household; the creator is auto-added as the first member.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/create_household_request'
+      responses:
+        "201":
+          description: The created household
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/household'
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+    get:
+      operationId: listHouseholds
+      summary: List households
+      description: Returns all households the user owns or is a member of, each with its members.
+      responses:
+        "200":
+          description: The user's households
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/household'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/households/{householdId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: householdId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getHousehold
+      summary: Get a household
+      description: Returns a single household with its members. A household the requester is not a member of yields 404.
+      responses:
+        "200":
+          description: The household
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/household'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Household not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/households/{householdId}/members:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: householdId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: addHouseholdMember
+      summary: Add a member to a household
+      description: Adds a user to a household. The requester must already be a member of the household.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/add_member_request'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "401":
+          description: Missing or invalid user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "403":
+          description: Not a member of the household
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: Household not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+components:
+  schemas:
+    asset:
+      type: object
+      description: A user asset derived from an ingested document.
+      properties:
+        id:
+          type: string
+        brand:
+          type: string
+          nullable: true
+        model:
+          type: string
+          nullable: true
+        serial_number:
+          type: string
+          nullable: true
+        purchase_date:
+          type: string
+          format: date-time
+          nullable: true
+        warranty_end:
+          type: string
+          format: date-time
+          nullable: true
+        price:
+          type: string
+          pattern: '^[0-9]+(\.[0-9]+)?$'
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+        doc_type:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        owner_household_id:
+          type: string
+          nullable: true
+      required:
+        - id
+        - doc_type
+        - metadata
+        - created_at
+        - updated_at
+    document:
+      type: object
+      description: A document attached to an asset, with its source metadata.
+      properties:
+        id:
+          type: string
+        doc_type:
+          type: string
+        source_filename:
+          type: string
+        source_uploaded_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        owner_household_id:
+          type: string
+          nullable: true
+      required:
+        - id
+        - doc_type
+        - source_filename
+        - source_uploaded_at
+        - created_at
+    account:
+      type: object
+      description: A financial account with its derived balance.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        currency:
+          type: string
+        institution:
+          type: string
+          nullable: true
+        external_descriptor:
+          type: string
+          nullable: true
+        balance:
+          type: string
+          pattern: '^[0-9]+(\.[0-9]+)?$'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - type
+        - currency
+        - balance
+        - created_at
+        - updated_at
+    movement:
+      type: object
+      description: A money movement in the ledger.
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        amount:
+          type: string
+          pattern: '^[0-9]+(\.[0-9]+)?$'
+        currency:
+          type: string
+        occurred_on:
+          type: string
+          format: date
+        recorded_at:
+          type: string
+          format: date-time
+        description:
+          type: string
+        origin:
+          type: string
+        source_account_id:
+          type: string
+          nullable: true
+        destination_account_id:
+          type: string
+          nullable: true
+        import_batch_id:
+          type: string
+          nullable: true
+        import_line:
+          type: integer
+          nullable: true
+        external_reference:
+          type: string
+          nullable: true
+        linked_document_id:
+          type: string
+          nullable: true
+        link_creator:
+          type: string
+          nullable: true
+        link_conflicting:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - kind
+        - amount
+        - currency
+        - occurred_on
+        - recorded_at
+        - description
+        - origin
+        - link_conflicting
+        - created_at
+        - updated_at
+    import_source:
+      type: object
+      description: Metadata about an uploaded statement's source.
+      properties:
+        id:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+        size:
+          type: integer
+          format: int64
+        sha256:
+          type: string
+        uploaded_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - filename
+        - content_type
+        - size
+        - sha256
+        - uploaded_at
+    import_line:
+      type: object
+      description: One parsed statement import line.
+      properties:
+        line_ref:
+          type: integer
+        raw_line:
+          type: string
+        occurred_on:
+          type: string
+          format: date
+          nullable: true
+        amount:
+          type: string
+          pattern: '^[0-9]+(\.[0-9]+)?$'
+          nullable: true
+        direction:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        external_reference:
+          type: string
+          nullable: true
+        status:
+          type: string
+        error_reason:
+          type: string
+          nullable: true
+      required:
+        - line_ref
+        - raw_line
+        - status
+    import_batch:
+      type: object
+      description: A statement import batch with its parsed lines.
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+        account_id:
+          type: string
+        source:
+          $ref: '#/components/schemas/import_source'
+        filename:
+          type: string
+        format:
+          type: string
+        line_count_valid:
+          type: integer
+        line_count_duplicate:
+          type: integer
+        line_count_possible_dup:
+          type: integer
+        line_count_error:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/import_line'
+      required:
+        - id
+        - state
+        - account_id
+        - source
+        - filename
+        - format
+        - line_count_valid
+        - line_count_duplicate
+        - line_count_possible_dup
+        - line_count_error
+        - created_at
+        - updated_at
+        - lines
+    commit_summary:
+      type: object
+      description: The result of committing an import batch.
+      properties:
+        created:
+          type: integer
+        skipped:
+          type: integer
+      required:
+        - created
+        - skipped
+    household_member:
+      type: object
+      description: A household member.
+      properties:
+        user_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - user_id
+        - created_at
+    household:
+      type: object
+      description: A household with its members.
+      properties:
+        id:
+          type: string
+        display_name:
+          type: string
+        owner_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/household_member'
+      required:
+        - id
+        - display_name
+        - owner_id
+        - created_at
+        - members
+    error:
+      type: object
+      description: The standard error envelope for non-2xx responses.
+      properties:
+        error:
+          type: string
+      required:
+        - error
+    create_account_request:
+      type: object
+      description: Request body to create a finance account.
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        currency:
+          type: string
+        institution:
+          type: string
+          nullable: true
+        external_descriptor:
+          type: string
+          nullable: true
+      required:
+        - name
+        - type
+        - currency
+    create_movement_request:
+      type: object
+      description: Request body to create a money movement.
+      properties:
+        kind:
+          type: string
+        amount:
+          type: string
+          pattern: '^[0-9]+(\.[0-9]+)?$'
+        currency:
+          type: string
+        occurred_on:
+          type: string
+          format: date
+        description:
+          type: string
+        source_account_id:
+          type: string
+        destination_account_id:
+          type: string
+      required:
+        - kind
+        - amount
+        - currency
+        - occurred_on
+        - description
+        - source_account_id
+        - destination_account_id
+    patch_movement_request:
+      type: object
+      description: |
+        Request body to patch a money movement. Only `description` is editable;
+        the remaining core fields must be blank, otherwise the request is
+        rejected with 400.
+      properties:
+        description:
+          type: string
+        amount:
+          type: string
+        currency:
+          type: string
+        occurred_on:
+          type: string
+        kind:
+          type: string
+        source_account_id:
+          type: string
+        destination_account_id:
+          type: string
+      required:
+        - description
+        - amount
+        - currency
+        - occurred_on
+        - kind
+        - source_account_id
+        - destination_account_id
+    link_movement_request:
+      type: object
+      description: Request body to link a movement to a document.
+      properties:
+        document_id:
+          type: string
+      required:
+        - document_id
+    create_household_request:
+      type: object
+      description: Request body to create a household.
+      properties:
+        display_name:
+          type: string
+      required:
+        - display_name
+    add_member_request:
+      type: object
+      description: Request body to add a member to a household.
+      properties:
+        user_id:
+          type: string
+      required:
+        - user_id

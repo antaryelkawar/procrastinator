@@ -26,7 +26,8 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useAccounts, useCreateMovement } from '../../lib/api/hooks';
-import type { Account, CreateMovementRequest, MovementKind } from '../../lib/api/types';
+import type { Account, CreateMovementInput } from '../../lib/api/schema';
+import type { MovementKind } from '../../lib/format/money';
 import { isValidAmount } from '../../lib/format/money';
 import { todayLocalISO } from '../../lib/format/date';
 import { Button } from '@/components/ui/button';
@@ -48,7 +49,7 @@ export interface MovementFormValues {
 
 /** Either a ready-to-send request (all client rules passed) or the blocking reason. */
 export type MovementFormResult =
-  | { readonly ok: true; readonly request: CreateMovementRequest }
+  | { readonly ok: true; readonly request: CreateMovementInput }
   | { readonly ok: false; readonly error: string };
 
 /**

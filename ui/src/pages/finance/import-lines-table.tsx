@@ -1,4 +1,4 @@
-import { ImportBatch } from '../../lib/api/types';
+import { ImportBatch } from '../../lib/api/schema';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Badge } from '../../components/ui/badge';
 

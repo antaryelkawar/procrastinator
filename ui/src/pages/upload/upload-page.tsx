@@ -1,9 +1,10 @@
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card } from '../../components/ui/card';
 import { uploadDocument } from '../../lib/api/upload';
 import { ApiError } from '../../lib/api/errors';
+import { useActiveUser } from '../../context/active-user';
 
 type UploadState = 'queued' | 'uploading' | 'success' | 'error';
 
@@ -13,6 +14,7 @@ interface FileUpload {
   state: UploadState;
   progress: number;
   error?: string;
+  errorDetail?: string;
   /** `true` when the failure is retryable (502 or network) — gates the Retry button. */
   retryable?: boolean;
   assetId?: string;
@@ -25,6 +27,13 @@ export const UploadPage: React.FC = () => {
   const [files, setFiles] = useState<FileUpload[]>([]);
   const queryClient = useQueryClient();
   const activeUploads = useRef(0);
+  const { activeUser } = useActiveUser();
+  // Keep a ref so the memoised processQueue always reads the latest user
+  // without needing activeUser in its dependency array.
+  const activeUserRef = useRef(activeUser);
+  useEffect(() => {
+    activeUserRef.current = activeUser;
+  }, [activeUser]);
 
   const processQueue = useCallback(() => {
     if (activeUploads.current >= MAX_CONCURRENCY) return;
@@ -48,8 +57,16 @@ export const UploadPage: React.FC = () => {
   }, []);
 
   const processFileUpload = async (fileUpload: FileUpload) => {
+    const user = activeUserRef.current;
+    if (!user) {
+      activeUploads.current--;
+      setFiles((prev) => prev.map(f => f.id === fileUpload.id ? { ...f, state: 'error', error: 'No active user selected' } : f));
+      processQueue();
+      return;
+    }
+
     try {
-      const asset = await uploadDocument('me', fileUpload.file, ({ loaded, total }) => {
+      const asset = await uploadDocument(user, fileUpload.file, ({ loaded, total }) => {
         if (total > 0) {
           setFiles((prev) => prev.map(f => f.id === fileUpload.id ? { ...f, progress: Math.round((loaded / total) * 100) } : f));
         }
@@ -63,10 +80,11 @@ export const UploadPage: React.FC = () => {
       activeUploads.current--;
       
       const message = error instanceof ApiError ? error.message : 'Upload failed';
+      const detail = error instanceof ApiError ? error.detail : '';
       // 502 and network failures (ApiError status 0) are the retryable cases.
       const retryable = error instanceof ApiError && (error.status === 502 || error.isNetwork());
 
-      setFiles((prev) => prev.map(f => f.id === fileUpload.id ? { ...f, state: 'error', error: message, retryable } : f));
+      setFiles((prev) => prev.map(f => f.id === fileUpload.id ? { ...f, state: 'error', error: message, errorDetail: detail, retryable } : f));
       processQueue();
     }
   };
@@ -106,12 +124,13 @@ export const UploadPage: React.FC = () => {
             <span>{file.file.name}</span>
             <span>{file.state} {file.progress}%</span>
             {file.error && (
-              <>
-                <span className="text-red-500">{file.error}</span>
+              <div className="text-red-500">
+                <div>{file.error}</div>
+                {file.errorDetail && <div className="text-sm">Details: {file.errorDetail}</div>}
                 {file.retryable && (
                   <button onClick={() => retryUpload(file.id)} className="ml-2 text-sm underline">Retry</button>
                 )}
-              </>
+              </div>
             )}
             {file.assetId && <span>Asset ID: {file.assetId}</span>}
           </div>

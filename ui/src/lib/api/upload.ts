@@ -1,15 +1,13 @@
-import { userPath, financePath, TENANT_HEADER } from './client';
 import { ApiError, errorCopy, errorDetailFromBody, NETWORK_STATUS } from './errors';
+import { API_BASE, USER_PATH_PREFIX } from './config';
+import type { Asset, ImportBatch } from './schema';
 
-/**
- * Perform a multipart upload using XHR to support progress tracking.
- */
-async function performUpload(
+async function performUpload<T>(
   url: string,
   headers: Record<string, string>,
   formData: FormData,
   onProgress: (event: { loaded: number; total: number }) => void
-): Promise<any> {
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
@@ -25,9 +23,9 @@ async function performUpload(
     xhr.onload = async () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
-          resolve(JSON.parse(xhr.responseText));
+          resolve(JSON.parse(xhr.responseText) as T);
         } catch {
-          resolve(xhr.responseText);
+          resolve(xhr.responseText as unknown as T);
         }
       } else {
         let detail = '';
@@ -39,11 +37,13 @@ async function performUpload(
         } catch {
           detail = xhr.responseText;
         }
+        console.error(`Upload failed: status=${xhr.status}, response=${xhr.responseText}`);
         reject(new ApiError(xhr.status, errorCopy(xhr.status), detail));
       }
     };
 
     xhr.onerror = () => {
+      console.error('Upload network error');
       reject(new ApiError(NETWORK_STATUS, errorCopy(NETWORK_STATUS)));
     };
 
@@ -51,15 +51,21 @@ async function performUpload(
   });
 }
 
+function buildUrl(userId: string, resource: string): string {
+  const base = `${API_BASE}/${USER_PATH_PREFIX.replace(/^\//, '')}/${encodeURIComponent(userId)}`;
+  const trimmed = resource.replace(/^\/+/, '');
+  return trimmed ? `${base}/${trimmed}` : base;
+}
+
 export async function uploadDocument(
   userId: string,
   file: File,
   onProgress: (event: { loaded: number; total: number }) => void
-): Promise<any> {
-  const url = userPath(userId, 'documents');
+): Promise<Asset> {
+  const url = buildUrl(userId, 'documents');
   const formData = new FormData();
   formData.append('file', file);
-  return performUpload(url, {}, formData, onProgress);
+  return performUpload<Asset>(url, {}, formData, onProgress);
 }
 
 export async function uploadStatement(
@@ -67,11 +73,10 @@ export async function uploadStatement(
   accountId: string,
   file: File,
   onProgress: (event: { loaded: number; total: number }) => void
-): Promise<any> {
-  const url = financePath('import-batches');
-  const headers = { [TENANT_HEADER]: userId };
+): Promise<ImportBatch> {
+  const url = buildUrl(userId, 'finance/import-batches');
   const formData = new FormData();
   formData.append('file', file);
   formData.append('account_id', accountId);
-  return performUpload(url, headers, formData, onProgress);
+  return performUpload<ImportBatch>(url, {}, formData, onProgress);
 }

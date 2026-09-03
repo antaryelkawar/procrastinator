@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AssetDetailPage } from './asset-detail-page';
 import * as hooks from '@/lib/api/hooks';
-import { Asset, Document } from '@/lib/api/types';
+import { Asset, Document } from '@/lib/api/schema';
 
 vi.mock('@/lib/api/hooks', async () => {
   const actual = await vi.importActual('@/lib/api/hooks');
@@ -28,7 +28,6 @@ const mockAsset: Asset = {
   metadata: {},
   created_at: '2023-01-01T00:00:00Z',
   updated_at: '2023-01-01T00:00:00Z',
-  scope_type: 'personal',
 };
 
 const mockDocs: Document[] = [
@@ -38,7 +37,6 @@ const mockDocs: Document[] = [
     source_filename: 'receipt.pdf',
     source_uploaded_at: '2023-01-02T10:00:00Z',
     created_at: '2023-01-02T10:00:00Z',
-    scope_type: 'personal',
   },
 ];
 

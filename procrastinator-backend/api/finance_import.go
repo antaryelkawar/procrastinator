@@ -6,25 +6,19 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-
+	"procrastinator-backend/api/gen"
 	"procrastinator-backend/api/httpx"
 	"procrastinator-backend/commons/repo"
 	"procrastinator-backend/commons/user"
 	"procrastinator-backend/core/statement"
 )
 
-// createImportBatch processes POST /api/finance/import-batches: it enforces
-// the statement size limit, reads the multipart "file" part and the
+// CreateImportBatch processes POST /api/users/{userId}/finance/import-batches:
+// it enforces the statement size limit, reads the multipart "file" part and the
 // "account_id" field, and runs the statement import pipeline via the
 // statement service. A 201 response carries the created batch with its
 // parsed lines and source metadata.
-func (s *Server) createImportBatch(w http.ResponseWriter, r *http.Request) {
-	tid, ok := userFromCtx(w, r.Context())
-	if !ok {
-		return
-	}
-
+func (s *Server) CreateImportBatch(w http.ResponseWriter, r *http.Request, userId string) {
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxStatementBytes)
 	if err := r.ParseMultipartForm(0); err != nil {
 		if isMaxBytesErr(err) {
@@ -66,91 +60,69 @@ func (s *Server) createImportBatch(w http.ResponseWriter, r *http.Request) {
 
 	// Defensive: Upload persisted the batch together with this source, so a
 	// lookup failure here is an invariant violation.
-	src, err := s.factory.Sources.Get(r.Context(), batch.SourceID, repo.Owner(tid))
+	src, err := s.factory.Sources.Get(r.Context(), batch.SourceID, repo.Owner(userId))
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, toImportBatchJSON(batch, lines, src))
+	httpx.WriteJSON(w, http.StatusCreated, toImportBatch(batch, lines, src))
 }
 
-// listImportBatches returns all of the requesting user's import batches
+// ListImportBatches returns all of the requesting user's import batches
 // (without their lines), joined with their source metadata. The result is
 // never nil.
-func (s *Server) listImportBatches(w http.ResponseWriter, r *http.Request) {
-	tid, ok := userFromCtx(w, r.Context())
-	if !ok {
-		return
-	}
-
+func (s *Server) ListImportBatches(w http.ResponseWriter, r *http.Request, userId string) {
 	batches, err := s.statement.ListBatches(r.Context())
 	if err != nil {
 		writeImportError(w, err)
 		return
 	}
 
-	out := make([]importBatchJSON, 0, len(batches))
+	out := make([]gen.ImportBatch, 0, len(batches))
 	for _, b := range batches {
-		src, err := s.factory.Sources.Get(r.Context(), b.SourceID, repo.Owner(tid))
+		src, err := s.factory.Sources.Get(r.Context(), b.SourceID, repo.Owner(userId))
 		if err != nil {
 			writeImportError(w, err)
 			return
 		}
-		out = append(out, toImportBatchJSON(b, nil, src))
+		out = append(out, toImportBatch(b, nil, src))
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-// getImportBatch returns one import batch with all of its parsed lines and
+// GetImportBatch returns one import batch with all of its parsed lines and
 // source metadata. Unknown or another user's IDs yield 404.
-func (s *Server) getImportBatch(w http.ResponseWriter, r *http.Request) {
-	tid, ok := userFromCtx(w, r.Context())
-	if !ok {
-		return
-	}
-	id := chi.URLParam(r, "id")
-
+func (s *Server) GetImportBatch(w http.ResponseWriter, r *http.Request, userId string, id string) {
 	batch, lines, err := s.statement.GetBatch(r.Context(), id)
 	if err != nil {
 		writeImportError(w, err)
 		return
 	}
 
-	src, err := s.factory.Sources.Get(r.Context(), batch.SourceID, repo.Owner(tid))
+	src, err := s.factory.Sources.Get(r.Context(), batch.SourceID, repo.Owner(userId))
 	if err != nil {
 		writeImportError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toImportBatchJSON(batch, lines, src))
+	httpx.WriteJSON(w, http.StatusOK, toImportBatch(batch, lines, src))
 }
 
-// commitImportBatch processes POST /api/finance/import-batches/{id}/commit:
+// CommitImportBatch processes POST /api/users/{userId}/finance/import-batches/{id}/commit:
 // it commits a preview batch, creating a ledger movement for every valid
 // line, and returns the commit summary.
-func (s *Server) commitImportBatch(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFromCtx(w, r.Context()); !ok {
-		return
-	}
-	id := chi.URLParam(r, "id")
-
+func (s *Server) CommitImportBatch(w http.ResponseWriter, r *http.Request, userId string, id string) {
 	summary, err := s.statement.Commit(r.Context(), id)
 	if err != nil {
 		writeImportError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, commitSummaryJSON{Created: summary.Created, Skipped: summary.Skipped})
+	httpx.WriteJSON(w, http.StatusOK, gen.CommitSummary{Created: summary.Created, Skipped: summary.Skipped})
 }
 
-// discardImportBatch processes POST /api/finance/import-batches/{id}/discard:
+// DiscardImportBatch processes POST /api/users/{userId}/finance/import-batches/{id}/discard:
 // it transitions a preview batch to the discarded (terminal) state and
 // returns the discarded batch with its lines and source metadata.
-func (s *Server) discardImportBatch(w http.ResponseWriter, r *http.Request) {
-	tid, ok := userFromCtx(w, r.Context())
-	if !ok {
-		return
-	}
-	id := chi.URLParam(r, "id")
-
+func (s *Server) DiscardImportBatch(w http.ResponseWriter, r *http.Request, userId string, id string) {
 	if _, err := s.statement.Discard(r.Context(), id); err != nil {
 		writeImportError(w, err)
 		return
@@ -163,12 +135,12 @@ func (s *Server) discardImportBatch(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	src, err := s.factory.Sources.Get(r.Context(), batch.SourceID, repo.Owner(tid))
+	src, err := s.factory.Sources.Get(r.Context(), batch.SourceID, repo.Owner(userId))
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toImportBatchJSON(batch, lines, src))
+	httpx.WriteJSON(w, http.StatusOK, toImportBatch(batch, lines, src))
 }
 
 // writeImportError maps core/statement and persistence sentinels onto the

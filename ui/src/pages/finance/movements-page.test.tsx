@@ -92,7 +92,7 @@ describe('MovementsPage', () => {
 
     // account filter — native select (jsdom-friendly; the Radix Select
     // portal does not position under jsdom)
-    fireEvent.change(screen.getByLabelText(/account/i), { target: { value: 'acc1' } });
+    fireEvent.change(screen.getByTestId('movements-page').querySelector('#movements-account-select') as HTMLSelectElement, { target: { value: 'acc1' } });
     await waitFor(() => {
       expect(hooks.useMovements).toHaveBeenCalledWith(
         expect.objectContaining({ accountId: 'acc1' }),

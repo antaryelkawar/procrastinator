@@ -25,11 +25,8 @@ import { AssetListPage } from './pages/assets/asset-list-page';
 import { AssetDetailPage } from './pages/assets/asset-detail-page';
 import { AccountsPage } from './pages/finance/accounts-page';
 import { MovementsPage } from './pages/finance/movements-page';
-import {
-  BatchDetailPlaceholder,
-  ImportHistoryPlaceholder,
-  ImportPlaceholder,
-} from '@/pages/placeholders';
+import { ImportPage } from './pages/finance/import-page';
+import { ImportHistoryPage } from './pages/finance/import-history-page';
 import { UploadPage } from './pages/upload/upload-page';
 
 function NotFoundPage() {
@@ -59,9 +56,9 @@ export function AppRoutes() {
         <Route path="/assets/:assetId" element={<AssetDetailPage />} />
         <Route path="/finance/accounts" element={<AccountsPage />} />
         <Route path="/finance/movements" element={<MovementsPage />} />
-        <Route path="/finance/import" element={<ImportPlaceholder />} />
-        <Route path="/finance/import/history" element={<ImportHistoryPlaceholder />} />
-        <Route path="/finance/import/:batchId" element={<BatchDetailPlaceholder />} />
+        <Route path="/finance/import" element={<ImportPage />} />
+        <Route path="/finance/import/history" element={<ImportHistoryPage />} />
+        <Route path="/finance/import/:batchId" element={<ImportHistoryPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

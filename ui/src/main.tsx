@@ -7,15 +7,11 @@ import { ActiveUserProvider } from './context/active-user';
 import { AppRoutes } from './router';
 
 async function enableMocking() {
-  if (!import.meta.env.DEV) {
+  if (import.meta.env.VITE_USE_MSW !== 'true') {
     return;
   }
-  try {
-    const { worker } = await import('./mocks/browser');
-    await worker.start({ onUnhandledRequest: 'bypass' });
-  } catch (err) {
-    console.warn('[MSW] Mocking disabled — falling through to real API.', err);
-  }
+  const { worker } = await import('./mocks/browser');
+  await worker.start({ onUnhandledRequest: 'bypass' });
 }
 
 const queryClient = new QueryClient();

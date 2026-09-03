@@ -1,22 +1,28 @@
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { ImportHistoryPage } from './import-history-page';
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import * as hooks from '../../lib/api/hooks';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('../../lib/api/hooks', () => ({
   useBatches: vi.fn(),
   useBatch: vi.fn(),
   useCommitBatch: vi.fn(),
   useDiscardBatch: vi.fn(),
+  batchKey: 'batch',
 }));
 
 describe('ImportHistoryPage', () => {
+  const queryClient = new QueryClient();
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(hooks.useBatch).mockReturnValue({
       data: undefined,
       isLoading: false,
       isError: false,
+      refetch: vi.fn(),
     } as any);
     vi.mocked(hooks.useCommitBatch).mockReturnValue({
       mutate: vi.fn(),
@@ -28,6 +34,14 @@ describe('ImportHistoryPage', () => {
     } as any);
   });
 
+  function renderWithRouter(ui: React.ReactElement) {
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
   test('renders empty state when no batches', () => {
     vi.mocked(hooks.useBatches).mockReturnValue({
       data: [],
@@ -35,7 +49,8 @@ describe('ImportHistoryPage', () => {
       isError: false,
     } as any);
 
-    render(<ImportHistoryPage />);
+    renderWithRouter(<ImportHistoryPage />);
+    expect(screen.getByText('Import History')).toBeDefined();
     expect(screen.getByText(/no import history/i)).toBeDefined();
   });
 
@@ -56,7 +71,8 @@ describe('ImportHistoryPage', () => {
       isError: false,
     } as any);
 
-    render(<ImportHistoryPage />);
+    renderWithRouter(<ImportHistoryPage />);
+    expect(screen.getByText('Import History')).toBeDefined();
     expect(screen.getByText('test.csv')).toBeDefined();
     expect(screen.getByText('preview')).toBeDefined();
   });

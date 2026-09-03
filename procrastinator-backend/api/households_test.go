@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"procrastinator-backend/api/gen"
 )
 
 // TestCreateHousehold exercises POST /api/users/{userId}/households.
@@ -21,18 +23,18 @@ func TestCreateHousehold(t *testing.T) {
 			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		var hh householdJSON
+		var hh gen.Household
 		if err := json.Unmarshal(rec.Body.Bytes(), &hh); err != nil {
 			t.Fatalf("unmarshal household: %v (body: %s)", err, rec.Body.String())
 		}
-		if hh.ID == "" {
+		if hh.Id == "" {
 			t.Error("id is empty, want non-empty")
 		}
 		if hh.DisplayName != "My Family" {
 			t.Errorf("display_name = %q, want %q", hh.DisplayName, "My Family")
 		}
-		if hh.OwnerID != "test-user" {
-			t.Errorf("owner_id = %q, want %q", hh.OwnerID, "test-user")
+		if hh.OwnerId != "test-user" {
+			t.Errorf("owner_id = %q, want %q", hh.OwnerId, "test-user")
 		}
 		if hh.CreatedAt.IsZero() {
 			t.Error("created_at is zero, want non-empty")
@@ -40,8 +42,8 @@ func TestCreateHousehold(t *testing.T) {
 		if len(hh.Members) != 1 {
 			t.Fatalf("members count = %d, want 1", len(hh.Members))
 		}
-		if hh.Members[0].UserID != "test-user" {
-			t.Errorf("members[0].user_id = %q, want %q", hh.Members[0].UserID, "test-user")
+		if hh.Members[0].UserId != "test-user" {
+			t.Errorf("members[0].user_id = %q, want %q", hh.Members[0].UserId, "test-user")
 		}
 		if hh.Members[0].CreatedAt.IsZero() {
 			t.Error("members[0].created_at is zero, want non-empty")
@@ -95,14 +97,14 @@ func TestAddHouseholdMember(t *testing.T) {
 		if createRec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", createRec.Code, createRec.Body.String())
 		}
-		var created householdJSON
+		var created gen.Household
 		if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 			t.Fatalf("unmarshal created: %v (body: %s)", err, createRec.Body.String())
 		}
 
 		// Add a member.
 		addBody := bytes.NewBufferString(`{"user_id":"test-user-b"}`)
-		rec := do(t, e.handler, http.MethodPost, "/api/users/test-user/households/"+created.ID+"/members", "", addBody, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/users/test-user/households/"+created.Id+"/members", "", addBody, "application/json")
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("status = %d, want 204 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -120,20 +122,20 @@ func TestAddHouseholdMember(t *testing.T) {
 		if createRec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", createRec.Code, createRec.Body.String())
 		}
-		var created householdJSON
+		var created gen.Household
 		if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 			t.Fatalf("unmarshal created: %v (body: %s)", err, createRec.Body.String())
 		}
 
 		// Add a member twice (fresh buffers: the first call consumes its body).
 		addBody := bytes.NewBufferString(`{"user_id":"test-user-b"}`)
-		rec1 := do(t, e.handler, http.MethodPost, "/api/users/test-user/households/"+created.ID+"/members", "", addBody, "application/json")
+		rec1 := do(t, e.handler, http.MethodPost, "/api/users/test-user/households/"+created.Id+"/members", "", addBody, "application/json")
 		if rec1.Code != http.StatusNoContent {
 			t.Fatalf("first add status = %d, want 204 (body: %s)", rec1.Code, rec1.Body.String())
 		}
 
 		addBody2 := bytes.NewBufferString(`{"user_id":"test-user-b"}`)
-		rec2 := do(t, e.handler, http.MethodPost, "/api/users/test-user/households/"+created.ID+"/members", "", addBody2, "application/json")
+		rec2 := do(t, e.handler, http.MethodPost, "/api/users/test-user/households/"+created.Id+"/members", "", addBody2, "application/json")
 		if rec2.Code != http.StatusNoContent {
 			t.Fatalf("second add status = %d, want 204 (body: %s)", rec2.Code, rec2.Body.String())
 		}
@@ -148,14 +150,14 @@ func TestAddHouseholdMember(t *testing.T) {
 		if createRec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", createRec.Code, createRec.Body.String())
 		}
-		var created householdJSON
+		var created gen.Household
 		if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 			t.Fatalf("unmarshal created: %v (body: %s)", err, createRec.Body.String())
 		}
 
 		// test-user-b tries to add a member to a household they're not in.
 		addBody := bytes.NewBufferString(`{"user_id":"test-user-b"}`)
-		rec := do(t, e.handler, http.MethodPost, "/api/users/test-user-b/households/"+created.ID+"/members", "", addBody, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/users/test-user-b/households/"+created.Id+"/members", "", addBody, "application/json")
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("status = %d, want 403 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -182,14 +184,14 @@ func TestAddHouseholdMember(t *testing.T) {
 		if createRec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", createRec.Code, createRec.Body.String())
 		}
-		var created householdJSON
+		var created gen.Household
 		if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 			t.Fatalf("unmarshal created: %v (body: %s)", err, createRec.Body.String())
 		}
 
 		// Try to add a non-existent user.
 		addBody := bytes.NewBufferString(`{"user_id":"nonexistent-user"}`)
-		rec := do(t, e.handler, http.MethodPost, "/api/users/test-user/households/"+created.ID+"/members", "", addBody, "application/json")
+		rec := do(t, e.handler, http.MethodPost, "/api/users/test-user/households/"+created.Id+"/members", "", addBody, "application/json")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}
@@ -240,7 +242,7 @@ func TestListHouseholds(t *testing.T) {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		var list []householdJSON
+		var list []gen.Household
 		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 			t.Fatalf("unmarshal list: %v (body: %s)", err, rec.Body.String())
 		}
@@ -250,14 +252,14 @@ func TestListHouseholds(t *testing.T) {
 		if list[0].DisplayName != "My Family" {
 			t.Errorf("display_name = %q, want %q", list[0].DisplayName, "My Family")
 		}
-		if list[0].OwnerID != "test-user" {
-			t.Errorf("owner_id = %q, want %q", list[0].OwnerID, "test-user")
+		if list[0].OwnerId != "test-user" {
+			t.Errorf("owner_id = %q, want %q", list[0].OwnerId, "test-user")
 		}
 		if len(list[0].Members) != 1 {
 			t.Fatalf("members count = %d, want 1", len(list[0].Members))
 		}
-		if list[0].Members[0].UserID != "test-user" {
-			t.Errorf("members[0].user_id = %q, want %q", list[0].Members[0].UserID, "test-user")
+		if list[0].Members[0].UserId != "test-user" {
+			t.Errorf("members[0].user_id = %q, want %q", list[0].Members[0].UserId, "test-user")
 		}
 	})
 
@@ -270,14 +272,14 @@ func TestListHouseholds(t *testing.T) {
 		if createRec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", createRec.Code, createRec.Body.String())
 		}
-		var created householdJSON
+		var created gen.Household
 		if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 			t.Fatalf("unmarshal created: %v (body: %s)", err, createRec.Body.String())
 		}
 
 		// Add test-user-b as a member.
 		addBody := bytes.NewBufferString(`{"user_id":"test-user-b"}`)
-		addRec := do(t, e.handler, http.MethodPost, "/api/users/test-user/households/"+created.ID+"/members", "", addBody, "application/json")
+		addRec := do(t, e.handler, http.MethodPost, "/api/users/test-user/households/"+created.Id+"/members", "", addBody, "application/json")
 		if addRec.Code != http.StatusNoContent {
 			t.Fatalf("add member status = %d, want 204 (body: %s)", addRec.Code, addRec.Body.String())
 		}
@@ -288,15 +290,15 @@ func TestListHouseholds(t *testing.T) {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		var list []householdJSON
+		var list []gen.Household
 		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 			t.Fatalf("unmarshal list: %v (body: %s)", err, rec.Body.String())
 		}
 		if len(list) != 1 {
 			t.Fatalf("list count = %d, want 1", len(list))
 		}
-		if list[0].ID != created.ID {
-			t.Errorf("id = %q, want %q", list[0].ID, created.ID)
+		if list[0].Id != created.Id {
+			t.Errorf("id = %q, want %q", list[0].Id, created.Id)
 		}
 		// Both members should be listed.
 		if len(list[0].Members) != 2 {
@@ -304,7 +306,7 @@ func TestListHouseholds(t *testing.T) {
 		}
 		memberIDs := map[string]bool{}
 		for _, m := range list[0].Members {
-			memberIDs[m.UserID] = true
+			memberIDs[m.UserId] = true
 		}
 		if !memberIDs["test-user"] {
 			t.Error("test-user not in members")
@@ -328,35 +330,35 @@ func TestGetHousehold(t *testing.T) {
 		if createRec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", createRec.Code, createRec.Body.String())
 		}
-		var created householdJSON
+		var created gen.Household
 		if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 			t.Fatalf("unmarshal created: %v (body: %s)", err, createRec.Body.String())
 		}
 
 		// Get the household.
-		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user/households/"+created.ID, "", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user/households/"+created.Id, "", nil, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		var got householdJSON
+		var got gen.Household
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 			t.Fatalf("unmarshal household: %v (body: %s)", err, rec.Body.String())
 		}
-		if got.ID != created.ID {
-			t.Errorf("id = %q, want %q", got.ID, created.ID)
+		if got.Id != created.Id {
+			t.Errorf("id = %q, want %q", got.Id, created.Id)
 		}
 		if got.DisplayName != "My Family" {
 			t.Errorf("display_name = %q, want %q", got.DisplayName, "My Family")
 		}
-		if got.OwnerID != "test-user" {
-			t.Errorf("owner_id = %q, want %q", got.OwnerID, "test-user")
+		if got.OwnerId != "test-user" {
+			t.Errorf("owner_id = %q, want %q", got.OwnerId, "test-user")
 		}
 		if len(got.Members) != 1 {
 			t.Fatalf("members count = %d, want 1", len(got.Members))
 		}
-		if got.Members[0].UserID != "test-user" {
-			t.Errorf("members[0].user_id = %q, want %q", got.Members[0].UserID, "test-user")
+		if got.Members[0].UserId != "test-user" {
+			t.Errorf("members[0].user_id = %q, want %q", got.Members[0].UserId, "test-user")
 		}
 	})
 
@@ -379,13 +381,13 @@ func TestGetHousehold(t *testing.T) {
 		if createRec.Code != http.StatusCreated {
 			t.Fatalf("create status = %d, want 201 (body: %s)", createRec.Code, createRec.Body.String())
 		}
-		var created householdJSON
+		var created gen.Household
 		if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 			t.Fatalf("unmarshal created: %v (body: %s)", err, createRec.Body.String())
 		}
 
 		// test-user-b tries to get a household they're not a member of.
-		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user-b/households/"+created.ID, "", nil, "")
+		rec := do(t, e.handler, http.MethodGet, "/api/users/test-user-b/households/"+created.Id, "", nil, "")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
 		}

@@ -1,111 +1,185 @@
-/**
- * API client — the ONLY module that knows the transport (design D1).
- *
- * Every URL in the app is built here. Screens never build paths; they call the
- * resource-level helpers (in `hooks.ts`) which call into this module. The two
- * tenancy transports are:
- *   - documents/assets → path tenancy: `/api/users/{userId}/…`
- *   - finance          → header tenancy: `/api/finance/…` + `X-Tenant-ID: {userId}`
- *
- * The backend API is being reworked in parallel, so the app is built against
- * mocked responses; when paths finalise, re-pointing is a change to THIS file
- * only (the `*_BASE` constants and the path helpers below).
- */
+import type { paths } from './generated/paths';
 import { ApiError, errorCopy, errorDetailFromBody, NETWORK_STATUS } from './errors';
+import { API_BASE, USER_PATH_PREFIX } from './config';
 
-/** Base for path-tenanted document/asset routes. */
-export const USER_BASE = '/api/users';
-/** Base for header-tenanted finance routes. */
-export const FINANCE_BASE = '/api/finance';
-/** Header carrying the tenant id on finance routes. */
-export const TENANT_HEADER = 'X-Tenant-ID';
+/** HTTP verbs the thin fetch client supports. */
+export type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
-/** How a request is scoped to the active user. */
-export type RequestScope =
-  | { kind: 'user'; userId: string }
-  | { kind: 'finance'; userId: string };
+/**
+ * Tenant-scoped resources addressable through this client, relative to
+ * `/api/users/{userId}` (path tenancy — every route in the generated contract
+ * lives under that prefix). `documents` upload is `multipart/form-data` and is
+ * addressed by `upload.ts` instead. Each pattern maps 1:1 to a generated
+ * `paths` entry (see `PathFor`).
+ */
+export type Resource =
+  | 'assets'
+  | `assets/${string}`
+  | `assets/${string}/documents`
+  | 'finance/accounts'
+  | `finance/accounts/${string}`
+  | 'finance/movements'
+  | `finance/movements?${string}`
+  | `finance/movements/${string}`
+  | `finance/movements/${string}/link`
+  | 'finance/import-batches'
+  | `finance/import-batches/${string}`
+  | `finance/import-batches/${string}/commit`
+  | `finance/import-batches/${string}/discard`
+  | 'households'
+  | `households/${string}`
+  | `households/${string}/members`;
 
-/** A resource path, relative to its base (e.g. `assets` or `accounts/1`). */
-export type ResourcePath = string;
+/**
+ * Maps a resource pattern to its generated `paths` entry. Most-specific
+ * patterns first (e.g. `assets/{id}/documents` before `assets/{id}`).
+ */
+type PathFor<R extends Resource> =
+  R extends `assets/${string}/documents`
+    ? paths['/api/users/{userId}/assets/{assetId}/documents']
+    : R extends `assets/${string}`
+      ? paths['/api/users/{userId}/assets/{assetId}']
+      : R extends `finance/accounts/${string}`
+        ? paths['/api/users/{userId}/finance/accounts/{id}']
+        : R extends `finance/movements?${string}`
+          ? paths['/api/users/{userId}/finance/movements']
+          : R extends `finance/movements/${string}/link`
+            ? paths['/api/users/{userId}/finance/movements/{id}/link']
+            : R extends `finance/movements/${string}`
+              ? paths['/api/users/{userId}/finance/movements/{id}']
+              : R extends `finance/import-batches/${string}/commit`
+                ? paths['/api/users/{userId}/finance/import-batches/{id}/commit']
+                : R extends `finance/import-batches/${string}/discard`
+                  ? paths['/api/users/{userId}/finance/import-batches/{id}/discard']
+                  : R extends `finance/import-batches/${string}`
+                    ? paths['/api/users/{userId}/finance/import-batches/{id}']
+                    : R extends `households/${string}/members`
+                      ? paths['/api/users/{userId}/households/{householdId}/members']
+                      : R extends `households/${string}`
+                        ? paths['/api/users/{userId}/households/{householdId}']
+                        : R extends 'assets'
+                          ? paths['/api/users/{userId}/assets']
+                          : R extends 'finance/accounts'
+                            ? paths['/api/users/{userId}/finance/accounts']
+                            : R extends 'finance/movements'
+                              ? paths['/api/users/{userId}/finance/movements']
+                              : R extends 'finance/import-batches'
+                                ? paths['/api/users/{userId}/finance/import-batches']
+                                : R extends 'households'
+                                  ? paths['/api/users/{userId}/households']
+                                  : never;
 
-function joinPath(base: string, rest: string): string {
-  if (rest === '') {
-    return base;
-  }
-  const trimmed = rest.startsWith('/') ? rest.slice(1) : rest;
-  return `${base}/${trimmed}`;
-}
+type MethodKey<M extends ApiMethod> = M extends 'GET'
+  ? 'get'
+  : M extends 'POST'
+    ? 'post'
+    : M extends 'PATCH'
+      ? 'patch'
+      : 'delete';
 
-/** Build the full path for a user-tenanted document/asset resource. */
-export function userPath(userId: string, resource: ResourcePath): string {
-  return joinPath(joinPath(USER_BASE, encodeURIComponent(userId)), resource);
-}
+/** The operation (method entry) of a path item, or `never` when that method is not documented on the path. */
+type OperationFor<R extends Resource, M extends ApiMethod> = PathFor<R> extends Record<MethodKey<M>, unknown>
+  ? PathFor<R>[MethodKey<M>]
+  : never;
 
-/** Build the full path for a header-tenanted finance resource. */
-export function financePath(resource: ResourcePath): string {
-  return joinPath(FINANCE_BASE, resource);
-}
+/** The `application/json` request-body schema of an operation; `never` when the operation takes no JSON body. */
+type JsonBodyOf<Op> = Op extends { requestBody: infer RB }
+  ? RB extends { content: { 'application/json': infer B } }
+    ? B
+    : never
+  : never;
 
-/** Init options for a request routed through {@link apiFetch}. */
-export interface ApiInit {
-  readonly method?: string;
-  /** JSON-serialisable body; serialised here (the single serialisation point). */
-  readonly body?: unknown;
+/**
+ * The success JSON body of an operation: the 200 schema when documented, else
+ * the 201 schema (create endpoints), else `undefined` (204 No Content ops).
+ */
+type JsonResponseOf<Op> = Op extends { responses: { 200: { content: { 'application/json': infer B } } } }
+  ? B
+  : Op extends { responses: { 201: { content: { 'application/json': infer B } } } }
+    ? B
+    : undefined;
+
+/** Non-inferable body slot: keeps `B` from being inferred back out of the caller's literal. */
+type BodySlot<B> = [B] extends [never] ? undefined : B;
+
+/**
+ * Typed init for a documented endpoint: the method is constrained to `M` (the
+ * operation actually used), and the body is checked against the operation's
+ * generated `application/json` request schema (no `any`, no untyped bodies).
+ * Callers that must send a body the OpenAPI `required` list over-specifies
+ * (kind-conditional movement endpoints) pass the derived input type as `B`.
+ */
+export interface ApiInit<
+  R extends Resource = Resource,
+  M extends ApiMethod = 'GET',
+  B = JsonBodyOf<OperationFor<R, M>>,
+> {
+  readonly method?: M;
+  readonly body?: BodySlot<B>;
   readonly headers?: Record<string, string>;
 }
 
 /**
- * Low-level fetch wrapper. Resolves the final URL from the scope, injects the
- * `X-Tenant-ID` header on finance routes, serialises a JSON body, and returns
- * the raw `Response`. Non-2xx responses and network failures are translated
- * into an `ApiError` throw; callers then unwrap the body via
- * {@link apiJson}/{@link apiVoid}.
+ * Build the full URL. ALL routes are /api/users/{userId}/{resource} (path
+ * tenancy). Resource examples: 'assets', 'assets/a1', 'finance/accounts',
+ * 'finance/movements?from=...'
  */
-export async function apiFetch(
-  scope: RequestScope,
-  resource: ResourcePath,
-  init: ApiInit = {},
-): Promise<Response> {
-  const url = scope.kind === 'user' ? userPath(scope.userId, resource) : financePath(resource);
+function buildUrl(userId: string, resource: string): string {
+  const base = `${API_BASE}/${USER_PATH_PREFIX.replace(/^\//, '')}/${encodeURIComponent(userId)}`;
+  const trimmed = resource.replace(/^\/+/, '');
+  return trimmed ? `${base}/${trimmed}` : base;
+}
 
+export async function apiFetch<
+  R extends Resource,
+  M extends ApiMethod = 'GET',
+  B = JsonBodyOf<OperationFor<R, M>>,
+>(userId: string, resource: R, init: ApiInit<R, M, B> = {}): Promise<Response> {
+  const url = buildUrl(userId, resource);
   const headers: Record<string, string> = { ...init.headers };
-  if (scope.kind === 'finance') {
-    headers[TENANT_HEADER] = scope.userId;
-  }
-
   let body: string | undefined;
   if (init.body !== undefined) {
     body = JSON.stringify(init.body);
     headers['Content-Type'] = 'application/json';
   }
-
   let response: Response;
   try {
     response = await fetch(url, { method: init.method ?? 'GET', headers, body });
   } catch {
     throw new ApiError(NETWORK_STATUS, errorCopy(NETWORK_STATUS));
   }
-
   if (!response.ok) {
     const detail = await extractErrorDetail(response);
     throw new ApiError(response.status, errorCopy(response.status), detail);
   }
-
   return response;
 }
 
-/** Unwrap a JSON response body. 204/empty bodies resolve to `undefined`. */
-export async function apiJson<T>(scope: RequestScope, resource: ResourcePath, init: ApiInit = {}): Promise<T> {
-  const response = await apiFetch(scope, resource, init);
-  if (response.status === 204) {
-    return undefined as T;
-  }
-  return (await response.json()) as T;
+/**
+ * Perform a documented endpoint and resolve its generated success body
+ * (200 schema, else 201 schema, else `undefined` for 204 ops).
+ */
+export async function apiJson<
+  R extends Resource,
+  M extends ApiMethod = 'GET',
+  B = JsonBodyOf<OperationFor<R, M>>,
+>(
+  userId: string,
+  resource: R,
+  init: ApiInit<R, M, B> = {},
+): Promise<JsonResponseOf<OperationFor<R, M>>> {
+  const response = await apiFetch<R, M, B>(userId, resource, init);
+  const body: unknown = response.status === 204 ? undefined : await response.json();
+  return body as JsonResponseOf<OperationFor<R, M>>;
 }
 
-/** Perform a request whose success body is empty (e.g. 204 deletes). */
-export async function apiVoid(scope: RequestScope, resource: ResourcePath, init: ApiInit = {}): Promise<void> {
-  await apiFetch(scope, resource, init);
+/** Perform a documented endpoint whose success is 204 No Content (or whose body the caller ignores). */
+export async function apiVoid<
+  R extends Resource,
+  M extends ApiMethod = 'GET',
+  B = JsonBodyOf<OperationFor<R, M>>,
+>(userId: string, resource: R, init: ApiInit<R, M, B> = {}): Promise<void> {
+  await apiFetch<R, M, B>(userId, resource, init);
 }
 
 async function extractErrorDetail(response: Response): Promise<string> {

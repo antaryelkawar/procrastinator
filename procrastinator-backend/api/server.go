@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"procrastinator-backend/api/gen"
 	"procrastinator-backend/api/httpx"
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
@@ -15,6 +16,9 @@ import (
 	"procrastinator-backend/core/ledger"
 	"procrastinator-backend/core/statement"
 )
+
+// Compile-time assertion that Server implements the generated ServerInterface.
+var _ gen.ServerInterface = (*Server)(nil)
 
 // Server serves the HTTP API surface over the ingest service, the ledger
 // service, and the owner-scoped data repositories.
@@ -100,41 +104,14 @@ func (s *Server) listDocumentsWithSource(ctx context.Context, tid, assetID strin
 	return out, nil
 }
 
-// Routes returns the fully-wired router for the API.
+// Routes returns the fully-wired router for the API. All routes are
+// user-scoped by path under /api/users/{userId} and resolved by a single
+// user middleware. Route registration is derived from the OpenAPI document
+// via the generated gen.HandlerWithOptions.
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
-
-	// All routes are user-scoped by path under /api/users/{userId} and resolved by a
-	// single user middleware. The middleware is applied INSIDE the {userId}
-	// route group: chi does not expose route params to top-level Use middleware,
-	// so the middleware must sit below the group prefix for
-	// chi.URLParam(r, "userId") to resolve.
-	r.Route("/api/users/{userId}", func(ur chi.Router) {
-		ur.Use(httpx.UserMiddleware(s.factory.Users))
-		ur.Post("/documents", s.handleUpload)
-		ur.Get("/assets", s.handleListAssets)
-		ur.Get("/assets/{assetId}", s.handleGetAsset)
-		ur.Get("/assets/{assetId}/documents", s.handleListDocuments)
-		ur.Post("/finance/accounts", s.createAccount)
-		ur.Get("/finance/accounts", s.listAccounts)
-		ur.Get("/finance/accounts/{id}", s.getAccount)
-		ur.Post("/finance/movements", s.createMovement)
-		ur.Get("/finance/movements", s.listMovements)
-		ur.Get("/finance/movements/{id}", s.getMovement)
-		ur.Patch("/finance/movements/{id}", s.patchMovement)
-		ur.Delete("/finance/movements/{id}", s.deleteMovement)
-		ur.Post("/finance/movements/{id}/link", s.linkMovement)
-		ur.Delete("/finance/movements/{id}/link", s.unlinkMovement)
-		ur.Post("/finance/import-batches", s.createImportBatch)
-		ur.Get("/finance/import-batches", s.listImportBatches)
-		ur.Get("/finance/import-batches/{id}", s.getImportBatch)
-		ur.Post("/finance/import-batches/{id}/commit", s.commitImportBatch)
-		ur.Post("/finance/import-batches/{id}/discard", s.discardImportBatch)
-		ur.Post("/households", s.createHousehold)
-		ur.Post("/households/{householdId}/members", s.addHouseholdMember)
-		ur.Get("/households", s.listHouseholds)
-		ur.Get("/households/{householdId}", s.getHousehold)
+	return gen.HandlerWithOptions(s, gen.ChiServerOptions{
+		BaseRouter:  r,
+		Middlewares: []gen.MiddlewareFunc{httpx.UserMiddleware(s.factory.Users)},
 	})
-
-	return r
 }

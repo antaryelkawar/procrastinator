@@ -1,10 +1,11 @@
 /** @vitest-environment jsdom */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { UploadPage } from './upload-page';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { uploadDocument } from '../../lib/api/upload';
 import { ApiError } from '../../lib/api/errors';
+import { ActiveUserProvider } from '../../context/active-user';
 
 vi.mock('../../lib/api/upload', async () => {
   const actual = await vi.importActual('../../lib/api/upload');
@@ -14,17 +15,30 @@ vi.mock('../../lib/api/upload', async () => {
   };
 });
 
-const queryClient = new QueryClient();
+function renderWithProviders() {
+  const queryClient = new QueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ActiveUserProvider queryClient={queryClient}>
+        <UploadPage />
+      </ActiveUserProvider>
+    </QueryClientProvider>
+  );
+}
 
 describe('UploadPage', () => {
-  it('handles successful upload', async () => {
-    vi.mocked(uploadDocument).mockResolvedValue({ id: 'asset-123' });
+  beforeEach(() => {
+    localStorage.setItem('activeUser', 'alice');
+  });
 
-    render(
-      <QueryClientProvider client={queryClient}>
-        <UploadPage />
-      </QueryClientProvider>
-    );
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('handles successful upload', async () => {
+    vi.mocked(uploadDocument).mockResolvedValue({ id: 'asset-123' } as never);
+
+    renderWithProviders();
     const file = new File(['hello'], 'success.pdf', { type: 'application/pdf' });
     const input = screen.getByLabelText(/file upload/i);
     fireEvent.change(input, { target: { files: [file] } });
@@ -39,11 +53,7 @@ describe('UploadPage', () => {
   it('handles 415 error', async () => {
     vi.mocked(uploadDocument).mockRejectedValue(new ApiError(415, 'Unsupported Media Type'));
 
-    render(
-      <QueryClientProvider client={queryClient}>
-        <UploadPage />
-      </QueryClientProvider>
-    );
+    renderWithProviders();
     const file = new File(['hello'], 'error.pdf', { type: 'application/pdf' });
     const input = screen.getByLabelText(/file upload/i);
     fireEvent.change(input, { target: { files: [file] } });
@@ -55,11 +65,7 @@ describe('UploadPage', () => {
   it('handles 502 error', async () => {
     vi.mocked(uploadDocument).mockRejectedValue(new ApiError(502, 'The document processor hiccuped'));
 
-    render(
-      <QueryClientProvider client={queryClient}>
-        <UploadPage />
-      </QueryClientProvider>
-    );
+    renderWithProviders();
     const file = new File(['hello'], 'retry.pdf', { type: 'application/pdf' });
     const input = screen.getByLabelText(/file upload/i);
     fireEvent.change(input, { target: { files: [file] } });

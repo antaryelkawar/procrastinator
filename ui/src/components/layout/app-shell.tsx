@@ -202,7 +202,7 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar — below md only */}
         <header className="sticky top-0 z-40 border-b bg-background md:hidden">
-          <div className="flex items-center gap-2 px-4 pt-3">
+          <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
             <Button
               ref={menuButtonRef}
               variant="ghost"
@@ -214,9 +214,9 @@ export function AppShell() {
               <Menu aria-hidden="true" />
             </Button>
             <Brand />
-          </div>
-          <div className="px-4 pb-3 pt-2">
-            <ActiveUserSwitcher id="user-switcher-mobile" touch />
+            <div className="w-full mt-2">
+              <ActiveUserSwitcher id="user-switcher-mobile" touch />
+            </div>
           </div>
         </header>
 
@@ -245,7 +245,7 @@ export function AppShell() {
           </SheetContent>
         </Sheet>
 
-        <main id="main-content" className="flex-1 p-4 md:p-6">
+        <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden p-4 md:p-6">
           <Outlet />
         </main>
       </div>

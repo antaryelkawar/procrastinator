@@ -13,7 +13,11 @@
  * Sign is derived, never stored: `expense` / import `out` → `−` (U+2212),
  * `income` / import `in` → `+`, `transfer` → no sign (accounts shown instead).
  */
-import type { ImportDirection, MovementKind } from '../api/types';
+/** Movement kind — the schema uses a free `kind: string`; we constrain the known values. */
+export type MovementKind = 'expense' | 'income' | 'transfer';
+
+/** Import line direction — the schema uses `direction: string`; we constrain the known values. */
+export type ImportDirection = 'in' | 'out';
 
 /** Static currency symbol map (design D2); unlisted ISO codes fall back to the code itself. */
 const CURRENCY_SYMBOLS = new Map<string, string>([

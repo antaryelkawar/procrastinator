@@ -15,7 +15,7 @@ const USER_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
 export const ActiveUserProvider = ({ children, queryClient }: { children: ReactNode; queryClient: QueryClient }) => {
   const [activeUser, setInternalActiveUser] = useState<string | null>(() => {
     try {
-      return localStorage.getItem('activeUser') || null;
+      return localStorage.getItem('activeUser');
     } catch (error) {
       console.error('Error accessing localStorage:', error);
       return null;

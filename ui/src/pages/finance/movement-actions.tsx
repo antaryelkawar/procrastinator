@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { usePatchDescription, useDeleteMovement } from '../../lib/api/hooks';
-import type { Movement } from '../../lib/api/types';
+import type { Movement } from '../../lib/api/schema';
 
 interface MovementActionsProps {
   readonly movement: Movement;

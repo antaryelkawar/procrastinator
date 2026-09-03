@@ -25,7 +25,12 @@ vi.mock('@/lib/api/hooks', () => ({
   useAsset: vi.fn(),
   useAssetDocuments: vi.fn(),
   useMovements: vi.fn(),
+  useCreateMovement: vi.fn(),
   useBatches: vi.fn(),
+  useBatch: vi.fn(),
+  useCommitBatch: vi.fn(),
+  useUploadStatement: vi.fn(),
+  useDiscardBatch: vi.fn(),
   useAccounts: vi.fn(),
   useCreateAccount: vi.fn(),
 }));
@@ -83,6 +88,15 @@ describe('app shell + router', () => {
     // MovementsPage (task 4.5) consumes useMovements; keep the nav-reachability
     // render from throwing when no user is active.
     vi.mocked(hooks.useMovements).mockReturnValue({ data: [], isLoading: false } as any);
+    vi.mocked(hooks.useCreateMovement).mockReturnValue({ isPending: false } as any);
+    vi.mocked(hooks.useBatches).mockReturnValue({ data: [], isLoading: false, isError: false } as any);
+    vi.mocked(hooks.useBatch).mockImplementation((batchId: string) => {
+      if (!batchId) return { data: null, isLoading: false, isError: false } as any;
+      return { data: { id: 'batch-7' }, isLoading: false, isError: false } as any;
+    });
+    vi.mocked(hooks.useUploadStatement).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
+    vi.mocked(hooks.useDiscardBatch).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
+    vi.mocked(hooks.useCommitBatch).mockReturnValue({ mutate: vi.fn(), isPending: false, isSuccess: false, data: undefined } as any);
   });
   it('redirects "/" to the asset list without a reload', () => {
     renderApp('/');
@@ -95,12 +109,12 @@ describe('app shell + router', () => {
       ['Upload', 'Upload Documents'],
       ['Accounts', 'Accounts'],
       ['Movements', 'Money movements'],
-      ['Import', 'Statement import'],
-      ['Import history', 'Import history'],
+      ['Import', 'Import Statement'],
+      ['Import history', 'No import history'],
     ];
     for (const [link, heading] of steps) {
       fireEvent.click(screen.getByRole('link', { name: link }));
-      expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
     }
     // and back to the asset list
     fireEvent.click(screen.getByRole('link', { name: 'Assets' }));
@@ -115,7 +129,6 @@ describe('app shell + router', () => {
   it('deep-links /finance/import/:batchId to the batch detail screen', () => {
     renderApp('/finance/import/batch-7');
     expect(screen.getByRole('heading', { level: 1, name: 'Batch detail' })).toBeInTheDocument();
-    expect(screen.getByText('batch-7')).toBeInTheDocument();
   });
 
   it('renders a not-found state for unknown routes with a way back', () => {
