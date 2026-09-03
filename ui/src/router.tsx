@@ -1,0 +1,69 @@
+/**
+ * Application route table (design D9 / module layout).
+ *
+ *   /                         → redirects to /assets
+ *   /upload                    document upload            (task 4.1)
+ *   /assets                    asset list                 (task 4.2)
+ *   /assets/:assetId           asset detail               (task 4.3)
+ *   /finance/accounts          finance accounts           (task 4.4)
+ *   /finance/movements         money movements            (task 4.5)
+ *   /finance/import            statement import           (task 4.9)
+ *   /finance/import/history    import history             (task 4.10)
+ *   /finance/import/:batchId   batch detail               (task 4.10)
+ *
+ * Every screen renders inside <AppShell /> (sidebar / mobile nav sheet /
+ * active-user switcher). Until the 4.x screens land, each route renders a
+ * lightweight placeholder (see `pages/placeholders.tsx`) so the shell and
+ * navigation are fully testable now. Static segments rank above dynamic
+ * ones, so `/finance/import/history` wins over `/finance/import/:batchId`.
+ */
+import { Link, Navigate, Route, Routes } from 'react-router-dom';
+import { AppShell } from '@/components/layout/app-shell';
+import { EmptyState } from '@/components/feedback/empty-state';
+import { Button } from '@/components/ui/button';
+import { AssetListPage } from './pages/assets/asset-list-page';
+import { AssetDetailPage } from './pages/assets/asset-detail-page';
+import { AccountsPage } from './pages/finance/accounts-page';
+import { MovementsPage } from './pages/finance/movements-page';
+import {
+  BatchDetailPlaceholder,
+  ImportHistoryPlaceholder,
+  ImportPlaceholder,
+} from '@/pages/placeholders';
+import { UploadPage } from './pages/upload/upload-page';
+
+function NotFoundPage() {
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-semibold tracking-tight">Page not found</h1>
+      <EmptyState
+        title="This page does not exist"
+        description="The link may be broken, or the page may have been moved."
+      >
+        <Button asChild>
+          <Link to="/assets">Go to assets</Link>
+        </Button>
+      </EmptyState>
+    </div>
+  );
+}
+
+/** The full route table, rendered inside the app shell. */
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route element={<AppShell />}>
+        <Route path="/" element={<Navigate to="/assets" replace />} />
+        <Route path="/upload" element={<UploadPage />} />
+        <Route path="/assets" element={<AssetListPage />} />
+        <Route path="/assets/:assetId" element={<AssetDetailPage />} />
+        <Route path="/finance/accounts" element={<AccountsPage />} />
+        <Route path="/finance/movements" element={<MovementsPage />} />
+        <Route path="/finance/import" element={<ImportPlaceholder />} />
+        <Route path="/finance/import/history" element={<ImportHistoryPlaceholder />} />
+        <Route path="/finance/import/:batchId" element={<BatchDetailPlaceholder />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Routes>
+  );
+}
