@@ -130,18 +130,17 @@ export async function getMovement(userId: string, id: string): Promise<Movement>
 
 /**
  * Accepts the loose UI `CreateMovementInput` (source/destination account ids
- * optional — the form omits the non-applicable account) and coerces it to the
- * strict wire `CreateMovementRequest` (both required strings; the Go handler
- * treats an absent one as ""). This keeps callers passing the UI input type
- * type-checking while satisfying the generated client's signature.
+ * optional — the form omits the non-applicable account) and sends it to the
+ * generated client. The OpenAPI schema documents both account ids as required
+ * strings, so the generated `CreateMovementRequest` marks them non-optional;
+ * the Go handler treats an absent/"" one as "not set", which is why the
+ * omission is valid on the wire. The cast to the strict wire type keeps
+ * callers passing the UI input type type-checking while satisfying the
+ * generated client's signature without injecting empty-string fields into the
+ * JSON body (which would be a wire-format drift from the pre-orval client).
  */
 export async function createMovement(userId: string, body: CreateMovementInput): Promise<Movement> {
-  const request: CreateMovementRequest = {
-    ...body,
-    source_account_id: body.source_account_id ?? '',
-    destination_account_id: body.destination_account_id ?? '',
-  };
-  const res = await _createMovement(userId, request);
+  const res = await _createMovement(userId, body as CreateMovementRequest);
   return (res as createMovementResponseSuccess).data;
 }
 
