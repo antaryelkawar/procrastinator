@@ -1,0 +1,41 @@
+- generic [ref=f294e3]:
+  - complementary [ref=f294e4]:
+    - generic [ref=f294e5]: Procrastinator
+    - navigation "Primary" [ref=f294e11]:
+      - link "Upload" [ref=f294e12] [cursor=pointer]:
+        - /url: /upload
+      - link "Assets" [ref=f294e17] [cursor=pointer]:
+        - /url: /assets
+      - link "Accounts" [ref=f294e23] [cursor=pointer]:
+        - /url: /finance/accounts
+      - link "Movements" [ref=f294e28] [cursor=pointer]:
+        - /url: /finance/movements
+      - link "Import" [ref=f294e33] [cursor=pointer]:
+        - /url: /finance/import
+      - link "Import history" [ref=f294e39] [cursor=pointer]:
+        - /url: /finance/import/history
+    - generic [ref=f294e46]:
+      - generic [ref=f294e47]: Active user
+      - textbox "Active user" [ref=f294e48]:
+        - /placeholder: user
+        - text: alice
+      - button "Set active user" [ref=f294e49]: Set
+  - main [ref=f294e51]:
+    - generic [ref=f294e52]:
+      - generic [ref=f294e53]:
+        - heading "Money movements" [level=1] [ref=f294e54]
+        - status:
+          - generic [ref=f294e55]: Loading accounts…
+      - generic [ref=f294e56]:
+        - generic [ref=f294e57]:
+          - generic [ref=f294e58]: Account
+          - combobox "Account" [ref=f294e59]:
+            - option "All accounts" [selected]
+        - generic [ref=f294e60]:
+          - generic [ref=f294e61]: From
+          - textbox "From" [ref=f294e62]
+        - generic [ref=f294e63]:
+          - generic [ref=f294e64]: To
+          - textbox "To" [ref=f294e65]
+      - status [ref=f294e66]:
+        - generic [ref=f294e67]: Loading…

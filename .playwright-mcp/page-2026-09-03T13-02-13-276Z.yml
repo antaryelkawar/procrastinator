@@ -1,0 +1,17 @@
+- generic [ref=f234e4]:
+  - banner [ref=f234e5]:
+    - generic [ref=f234e6]:
+      - button "Open navigation menu" [ref=f234e7]
+      - generic [ref=f234e8]: Procrastinator
+    - generic [ref=f234e14]:
+      - generic [ref=f234e15]: Active user
+      - textbox "Active user" [ref=f234e16]:
+        - /placeholder: user
+        - text: alice
+      - button "Set active user" [ref=f234e17]: Set
+  - main [ref=f234e18]:
+    - generic [ref=f234e19]:
+      - heading "Batch detail" [level=1] [ref=f234e20]
+      - link "← Back to history" [ref=f234e21] [cursor=pointer]:
+        - /url: /finance/import/history
+      - status [ref=f234e22]: Loading batch...

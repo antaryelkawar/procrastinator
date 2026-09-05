@@ -1,0 +1,28 @@
+- generic [ref=f293e3]:
+  - complementary [ref=f293e4]:
+    - generic [ref=f293e5]: Procrastinator
+    - navigation "Primary" [ref=f293e11]:
+      - link "Upload" [ref=f293e12] [cursor=pointer]:
+        - /url: /upload
+      - link "Assets" [ref=f293e17] [cursor=pointer]:
+        - /url: /assets
+      - link "Accounts" [ref=f293e23] [cursor=pointer]:
+        - /url: /finance/accounts
+      - link "Movements" [ref=f293e28] [cursor=pointer]:
+        - /url: /finance/movements
+      - link "Import" [ref=f293e33] [cursor=pointer]:
+        - /url: /finance/import
+      - link "Import history" [ref=f293e39] [cursor=pointer]:
+        - /url: /finance/import/history
+    - generic [ref=f293e46]:
+      - generic [ref=f293e47]: Active user
+      - textbox "Active user" [ref=f293e48]:
+        - /placeholder: user
+        - text: alice
+      - button "Set active user" [ref=f293e49]: Set
+  - main [ref=f293e51]:
+    - generic [ref=f293e52]:
+      - heading "Upload Documents" [level=1] [ref=f293e53]
+      - generic [ref=f293e54] [cursor=pointer]:
+        - button "file upload"
+        - paragraph [ref=f293e55]: Drag & drop files here, or click to select files

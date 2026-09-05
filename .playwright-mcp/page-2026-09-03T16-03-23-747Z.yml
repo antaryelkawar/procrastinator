@@ -1,0 +1,34 @@
+- generic [ref=f243e4]:
+  - banner [ref=f243e5]:
+    - generic [ref=f243e6]:
+      - button "Open navigation menu" [ref=f243e7]
+      - generic [ref=f243e8]: Procrastinator
+      - generic [ref=f243e14]:
+        - generic [ref=f243e15]: Active user
+        - textbox "Active user" [ref=f243e16]:
+          - /placeholder: user
+          - text: alice
+        - button "Set active user" [ref=f243e17]: Set
+  - main [ref=f243e18]:
+    - generic [ref=f243e43]:
+      - generic [ref=f243e44]:
+        - heading "Apple iPhone 15" [level=1] [ref=f243e45]
+        - generic [ref=f243e46]: other
+      - generic [ref=f243e47]:
+        - generic [ref=f243e48]: Asset Details
+        - generic [ref=f243e50]:
+          - generic [ref=f243e51]:
+            - paragraph [ref=f243e52]: Serial Number
+            - paragraph [ref=f243e53]: "-"
+          - generic [ref=f243e54]:
+            - paragraph [ref=f243e55]: Purchase Date
+            - paragraph [ref=f243e56]: "-"
+          - generic [ref=f243e57]:
+            - paragraph [ref=f243e58]: Warranty Ends
+            - paragraph [ref=f243e59]: "-"
+          - generic [ref=f243e60]:
+            - paragraph [ref=f243e61]: Price
+            - paragraph [ref=f243e62]: ₹1,000
+      - generic [ref=f243e63]:
+        - generic [ref=f243e64]: Documents
+        - paragraph [ref=f243e67]: No documents attached.

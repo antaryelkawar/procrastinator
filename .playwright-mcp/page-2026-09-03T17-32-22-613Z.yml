@@ -1,0 +1,32 @@
+- generic [ref=f289e4]:
+  - banner [ref=f289e5]:
+    - generic [ref=f289e6]:
+      - button "Open navigation menu" [ref=f289e7]
+      - generic [ref=f289e8]: Procrastinator
+      - generic [ref=f289e14]:
+        - generic [ref=f289e15]: Active user
+        - textbox "Active user" [ref=f289e16]:
+          - /placeholder: user
+          - text: alice
+        - button "Set active user" [ref=f289e17]: Set
+  - main [ref=f289e18]:
+    - generic [ref=f289e19]:
+      - heading "Accounts" [level=1] [ref=f289e20]
+      - generic [ref=f289e21]:
+        - generic [ref=f289e22]: Create Account
+        - generic [ref=f289e25]:
+          - generic [ref=f289e26]:
+            - generic [ref=f289e27]: Name
+            - textbox "Name" [ref=f289e28]
+          - generic [ref=f289e29]:
+            - generic [ref=f289e30]: Type
+            - combobox "Type" [ref=f289e31]:
+              - generic: Select type
+            - combobox [aria-hidden] [ref=f289e32]
+          - generic [ref=f289e33]:
+            - generic [ref=f289e34]: Currency
+            - textbox "Currency" [ref=f289e35]
+          - button "Create Account" [ref=f289e36]
+      - generic [ref=f289e37]:
+        - generic [ref=f289e38]: Accounts
+        - paragraph [ref=f289e41]: Loading...

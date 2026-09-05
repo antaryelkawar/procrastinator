@@ -1,0 +1,30 @@
+- generic [ref=f297e4]:
+  - banner [ref=f297e5]:
+    - generic [ref=f297e6]:
+      - button "Open navigation menu" [ref=f297e7]
+      - generic [ref=f297e8]: Procrastinator
+      - generic [ref=f297e14]:
+        - generic [ref=f297e15]: Active user
+        - textbox "Active user" [ref=f297e16]:
+          - /placeholder: user
+          - text: alice
+        - button "Set active user" [ref=f297e17]: Set
+  - main [ref=f297e18]:
+    - generic [ref=f297e19]:
+      - generic [ref=f297e20]:
+        - heading "Money movements" [level=1] [ref=f297e21]
+        - status:
+          - generic [ref=f297e22]: Loading accounts…
+      - generic [ref=f297e23]:
+        - generic [ref=f297e24]:
+          - generic [ref=f297e25]: Account
+          - combobox "Account" [ref=f297e26]:
+            - option "All accounts" [selected]
+        - generic [ref=f297e27]:
+          - generic [ref=f297e28]: From
+          - textbox "From" [ref=f297e29]
+        - generic [ref=f297e30]:
+          - generic [ref=f297e31]: To
+          - textbox "To" [ref=f297e32]
+      - status [ref=f297e33]:
+        - generic [ref=f297e34]: Loading…

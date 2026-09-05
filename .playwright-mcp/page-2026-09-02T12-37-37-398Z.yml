@@ -1,0 +1,7 @@
+- generic [ref=e3]:
+  - heading "Procrastinator" [level=1] [ref=e4]
+  - generic [ref=e5]:
+    - generic [ref=e6]: "Active User:"
+    - textbox "Active User:" [ref=e7]
+    - button "Set User" [ref=e8]
+  - paragraph [ref=e9]: "Current active user: none"

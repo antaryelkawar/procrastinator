@@ -1,0 +1,13 @@
+- generic [ref=f245e4]:
+  - banner [ref=f245e5]:
+    - generic [ref=f245e6]:
+      - button "Open navigation menu" [ref=f245e7]
+      - generic [ref=f245e8]: Procrastinator
+      - generic [ref=f245e14]:
+        - generic [ref=f245e15]: Active user
+        - textbox "Active user" [ref=f245e16]:
+          - /placeholder: user
+          - text: alice
+        - button "Set active user" [ref=f245e17]: Set
+  - main [ref=f245e18]:
+    - generic [ref=f245e19]: Loading...

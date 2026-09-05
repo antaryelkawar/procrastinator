@@ -1,0 +1,36 @@
+- generic [ref=f243e4]:
+  - banner [ref=f243e5]:
+    - generic [ref=f243e6]:
+      - button "Open navigation menu" [ref=f243e7]
+      - generic [ref=f243e8]: Procrastinator
+      - generic [ref=f243e14]:
+        - generic [ref=f243e15]: Active user
+        - textbox "Active user" [ref=f243e16]:
+          - /placeholder: user
+          - text: alice
+        - button "Set active user" [ref=f243e17]: Set
+  - main [ref=f243e18]:
+    - generic [ref=f243e19]:
+      - heading "Assets" [level=1] [ref=f243e20]
+      - generic [ref=f243e21]:
+        - generic [ref=f243e22] [cursor=pointer]:
+          - generic [ref=f243e23]:
+            - generic [ref=f243e24]:
+              - paragraph [ref=f243e25]: Apple iPhone 15
+              - paragraph [ref=f243e26]: "SN: -"
+            - generic [ref=f243e27]: other
+          - generic [ref=f243e28]: "Warranty: N/A"
+        - generic [ref=f243e29] [cursor=pointer]:
+          - generic [ref=f243e30]:
+            - generic [ref=f243e31]:
+              - paragraph [ref=f243e32]: Sony Camera
+              - paragraph [ref=f243e33]: "SN: -"
+            - generic [ref=f243e34]: warranty
+          - generic [ref=f243e35]: "Warranty: N/A"
+        - generic [ref=f243e36] [cursor=pointer]:
+          - generic [ref=f243e37]:
+            - generic [ref=f243e38]:
+              - paragraph [ref=f243e39]: Dell Laptop
+              - paragraph [ref=f243e40]: "SN: -"
+            - generic [ref=f243e41]: invoice
+          - generic [ref=f243e42]: "Warranty: N/A"
