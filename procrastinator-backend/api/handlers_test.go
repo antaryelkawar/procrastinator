@@ -155,6 +155,11 @@ func (s *llmState) setPayload(p string) {
 func newEnv(t *testing.T, opts envOpts) *testEnv {
 	t.Helper()
 
+	// Surface the underlying error in the 500 fallback envelope body so test
+	// failures are diagnosable (off by default; restored after the test).
+	t.Cleanup(func() { responseErrorDebug = false })
+	responseErrorDebug = true
+
 	maxBytes := opts.maxBytes
 	if maxBytes == 0 {
 		maxBytes = defaultMaxBytes

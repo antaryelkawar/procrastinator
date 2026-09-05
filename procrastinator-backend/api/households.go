@@ -1,13 +1,12 @@
 package api
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 
 	"procrastinator-backend/api/gen"
-	"procrastinator-backend/api/httpx"
 	"procrastinator-backend/commons/repo"
 	"procrastinator-backend/commons/user"
 	"procrastinator-backend/core/household"
@@ -32,109 +31,83 @@ func toHousehold(hh household.HouseholdWithMembers) gen.Household {
 	}
 }
 
-// CreateHousehold processes POST /api/users/{userId}/households: it decodes the
-// JSON body and creates a household via the household service. The creator is
-// auto-added as the first member. A blank or missing display_name is rejected
-// with 400.
-func (s *Server) CreateHousehold(w http.ResponseWriter, r *http.Request, userId string) {
-	var body gen.CreateHouseholdRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
-		return
+// CreateHousehold processes POST /api/users/{userId}/households: it consumes
+// the generated JSON body and creates a household via the household service.
+// The creator is auto-added as the first member. A blank or missing
+// display_name is rejected with 400.
+func (s *Server) CreateHousehold(ctx context.Context, request gen.CreateHouseholdRequestObject) (gen.CreateHouseholdResponseObject, error) {
+	if request.Body == nil {
+		return nil, newAPIError(http.StatusBadRequest, "invalid JSON body")
 	}
-	if strings.TrimSpace(body.DisplayName) == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
-		return
+	if strings.TrimSpace(request.Body.DisplayName) == "" {
+		return nil, newAPIError(http.StatusBadRequest, "invalid JSON body")
 	}
 
-	created, err := s.household.CreateHousehold(r.Context(), body.DisplayName)
+	created, err := s.household.CreateHousehold(ctx, request.Body.DisplayName)
 	if err != nil {
-		writeHouseholdError(w, err)
-		return
+		status, msg := mapHouseholdError(err)
+		return nil, newAPIError(status, msg)
 	}
 
 	// Fetch the full household with members (the creator is the first member).
-	full, err := s.household.GetHousehold(r.Context(), created.ID)
+	full, err := s.household.GetHousehold(ctx, created.ID)
 	if err != nil {
-		writeHouseholdError(w, err)
-		return
+		status, msg := mapHouseholdError(err)
+		return nil, newAPIError(status, msg)
 	}
-	httpx.WriteJSON(w, http.StatusCreated, toHousehold(full))
+	return gen.CreateHousehold201JSONResponse(toHousehold(full)), nil
 }
 
 // AddHouseholdMember processes POST /api/users/{userId}/households/{householdId}/members:
-// it decodes the JSON body and adds a user to the household via the household
-// service. The requester must already be a member of the household.
-func (s *Server) AddHouseholdMember(w http.ResponseWriter, r *http.Request, userId string, householdId string) {
-	var body gen.AddMemberRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
-		return
+// it consumes the generated JSON body and adds a user to the household via the
+// household service. The requester must already be a member of the household.
+func (s *Server) AddHouseholdMember(ctx context.Context, request gen.AddHouseholdMemberRequestObject) (gen.AddHouseholdMemberResponseObject, error) {
+	if request.Body == nil {
+		return nil, newAPIError(http.StatusBadRequest, "invalid JSON body")
 	}
-	if strings.TrimSpace(body.UserId) == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
-		return
+	if strings.TrimSpace(request.Body.UserId) == "" {
+		return nil, newAPIError(http.StatusBadRequest, "invalid JSON body")
 	}
 
-	if err := s.household.AddMember(r.Context(), householdId, body.UserId); err != nil {
-		writeHouseholdError(w, err)
-		return
+	if err := s.household.AddMember(ctx, request.HouseholdId, request.Body.UserId); err != nil {
+		status, msg := mapHouseholdError(err)
+		return nil, newAPIError(status, msg)
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return gen.AddHouseholdMember204Response{}, nil
 }
 
 // ListHouseholds processes GET /api/users/{userId}/households: it returns all
 // households the user owns or is a member of, each with its members. The result
 // is never nil.
-func (s *Server) ListHouseholds(w http.ResponseWriter, r *http.Request, userId string) {
-	list, err := s.household.ListMyHouseholds(r.Context())
+func (s *Server) ListHouseholds(ctx context.Context, request gen.ListHouseholdsRequestObject) (gen.ListHouseholdsResponseObject, error) {
+	list, err := s.household.ListMyHouseholds(ctx)
 	if err != nil {
-		writeHouseholdError(w, err)
-		return
+		status, msg := mapHouseholdError(err)
+		return nil, newAPIError(status, msg)
 	}
 	out := make([]gen.Household, 0, len(list))
 	for _, hh := range list {
 		out = append(out, toHousehold(hh))
 	}
-	httpx.WriteJSON(w, http.StatusOK, out)
+	return gen.ListHouseholds200JSONResponse(out), nil
 }
 
 // GetHousehold processes GET /api/users/{userId}/households/{householdId}: it
 // returns a single household with its members. A household the requester is not
 // a member of yields 404 (membership is hidden, not rejected).
-func (s *Server) GetHousehold(w http.ResponseWriter, r *http.Request, userId string, householdId string) {
-	full, err := s.household.GetHousehold(r.Context(), householdId)
+func (s *Server) GetHousehold(ctx context.Context, request gen.GetHouseholdRequestObject) (gen.GetHouseholdResponseObject, error) {
+	full, err := s.household.GetHousehold(ctx, request.HouseholdId)
 	if err != nil {
 		// ErrNotMember and ErrNotFound both map to 404 here: the API does not
 		// distinguish "not a member" from "doesn't exist" for visibility.
 		switch {
 		case errors.Is(err, household.ErrNotMember), errors.Is(err, repo.ErrNotFound):
-			httpx.WriteError(w, http.StatusNotFound, "not found")
+			return nil, newAPIError(http.StatusNotFound, "not found")
 		case errors.Is(err, user.ErrNoUser):
-			httpx.WriteError(w, http.StatusUnauthorized, "missing or invalid user identity")
+			return nil, newAPIError(http.StatusUnauthorized, "missing or invalid user identity")
 		default:
-			httpx.WriteError(w, http.StatusInternalServerError, "internal error")
+			return nil, newAPIError(http.StatusInternalServerError, "internal error")
 		}
-		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toHousehold(full))
-}
-
-// writeHouseholdError maps core/household and persistence sentinels onto the
-// HTTP status contract: ErrInvalid -> 400, ErrNotMember -> 403 (or 404 for
-// getHousehold where the API hides membership), repo.ErrNotFound -> 404,
-// user.ErrNoUser -> 401 (defensive), else 500.
-func writeHouseholdError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, household.ErrInvalid):
-		httpx.WriteError(w, http.StatusBadRequest, "invalid input")
-	case errors.Is(err, household.ErrNotMember):
-		httpx.WriteError(w, http.StatusForbidden, "not a member of the household")
-	case errors.Is(err, repo.ErrNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not found")
-	case errors.Is(err, user.ErrNoUser):
-		httpx.WriteError(w, http.StatusUnauthorized, "missing or invalid user identity")
-	default:
-		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
-	}
+	return gen.GetHousehold200JSONResponse(toHousehold(full)), nil
 }

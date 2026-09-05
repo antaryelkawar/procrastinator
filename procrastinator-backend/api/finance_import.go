@@ -1,169 +1,131 @@
 package api
 
 import (
-	"errors"
-	"io"
+	"context"
 	"net/http"
 	"strings"
 
+	"github.com/oapi-codegen/runtime"
+
 	"procrastinator-backend/api/gen"
-	"procrastinator-backend/api/httpx"
 	"procrastinator-backend/commons/repo"
-	"procrastinator-backend/commons/user"
-	"procrastinator-backend/core/statement"
 )
 
 // CreateImportBatch processes POST /api/users/{userId}/finance/import-batches:
-// it enforces the statement size limit, reads the multipart "file" part and the
-// "account_id" field, and runs the statement import pipeline via the
-// statement service. A 201 response carries the created batch with its
-// parsed lines and source metadata.
-func (s *Server) CreateImportBatch(w http.ResponseWriter, r *http.Request, userId string) {
-	r.Body = http.MaxBytesReader(w, r.Body, s.maxStatementBytes)
-	if err := r.ParseMultipartForm(0); err != nil {
+// it binds the generated multipart body, reads the "file" part and the
+// "account_id" field, and runs the statement import pipeline via the statement
+// service. A 201 response carries the created batch with its parsed lines and
+// source metadata.
+func (s *Server) CreateImportBatch(ctx context.Context, request gen.CreateImportBatchRequestObject) (gen.CreateImportBatchResponseObject, error) {
+	var body gen.CreateImportBatchMultipartBody
+	if err := runtime.BindMultipart(&body, *request.Body); err != nil {
 		if isMaxBytesErr(err) {
-			httpx.WriteError(w, http.StatusRequestEntityTooLarge, "upload exceeds size limit")
-			return
+			return nil, newAPIError(http.StatusRequestEntityTooLarge, "upload exceeds size limit")
 		}
-		httpx.WriteError(w, http.StatusBadRequest, "malformed multipart form")
-		return
+		return nil, newAPIError(http.StatusBadRequest, "malformed multipart body")
 	}
 
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "missing file field")
-		return
-	}
-	defer func() { _ = file.Close() }()
-
-	payload, err := io.ReadAll(file)
-	if err != nil {
-		if isMaxBytesErr(err) {
-			httpx.WriteError(w, http.StatusRequestEntityTooLarge, "upload exceeds size limit")
-			return
-		}
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to read upload")
-		return
-	}
-
-	accountID := strings.TrimSpace(r.FormValue("account_id"))
+	accountID := strings.TrimSpace(body.AccountId)
 	if accountID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "missing or blank account_id")
-		return
+		return nil, newAPIError(http.StatusBadRequest, "missing or blank account_id")
 	}
 
-	batch, lines, err := s.statement.Upload(r.Context(), accountID, header.Filename, payload)
+	filename := body.File.Filename()
+	payload, err := body.File.Bytes()
 	if err != nil {
-		writeImportError(w, err)
-		return
+		if isMaxBytesErr(err) {
+			return nil, newAPIError(http.StatusRequestEntityTooLarge, "upload exceeds size limit")
+		}
+		return nil, newAPIError(http.StatusInternalServerError, "failed to read upload")
+	}
+	if len(payload) == 0 {
+		return nil, newAPIError(http.StatusBadRequest, "missing file field")
+	}
+
+	batch, lines, err := s.statement.Upload(ctx, accountID, filename, payload)
+	if err != nil {
+		status, msg := mapStatementError(err)
+		return nil, newAPIError(status, msg)
 	}
 
 	// Defensive: Upload persisted the batch together with this source, so a
 	// lookup failure here is an invariant violation.
-	src, err := s.factory.Sources.Get(r.Context(), batch.SourceID, repo.Owner(userId))
+	src, err := s.factory.Sources.Get(ctx, batch.SourceID, repo.Owner(request.UserId))
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
-		return
+		return nil, newAPIError(http.StatusInternalServerError, "internal error")
 	}
-	httpx.WriteJSON(w, http.StatusCreated, toImportBatch(batch, lines, src))
+	return gen.CreateImportBatch201JSONResponse(toImportBatch(batch, lines, src)), nil
 }
 
 // ListImportBatches returns all of the requesting user's import batches
 // (without their lines), joined with their source metadata. The result is
 // never nil.
-func (s *Server) ListImportBatches(w http.ResponseWriter, r *http.Request, userId string) {
-	batches, err := s.statement.ListBatches(r.Context())
+func (s *Server) ListImportBatches(ctx context.Context, request gen.ListImportBatchesRequestObject) (gen.ListImportBatchesResponseObject, error) {
+	batches, err := s.statement.ListBatches(ctx)
 	if err != nil {
-		writeImportError(w, err)
-		return
+		status, msg := mapStatementError(err)
+		return nil, newAPIError(status, msg)
 	}
 
 	out := make([]gen.ImportBatch, 0, len(batches))
 	for _, b := range batches {
-		src, err := s.factory.Sources.Get(r.Context(), b.SourceID, repo.Owner(userId))
+		src, err := s.factory.Sources.Get(ctx, b.SourceID, repo.Owner(request.UserId))
 		if err != nil {
-			writeImportError(w, err)
-			return
+			status, msg := mapStatementError(err)
+			return nil, newAPIError(status, msg)
 		}
 		out = append(out, toImportBatch(b, nil, src))
 	}
-	httpx.WriteJSON(w, http.StatusOK, out)
+	return gen.ListImportBatches200JSONResponse(out), nil
 }
 
 // GetImportBatch returns one import batch with all of its parsed lines and
 // source metadata. Unknown or another user's IDs yield 404.
-func (s *Server) GetImportBatch(w http.ResponseWriter, r *http.Request, userId string, id string) {
-	batch, lines, err := s.statement.GetBatch(r.Context(), id)
+func (s *Server) GetImportBatch(ctx context.Context, request gen.GetImportBatchRequestObject) (gen.GetImportBatchResponseObject, error) {
+	batch, lines, err := s.statement.GetBatch(ctx, request.Id)
 	if err != nil {
-		writeImportError(w, err)
-		return
+		status, msg := mapStatementError(err)
+		return nil, newAPIError(status, msg)
 	}
 
-	src, err := s.factory.Sources.Get(r.Context(), batch.SourceID, repo.Owner(userId))
+	src, err := s.factory.Sources.Get(ctx, batch.SourceID, repo.Owner(request.UserId))
 	if err != nil {
-		writeImportError(w, err)
-		return
+		status, msg := mapStatementError(err)
+		return nil, newAPIError(status, msg)
 	}
-	httpx.WriteJSON(w, http.StatusOK, toImportBatch(batch, lines, src))
+	return gen.GetImportBatch200JSONResponse(toImportBatch(batch, lines, src)), nil
 }
 
 // CommitImportBatch processes POST /api/users/{userId}/finance/import-batches/{id}/commit:
-// it commits a preview batch, creating a ledger movement for every valid
-// line, and returns the commit summary.
-func (s *Server) CommitImportBatch(w http.ResponseWriter, r *http.Request, userId string, id string) {
-	summary, err := s.statement.Commit(r.Context(), id)
+// it commits a preview batch, creating a ledger movement for every valid line,
+// and returns the commit summary.
+func (s *Server) CommitImportBatch(ctx context.Context, request gen.CommitImportBatchRequestObject) (gen.CommitImportBatchResponseObject, error) {
+	summary, err := s.statement.Commit(ctx, request.Id)
 	if err != nil {
-		writeImportError(w, err)
-		return
+		status, msg := mapStatementError(err)
+		return nil, newAPIError(status, msg)
 	}
-	httpx.WriteJSON(w, http.StatusOK, gen.CommitSummary{Created: summary.Created, Skipped: summary.Skipped})
+	return gen.CommitImportBatch200JSONResponse(gen.CommitSummary{Created: summary.Created, Skipped: summary.Skipped}), nil
 }
 
 // DiscardImportBatch processes POST /api/users/{userId}/finance/import-batches/{id}/discard:
-// it transitions a preview batch to the discarded (terminal) state and
-// returns the discarded batch with its lines and source metadata.
-func (s *Server) DiscardImportBatch(w http.ResponseWriter, r *http.Request, userId string, id string) {
-	if _, err := s.statement.Discard(r.Context(), id); err != nil {
-		writeImportError(w, err)
-		return
+// it transitions a preview batch to the discarded (terminal) state and returns
+// the discarded batch with its lines and source metadata.
+func (s *Server) DiscardImportBatch(ctx context.Context, request gen.DiscardImportBatchRequestObject) (gen.DiscardImportBatchResponseObject, error) {
+	if _, err := s.statement.Discard(ctx, request.Id); err != nil {
+		status, msg := mapStatementError(err)
+		return nil, newAPIError(status, msg)
 	}
 
 	// Re-read the full batch for the response body. Defensive: Discard
 	// succeeded, so the batch (and its source) must still be readable.
-	batch, lines, err := s.statement.GetBatch(r.Context(), id)
+	batch, lines, err := s.statement.GetBatch(ctx, request.Id)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
-		return
+		return nil, newAPIError(http.StatusInternalServerError, "internal error")
 	}
-	src, err := s.factory.Sources.Get(r.Context(), batch.SourceID, repo.Owner(userId))
+	src, err := s.factory.Sources.Get(ctx, batch.SourceID, repo.Owner(request.UserId))
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
-		return
+		return nil, newAPIError(http.StatusInternalServerError, "internal error")
 	}
-	httpx.WriteJSON(w, http.StatusOK, toImportBatch(batch, lines, src))
-}
-
-// writeImportError maps core/statement and persistence sentinels onto the
-// HTTP status contract (D11): ErrTooLarge -> 413, ErrUnsupportedType -> 415,
-// ErrNoLines / ErrTooManyLines -> 422, ErrConflict -> 409,
-// repo.ErrNotFound -> 404, user.ErrNoUser -> 401 (defensive), else 500.
-func writeImportError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, statement.ErrTooLarge):
-		httpx.WriteError(w, http.StatusRequestEntityTooLarge, "upload exceeds size limit")
-	case errors.Is(err, statement.ErrUnsupportedType):
-		httpx.WriteError(w, http.StatusUnsupportedMediaType, "unsupported statement type")
-	case errors.Is(err, statement.ErrNoLines):
-		httpx.WriteError(w, http.StatusUnprocessableEntity, "statement has no parseable lines")
-	case errors.Is(err, statement.ErrTooManyLines):
-		httpx.WriteError(w, http.StatusUnprocessableEntity, "statement exceeds line limit")
-	case errors.Is(err, statement.ErrConflict):
-		httpx.WriteError(w, http.StatusConflict, "conflicting batch state")
-	case errors.Is(err, repo.ErrNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not found")
-	case errors.Is(err, user.ErrNoUser):
-		httpx.WriteError(w, http.StatusUnauthorized, "missing or invalid user identity")
-	default:
-		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
-	}
+	return gen.DiscardImportBatch200JSONResponse(toImportBatch(batch, lines, src)), nil
 }

@@ -42,10 +42,33 @@ import type {
   Movement,
 } from './schema';
 
-vi.mock('./client', () => ({
-  apiJson: vi.fn(),
-  apiVoid: vi.fn(),
-}));
+vi.mock('./client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./client')>();
+  return {
+    ...actual,
+    listAssets: vi.fn(),
+    getAsset: vi.fn(),
+    listAssetDocuments: vi.fn(),
+    listAccounts: vi.fn(),
+    getAccount: vi.fn(),
+    createAccount: vi.fn(),
+    listMovements: vi.fn(),
+    getMovement: vi.fn(),
+    createMovement: vi.fn(),
+    patchMovement: vi.fn(),
+    deleteMovement: vi.fn(),
+    linkMovement: vi.fn(),
+    unlinkMovement: vi.fn(),
+    listImportBatches: vi.fn(),
+    getImportBatch: vi.fn(),
+    commitImportBatch: vi.fn(),
+    discardImportBatch: vi.fn(),
+    listHouseholds: vi.fn(),
+    getHousehold: vi.fn(),
+    createHousehold: vi.fn(),
+    addHouseholdMember: vi.fn(),
+  };
+});
 
 vi.mock('./upload', () => ({
   uploadDocument: vi.fn(),
@@ -187,105 +210,111 @@ function expectInvalidatedExactly(
 
 beforeEach(() => {
   localStorage.clear();
-  vi.mocked(client.apiJson).mockReset();
-  vi.mocked(client.apiVoid).mockReset();
-  vi.mocked(upload.uploadDocument).mockReset();
-  vi.mocked(upload.uploadStatement).mockReset();
+  vi.clearAllMocks();
 });
 
 describe('query hooks — every key carries the active user id', () => {
   it('useAssets: key ["assets", uid] → GET the user-tenanted assets', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue([assetFixture] as never);
+    vi.mocked(client.listAssets).mockResolvedValue([assetFixture]);
     const { queryClient } = renderWithUser(() => useAssets());
     await waitFor(() => {
       expect(queryClient.getQueryData(['assets', ALICE])).toEqual([assetFixture]);
     });
     expect(queryKeys(queryClient)).toContainEqual(['assets', ALICE]);
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'assets');
+    expect(client.listAssets).toHaveBeenCalledWith(ALICE);
   });
 
   it('useAsset: key ["asset", uid, id] → GET one asset', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue(assetFixture as never);
+    vi.mocked(client.getAsset).mockResolvedValue(assetFixture);
     const { queryClient } = renderWithUser(() => useAsset('a1'));
     await waitFor(() => {
       expect(queryClient.getQueryData(['asset', ALICE, 'a1'])).toEqual(assetFixture);
     });
     expect(queryKeys(queryClient)).toContainEqual(['asset', ALICE, 'a1']);
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'assets/a1');
+    expect(client.getAsset).toHaveBeenCalledWith(ALICE, 'a1');
   });
 
   it('useAssetDocuments: key ["asset-docs", uid, id] → GET the asset documents', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue([documentFixture] as never);
+    vi.mocked(client.listAssetDocuments).mockResolvedValue([documentFixture]);
     const { queryClient } = renderWithUser(() => useAssetDocuments('a1'));
     await waitFor(() => {
       expect(queryClient.getQueryData(['asset-docs', ALICE, 'a1'])).toEqual([documentFixture]);
     });
     expect(queryKeys(queryClient)).toContainEqual(['asset-docs', ALICE, 'a1']);
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'assets/a1/documents');
+    expect(client.listAssetDocuments).toHaveBeenCalledWith(ALICE, 'a1');
   });
 
   it('useAccounts: key ["accounts", uid] → GET the finance accounts', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue([accountFixture] as never);
+    vi.mocked(client.listAccounts).mockResolvedValue([accountFixture]);
     const { queryClient } = renderWithUser(() => useAccounts());
     await waitFor(() => {
       expect(queryClient.getQueryData(['accounts', ALICE])).toEqual([accountFixture]);
     });
     expect(queryKeys(queryClient)).toContainEqual(['accounts', ALICE]);
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/accounts');
+    expect(client.listAccounts).toHaveBeenCalledWith(ALICE);
   });
 
   it('useMovements (no filters): key ["movements", uid, {}] → GET movements', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue([movementFixture] as never);
+    vi.mocked(client.listMovements).mockResolvedValue([movementFixture]);
     const { queryClient } = renderWithUser(() => useMovements());
     await waitFor(() => {
       expect(queryClient.getQueryData(['movements', ALICE, {}])).toEqual([movementFixture]);
     });
     expect(queryKeys(queryClient)).toContainEqual(['movements', ALICE, {}]);
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/movements');
+    expect(client.listMovements).toHaveBeenCalledWith(ALICE, {
+      account_id: undefined,
+      from: undefined,
+      to: undefined,
+    });
   });
 
   it('useMovements (all filters): key carries {accountId,from,to}', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue([movementFixture] as never);
+    vi.mocked(client.listMovements).mockResolvedValue([movementFixture]);
     const filters: MovementFilterInput = { accountId: 'acc1', from: '2026-01-01', to: '2026-01-31' };
     const { queryClient } = renderWithUser(() => useMovements(filters));
     await waitFor(() => {
       expect(queryClient.getQueryData(['movements', ALICE, filters])).toEqual([movementFixture]);
     });
     expect(queryKeys(queryClient)).toContainEqual(['movements', ALICE, filters]);
-    expect(client.apiJson).toHaveBeenCalledWith(
-      ALICE,
-      'finance/movements?account_id=acc1&from=2026-01-01&to=2026-01-31',
-    );
+    expect(client.listMovements).toHaveBeenCalledWith(ALICE, {
+      account_id: 'acc1',
+      from: '2026-01-01',
+      to: '2026-01-31',
+    });
   });
 
   it('useMovements (partial filters): only supplied params reach the wire', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue([] as never);
+    vi.mocked(client.listMovements).mockResolvedValue([]);
     const { queryClient } = renderWithUser(() => useMovements({ from: '2026-01-01' }));
     await waitFor(() => {
       expect(queryClient.getQueryData(['movements', ALICE, { from: '2026-01-01' }])).toEqual([]);
     });
     expect(queryKeys(queryClient)).toContainEqual(['movements', ALICE, { from: '2026-01-01' }]);
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/movements?from=2026-01-01');
+    expect(client.listMovements).toHaveBeenCalledWith(ALICE, {
+      account_id: undefined,
+      from: '2026-01-01',
+      to: undefined,
+    });
   });
 
   it('useBatches: key ["batches", uid] → GET the import batches', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue([batchFixture] as never);
+    vi.mocked(client.listImportBatches).mockResolvedValue([batchFixture]);
     const { queryClient } = renderWithUser(() => useBatches());
     await waitFor(() => {
       expect(queryClient.getQueryData(['batches', ALICE])).toEqual([batchFixture]);
     });
     expect(queryKeys(queryClient)).toContainEqual(['batches', ALICE]);
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/import-batches');
+    expect(client.listImportBatches).toHaveBeenCalledWith(ALICE);
   });
 
   it('useBatch: key ["batch", uid, id] → GET one import batch', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue(batchFixture as never);
+    vi.mocked(client.getImportBatch).mockResolvedValue(batchFixture);
     const { queryClient } = renderWithUser(() => useBatch('b1'));
     await waitFor(() => {
       expect(queryClient.getQueryData(['batch', ALICE, 'b1'])).toEqual(batchFixture);
     });
     expect(queryKeys(queryClient)).toContainEqual(['batch', ALICE, 'b1']);
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/import-batches/b1');
+    expect(client.getImportBatch).toHaveBeenCalledWith(ALICE, 'b1');
   });
 });
 
@@ -324,12 +353,12 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
   });
 
   it('useCreateAccount: POSTs the account, invalidates only ["accounts", uid]', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue(accountFixture as never);
+    vi.mocked(client.createAccount).mockResolvedValue(accountFixture);
     const body: CreateAccountRequest = { name: 'Main', type: 'bank', currency: 'INR' };
     const { result, queryClient } = renderWithUser(() => useCreateAccount());
     vi.spyOn(queryClient, 'invalidateQueries');
     const returned = await act(async () => result.current.mutateAsync(body));
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/accounts', { method: 'POST', body });
+    expect(client.createAccount).toHaveBeenCalledWith(ALICE, body);
     expect(returned).toEqual(accountFixture);
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
@@ -338,7 +367,7 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
   });
 
   it('useCreateMovement: POSTs the movement, invalidates ["movements", uid] + ["accounts", uid]', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue(movementFixture as never);
+    vi.mocked(client.createMovement).mockResolvedValue(movementFixture);
     const body: CreateMovementInput = {
       kind: 'expense',
       amount: '100',
@@ -350,7 +379,7 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
     const { result, queryClient } = renderWithUser(() => useCreateMovement());
     vi.spyOn(queryClient, 'invalidateQueries');
     const returned = await act(async () => result.current.mutateAsync(body));
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/movements', { method: 'POST', body });
+    expect(client.createMovement).toHaveBeenCalledWith(ALICE, body);
     expect(returned).toEqual(movementFixture);
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
@@ -359,15 +388,20 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
   });
 
   it('usePatchDescription: PATCHes the description, invalidates movements + accounts', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue(movementFixture as never);
+    vi.mocked(client.patchMovement).mockResolvedValue(movementFixture);
     const { result, queryClient } = renderWithUser(() => usePatchDescription());
     vi.spyOn(queryClient, 'invalidateQueries');
     const returned = await act(async () =>
       result.current.mutateAsync({ movementId: 'mv1', description: 'corrected' }),
     );
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/movements/mv1', {
-      method: 'PATCH',
-      body: { description: 'corrected' },
+    expect(client.patchMovement).toHaveBeenCalledWith(ALICE, 'mv1', {
+      description: 'corrected',
+      amount: '',
+      currency: '',
+      occurred_on: '',
+      kind: '',
+      source_account_id: '',
+      destination_account_id: '',
     });
     expect(returned).toEqual(movementFixture);
     await waitFor(() => {
@@ -377,11 +411,11 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
   });
 
   it('useDeleteMovement: DELETEs the movement, invalidates movements + accounts', async () => {
-    vi.mocked(client.apiVoid).mockResolvedValue(undefined);
+    vi.mocked(client.deleteMovement).mockResolvedValue();
     const { result, queryClient } = renderWithUser(() => useDeleteMovement());
     vi.spyOn(queryClient, 'invalidateQueries');
     const returned = await act(async () => result.current.mutateAsync({ movementId: 'mv1' }));
-    expect(client.apiVoid).toHaveBeenCalledWith(ALICE, 'finance/movements/mv1', { method: 'DELETE' });
+    expect(client.deleteMovement).toHaveBeenCalledWith(ALICE, 'mv1');
     expect(returned).toBeUndefined();
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
@@ -390,16 +424,13 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
   });
 
   it('useLinkMovement: POSTs document_id, invalidates movements + accounts', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue(movementFixture as never);
+    vi.mocked(client.linkMovement).mockResolvedValue(movementFixture);
     const { result, queryClient } = renderWithUser(() => useLinkMovement());
     vi.spyOn(queryClient, 'invalidateQueries');
     const returned = await act(async () =>
       result.current.mutateAsync({ movementId: 'mv1', documentId: 'd1' }),
     );
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/movements/mv1/link', {
-      method: 'POST',
-      body: { document_id: 'd1' },
-    });
+    expect(client.linkMovement).toHaveBeenCalledWith(ALICE, 'mv1', { document_id: 'd1' });
     expect(returned).toEqual(movementFixture);
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
@@ -408,11 +439,11 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
   });
 
   it('useUnlinkMovement: DELETEs the link, invalidates movements + accounts', async () => {
-    vi.mocked(client.apiVoid).mockResolvedValue(undefined);
+    vi.mocked(client.unlinkMovement).mockResolvedValue();
     const { result, queryClient } = renderWithUser(() => useUnlinkMovement());
     vi.spyOn(queryClient, 'invalidateQueries');
     const returned = await act(async () => result.current.mutateAsync({ movementId: 'mv1' }));
-    expect(client.apiVoid).toHaveBeenCalledWith(ALICE, 'finance/movements/mv1/link', { method: 'DELETE' });
+    expect(client.unlinkMovement).toHaveBeenCalledWith(ALICE, 'mv1');
     expect(returned).toBeUndefined();
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
@@ -421,13 +452,11 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
   });
 
   it('useCommitBatch: POSTs the commit, invalidates batches + batch + movements + accounts', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue(commitSummaryFixture as never);
+    vi.mocked(client.commitImportBatch).mockResolvedValue(commitSummaryFixture);
     const { result, queryClient } = renderWithUser(() => useCommitBatch());
     vi.spyOn(queryClient, 'invalidateQueries');
     const returned = await act(async () => result.current.mutateAsync({ batchId: 'b1' }));
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/import-batches/b1/commit', {
-      method: 'POST',
-    });
+    expect(client.commitImportBatch).toHaveBeenCalledWith(ALICE, 'b1');
     expect(returned).toEqual(commitSummaryFixture);
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
@@ -441,13 +470,11 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
   });
 
   it('useDiscardBatch: POSTs the discard, invalidates batches + batch', async () => {
-    vi.mocked(client.apiJson).mockResolvedValue(discardedBatchFixture as never);
+    vi.mocked(client.discardImportBatch).mockResolvedValue(discardedBatchFixture);
     const { result, queryClient } = renderWithUser(() => useDiscardBatch());
     vi.spyOn(queryClient, 'invalidateQueries');
     const returned = await act(async () => result.current.mutateAsync({ batchId: 'b1' }));
-    expect(client.apiJson).toHaveBeenCalledWith(ALICE, 'finance/import-batches/b1/discard', {
-      method: 'POST',
-    });
+    expect(client.discardImportBatch).toHaveBeenCalledWith(ALICE, 'b1');
     expect(returned).toEqual(discardedBatchFixture);
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
@@ -456,7 +483,7 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
   });
 
   it('does not invalidate when a mutation fails', async () => {
-    vi.mocked(client.apiJson).mockRejectedValue(
+    vi.mocked(client.createAccount).mockRejectedValue(
       new ApiError(400, 'That request was invalid.', 'name is required'),
     );
     const { result, queryClient } = renderWithUser(() => useCreateAccount());

@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -63,6 +64,40 @@ func budgetResolvePaths(t *testing.T) (doc, uiRoot, tsCLI, redocCLI, backendDir 
 	return
 }
 
+// budgetGenerateFlags derives the oapi-codegen `-generate` flags from the
+// `//go:generate` directive in the sibling `gen.go` (../gen.go), so the budget
+// test always measures EXACTLY the generation the build gate performs — whatever
+// flags are currently pinned in gen.go — rather than hardcoding them. This keeps
+// the budget test correct both before and after the strict-server flag
+// (`types,chi-server,strict-server`) is introduced: it tracks gen.go as the single
+// source of truth for the generator invocation.
+func budgetGenerateFlags(t *testing.T) string {
+	t.Helper()
+	genGo, err := filepath.Abs("../gen.go")
+	if err != nil {
+		t.Fatalf("resolving absolute path of gen.go: %v", err)
+	}
+	data, err := os.ReadFile(genGo)
+	if err != nil {
+		t.Fatalf("reading %s: %v", genGo, err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if !strings.HasPrefix(strings.TrimSpace(line), "//go:generate") {
+			continue
+		}
+		fields := strings.Fields(line)
+		for i, f := range fields {
+			if f == "-generate" && i+1 < len(fields) {
+				return fields[i+1]
+			}
+		}
+		t.Fatalf("//go:generate line in %s does not specify a -generate flag: %q", genGo, line)
+	}
+	t.Fatalf("no //go:generate line found in %s", genGo)
+	return ""
+}
+
 // budgetRunGenerator is the shared timing harness: it runs one pinned generator
 // command via os/exec with cmd.Dir set to dir, measures elapsed time with
 // time.Now()/time.Since(), logs the duration via t.Logf, fails the test with
@@ -83,7 +118,7 @@ func budgetRunGenerator(t *testing.T, dir, name string, argv ...string) time.Dur
 
 // budgetRunAllGenerators re-runs all three pinned generators (Go, TS, docs) into
 // the scratch dir and returns the elapsed time for each generator.
-func budgetRunAllGenerators(t *testing.T, doc, uiRoot, backendDir, scratch string) (goDur, tsDur, docsDur time.Duration) {
+func budgetRunAllGenerators(t *testing.T, doc, uiRoot, backendDir, scratch, genFlags string) (goDur, tsDur, docsDur time.Duration) {
 	t.Helper()
 	goOut := filepath.Join(scratch, "openapi.gen.go")
 	docsOut := filepath.Join(scratch, "index.html")
@@ -92,7 +127,7 @@ func budgetRunAllGenerators(t *testing.T, doc, uiRoot, backendDir, scratch strin
 		"go", "run",
 		"github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0",
 		"-package", "gen",
-		"-generate", "types,chi-server",
+		"-generate", genFlags,
 		"-o", goOut,
 		doc,
 	)
@@ -121,14 +156,14 @@ func budgetRunAllGenerators(t *testing.T, doc, uiRoot, backendDir, scratch strin
 // one-time tool bootstrap (downloading + compiling the pinned oapi-codegen
 // module) is excluded so the budget reflects generation cost on a warm cache,
 // which is what the build gate sees after the first run.
-func budgetWarmupGo(t *testing.T, doc, backendDir string) {
+func budgetWarmupGo(t *testing.T, doc, backendDir, genFlags string) {
 	t.Helper()
 	warmupOut := filepath.Join(t.TempDir(), "warmup.go")
 	_ = budgetRunGenerator(t, backendDir, "warmup-go",
 		"go", "run",
 		"github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0",
 		"-package", "gen",
-		"-generate", "types,chi-server",
+		"-generate", genFlags,
 		"-o", warmupOut,
 		doc,
 	)
@@ -138,16 +173,17 @@ func budgetWarmupGo(t *testing.T, doc, backendDir string) {
 // completes under the full-codegen time budget (task 7.1).
 func TestFullCodegenWithinTimeBudget(t *testing.T) {
 	doc, uiRoot, _, _, backendDir := budgetResolvePaths(t)
+	genFlags := budgetGenerateFlags(t)
 
 	// WARM-UP: run the Go generator once into a throwaway temp file and discard
 	// it, to populate the Go build cache. This excludes the one-time tool
 	// download/compile from the budget so the timed run measures steady-state
 	// generation. This warm-up time is NOT counted toward the budget.
-	budgetWarmupGo(t, doc, backendDir)
+	budgetWarmupGo(t, doc, backendDir, genFlags)
 
 	scratch := t.TempDir()
 	start := time.Now()
-	goDur, tsDur, docsDur := budgetRunAllGenerators(t, doc, uiRoot, backendDir, scratch)
+	goDur, tsDur, docsDur := budgetRunAllGenerators(t, doc, uiRoot, backendDir, scratch, genFlags)
 	elapsed := time.Since(start)
 
 	t.Logf("full codegen: go=%s ts=%s docs=%s total=%s (budget %s)", goDur, tsDur, docsDur, elapsed, budgetFullCodegen)
@@ -161,13 +197,14 @@ func TestFullCodegenWithinTimeBudget(t *testing.T) {
 // drift-check time budget (task 7.2).
 func TestDriftCheckWithinTimeBudget(t *testing.T) {
 	doc, uiRoot, _, _, backendDir := budgetResolvePaths(t)
+	genFlags := budgetGenerateFlags(t)
 
 	// WARM-UP as in TestFullCodegenWithinTimeBudget: not counted toward budget.
-	budgetWarmupGo(t, doc, backendDir)
+	budgetWarmupGo(t, doc, backendDir, genFlags)
 
 	scratch := t.TempDir()
 	start := time.Now()
-	goDur, tsDur, docsDur := budgetRunAllGenerators(t, doc, uiRoot, backendDir, scratch)
+	goDur, tsDur, docsDur := budgetRunAllGenerators(t, doc, uiRoot, backendDir, scratch, genFlags)
 
 	// Diff each freshly-generated scratch output against its committed artifact
 	// using the existing EOL-normalized driftGeneratedMatches helper. A

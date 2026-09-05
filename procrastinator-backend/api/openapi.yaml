@@ -57,6 +57,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/asset'
+        "202":
+          description: Held for review (confidence below threshold)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ingest_review'
         "400":
           description: Invalid request
           content:
@@ -1037,6 +1043,312 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/error'
+  /api/users/{userId}/search/quick:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+    get:
+      operationId: quickSearch
+      summary: Quick search (typeahead)
+      description: |
+        Returns a fast, capped set of search hits for typeahead. Accepts
+        optional `q` and `limit` query parameters. `limit` defaults to 10 and
+        must be in [1,50]. An absent or blank `q` returns 200 with an empty
+        result set.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Search query (case-insensitive substring)
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of hits to return
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: The quick search hits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/search_quick_response'
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/search:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+    get:
+      operationId: search
+      summary: Search (paged results)
+      description: |
+        Returns a page of the combined, ordered search result set with
+        pagination metadata. Accepts optional `q`, `page`, and `page_size`
+        query parameters. `page` defaults to 1 (1-based). `page_size` defaults
+        to 20 and must be in [1,100].
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Search query (case-insensitive substring)
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          description: Page number (1-based)
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: page_size
+          in: query
+          required: false
+          description: Number of results per page
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: A page of search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/search_results_page'
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/ingest/reviews:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+    get:
+      operationId: listReviews
+      summary: List ingest reviews
+      description: |
+        Returns the user's ingest reviews, ordered by created_at ASC then id
+        ASC. Accepts an optional `status` query parameter; defaults to
+        `pending`. Unrecognized status values are rejected with 400.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Filter by lifecycle state
+          schema:
+            type: string
+            enum:
+              - pending
+              - approved
+              - rejected
+            default: pending
+      responses:
+        "200":
+          description: The user's ingest reviews
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ingest_review'
+        "400":
+          description: Invalid status value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/ingest/reviews/{id}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getReview
+      summary: Get an ingest review
+      description: |
+        Returns a single ingest review by id. Unknown or another owner's
+        review ids yield 404.
+      responses:
+        "200":
+          description: The ingest review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ingest_review'
+        "404":
+          description: Review not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/ingest/reviews/{id}/approve:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: approveReview
+      summary: Approve an ingest review
+      description: |
+        Commits the candidate of a pending review (merge or create Asset +
+        Document) and transitions the review to approved. Approving a
+        non-pending review yields 409. Unknown or another owner's review ids
+        yield 404.
+      responses:
+        "200":
+          description: The committed asset and updated review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/approve_review_response'
+        "404":
+          description: Review not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Review is not pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/ingest/reviews/{id}/reject:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: rejectReview
+      summary: Reject an ingest review
+      description: |
+        Discards the candidate of a pending review (no Asset or Document
+        created) and transitions the review to rejected. Rejecting a
+        non-pending review yields 409. Unknown or another owner's review ids
+        yield 404.
+      responses:
+        "200":
+          description: The updated review (state rejected)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ingest_review'
+        "404":
+          description: Review not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Review is not pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
 components:
   schemas:
     asset:
@@ -1083,6 +1395,10 @@ components:
         owner_household_id:
           type: string
           nullable: true
+        confidence:
+          type: number
+          format: float
+          nullable: true
       required:
         - id
         - doc_type
@@ -1107,6 +1423,10 @@ components:
           format: date-time
         owner_household_id:
           type: string
+          nullable: true
+        confidence:
+          type: number
+          format: float
           nullable: true
       required:
         - id
@@ -1476,3 +1796,117 @@ components:
           type: string
       required:
         - user_id
+    search_hit:
+      type: object
+      description: A single search result hit.
+      properties:
+        type:
+          type: string
+          enum:
+            - asset
+            - account
+            - movement
+            - document
+            - import_batch
+        id:
+          type: string
+        title:
+          type: string
+        subtitle:
+          type: string
+          nullable: true
+        confidence:
+          type: number
+          format: float
+          nullable: true
+      required:
+        - type
+        - id
+        - title
+    search_quick_response:
+      type: object
+      description: Response for the quick search endpoint (no pagination metadata).
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/search_hit'
+      required:
+        - results
+    search_results_page:
+      type: object
+      description: Paged search results with pagination metadata.
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/search_hit'
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+      required:
+        - results
+        - page
+        - page_size
+        - total
+    ingest_review:
+      type: object
+      description: An ingest review candidate held for human approval.
+      properties:
+        id:
+          type: string
+        doc_type:
+          type: string
+        confidence:
+          type: number
+          format: float
+          nullable: true
+        candidate_fields:
+          type: object
+          additionalProperties: true
+        state:
+          type: string
+          enum:
+            - pending
+            - approved
+            - rejected
+        source_filename:
+          type: string
+        source_uploaded_at:
+          type: string
+          format: date-time
+        best_matched_asset_id:
+          type: string
+          nullable: true
+        best_matched_asset_title:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - doc_type
+        - candidate_fields
+        - state
+        - source_filename
+        - source_uploaded_at
+        - created_at
+    approve_review_response:
+      type: object
+      description: 'Response for approving a review: the committed asset and the updated review.'
+      properties:
+        asset:
+          $ref: '#/components/schemas/asset'
+        review:
+          $ref: '#/components/schemas/ingest_review'
+      required:
+        - asset
+        - review

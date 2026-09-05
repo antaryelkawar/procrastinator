@@ -1,6 +1,6 @@
 import { ApiError, errorCopy, errorDetailFromBody, NETWORK_STATUS } from './errors';
-import { API_BASE, USER_PATH_PREFIX } from './config';
-import type { Asset, ImportBatch } from './schema';
+import { getUploadDocumentUrl, getCreateImportBatchUrl } from './generated/orval/procrastinator';
+import type { Asset, ImportBatch } from './generated/orval/procrastinator';
 
 async function performUpload<T>(
   url: string,
@@ -51,18 +51,12 @@ async function performUpload<T>(
   });
 }
 
-function buildUrl(userId: string, resource: string): string {
-  const base = `${API_BASE}/${USER_PATH_PREFIX.replace(/^\//, '')}/${encodeURIComponent(userId)}`;
-  const trimmed = resource.replace(/^\/+/, '');
-  return trimmed ? `${base}/${trimmed}` : base;
-}
-
 export async function uploadDocument(
   userId: string,
   file: File,
   onProgress: (event: { loaded: number; total: number }) => void
 ): Promise<Asset> {
-  const url = buildUrl(userId, 'documents');
+  const url = getUploadDocumentUrl(userId);
   const formData = new FormData();
   formData.append('file', file);
   return performUpload<Asset>(url, {}, formData, onProgress);
@@ -74,7 +68,7 @@ export async function uploadStatement(
   file: File,
   onProgress: (event: { loaded: number; total: number }) => void
 ): Promise<ImportBatch> {
-  const url = buildUrl(userId, 'finance/import-batches');
+  const url = getCreateImportBatchUrl(userId);
   const formData = new FormData();
   formData.append('file', file);
   formData.append('account_id', accountId);

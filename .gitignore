@@ -42,6 +42,7 @@ PARENT_REPO_URL
 /tmp/
 /.tmp/
 /.autopilot/
+.tmp
 
 # Local environment files (secrets) — see .env.example
 .env
@@ -51,4 +52,3 @@ procrastinator-backend/storage/
 
 # Local build artifacts
 *.exe
-
