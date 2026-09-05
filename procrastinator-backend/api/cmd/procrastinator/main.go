@@ -18,6 +18,8 @@ import (
 	"procrastinator-backend/core/household"
 	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/core/review"
+	"procrastinator-backend/core/search"
 	"procrastinator-backend/core/statement"
 	"procrastinator-backend/infra/filestorage"
 	"procrastinator-backend/infra/llm"
@@ -64,10 +66,12 @@ func main() {
 	docRepo := postgres.NewDocumentRepository(store.Pool())
 	pdfExtractor := pdftext.New()
 	ledgerSvc := ledger.New(factory, movRepo)
-	svc := ingest.New(factory, extractor, storage, cfg.MaxUploadBytes)
+	reviewSvc := review.New(factory)
+	searchSvc := search.New(factory.Search)
+	svc := ingest.New(factory, extractor, storage, cfg.MaxUploadBytes, cfg.IngestReviewThreshold, reviewSvc)
 	statementSvc := statement.New(factory, statementStore, movRepo, docRepo, pdfExtractor, cfg.MaxStatementBytes, cfg.MaxStatementLines)
 	householdSvc := household.New(factory)
-	server := api.New(svc, factory, ledgerSvc, movRepo, cfg.MaxUploadBytes, statementSvc, cfg.MaxStatementBytes, householdSvc)
+	server := api.New(svc, factory, ledgerSvc, movRepo, cfg.MaxUploadBytes, statementSvc, cfg.MaxStatementBytes, householdSvc, searchSvc, reviewSvc)
 
 	httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: server.Routes()}
 

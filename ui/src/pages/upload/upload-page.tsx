@@ -1,12 +1,13 @@
 import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card } from '../../components/ui/card';
 import { uploadDocument } from '../../lib/api/upload';
 import { ApiError } from '../../lib/api/errors';
 import { useActiveUser } from '../../context/active-user';
 
-type UploadState = 'queued' | 'uploading' | 'success' | 'error';
+type UploadState = 'queued' | 'uploading' | 'success' | 'held' | 'error';
 
 interface FileUpload {
   id: string;
@@ -18,6 +19,8 @@ interface FileUpload {
   /** `true` when the failure is retryable (502 or network) — gates the Retry button. */
   retryable?: boolean;
   assetId?: string;
+  /** Set when the upload resolved with 202 (held for review). */
+  reviewId?: string;
   retryCount: number;
 }
 
@@ -66,14 +69,18 @@ export const UploadPage: React.FC = () => {
     }
 
     try {
-      const asset = await uploadDocument(user, fileUpload.file, ({ loaded, total }) => {
+      const result = await uploadDocument(user, fileUpload.file, ({ loaded, total }) => {
         if (total > 0) {
           setFiles((prev) => prev.map(f => f.id === fileUpload.id ? { ...f, progress: Math.round((loaded / total) * 100) } : f));
         }
       });
       
       activeUploads.current--;
-      setFiles((prev) => prev.map(f => f.id === fileUpload.id ? { ...f, state: 'success', assetId: asset.id } : f));
+      if (result.kind === 'committed') {
+        setFiles((prev) => prev.map(f => f.id === fileUpload.id ? { ...f, state: 'success', assetId: result.asset.id } : f));
+      } else {
+        setFiles((prev) => prev.map(f => f.id === fileUpload.id ? { ...f, state: 'held', reviewId: result.review.id } : f));
+      }
       queryClient.invalidateQueries({ queryKey: ['assets'] });
       processQueue();
     } catch (error: unknown) {
@@ -122,17 +129,32 @@ export const UploadPage: React.FC = () => {
         {files.map((file) => (
           <div key={file.id} className="p-2 border rounded mb-2 flex justify-between items-center">
             <span>{file.file.name}</span>
-            <span>{file.state} {file.progress}%</span>
-            {file.error && (
-              <div className="text-red-500">
-                <div>{file.error}</div>
-                {file.errorDetail && <div className="text-sm">Details: {file.errorDetail}</div>}
-                {file.retryable && (
-                  <button onClick={() => retryUpload(file.id)} className="ml-2 text-sm underline">Retry</button>
-                )}
-              </div>
-            )}
-            {file.assetId && <span>Asset ID: {file.assetId}</span>}
+            <div className="flex items-center gap-2">
+              {file.state === 'held' ? (
+                <>
+                  <span className="text-yellow-600">held for review</span>
+                  <Link to="/ingest/reviews" className="text-blue-600 underline">
+                    View review queue
+                  </Link>
+                </>
+              ) : file.state === 'success' ? (
+                <>
+                  <span>success</span>
+                  {file.assetId && <span className="text-sm text-gray-600">Asset ID: {file.assetId}</span>}
+                </>
+              ) : (
+                <span>{file.state} {file.progress}%</span>
+              )}
+              {file.error && (
+                <div className="text-red-500">
+                  <div>{file.error}</div>
+                  {file.errorDetail && <div className="text-sm">Details: {file.errorDetail}</div>}
+                  {file.retryable && (
+                    <button onClick={() => retryUpload(file.id)} className="ml-2 text-sm underline">Retry</button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         ))}
       </div>

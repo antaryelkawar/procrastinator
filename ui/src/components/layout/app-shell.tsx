@@ -15,11 +15,13 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   ArrowLeftRight,
+  ClipboardList,
   FileUp,
   History,
   Landmark,
   Menu,
   Package,
+  Search,
   Upload,
   Wallet,
 } from 'lucide-react';
@@ -36,6 +38,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { QuickSearch } from '@/components/search/quick-search';
 
 interface NavItem {
   readonly to: string;
@@ -45,10 +48,12 @@ interface NavItem {
   readonly end?: boolean;
 }
 
-/** Primary navigation — the six screens of the route table. */
+/** Primary navigation — the eight screens of the route table. */
 const NAV_ITEMS: readonly NavItem[] = [
   { to: '/upload', label: 'Upload', icon: Upload },
   { to: '/assets', label: 'Assets', icon: Package },
+  { to: '/search', label: 'Search', icon: Search },
+  { to: '/ingest/reviews', label: 'Review queue', icon: ClipboardList },
   { to: '/finance/accounts', label: 'Accounts', icon: Wallet },
   { to: '/finance/movements', label: 'Movements', icon: ArrowLeftRight },
   { to: '/finance/import', label: 'Import', icon: FileUp, end: true },
@@ -191,6 +196,9 @@ export function AppShell() {
       {/* Sidebar — permanent at md and up */}
       <aside className="hidden w-64 shrink-0 flex-col border-r bg-sidebar p-4 md:flex">
         <Brand />
+        <div className="mt-4">
+          <QuickSearch />
+        </div>
         <div className="mt-6 flex-1">
           <AppNav ariaLabel="Primary" />
         </div>
@@ -214,6 +222,9 @@ export function AppShell() {
               <Menu aria-hidden="true" />
             </Button>
             <Brand />
+            <div className="w-full mt-2">
+              <QuickSearch />
+            </div>
             <div className="w-full mt-2">
               <ActiveUserSwitcher id="user-switcher-mobile" touch />
             </div>

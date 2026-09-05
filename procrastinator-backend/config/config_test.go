@@ -42,29 +42,31 @@ func TestLoad(t *testing.T) {
 		{
 			name: "all vars set non-default",
 			src: map[string]string{
-				"PROCRASTINATOR_DATABASE_URL":        "postgres://user:pass@localhost:5432/db",
-				"PROCRASTINATOR_LLM_API_KEY":         "api-key-123",
-				"PROCRASTINATOR_LLM_MODEL":           "gemma-4-26b-a4b-it",
-				"PROCRASTINATOR_HTTP_ADDR":           ":9090",
-				"PROCRASTINATOR_LLM_BASE_URL":        "https://example.invalid/v1",
-				"PROCRASTINATOR_STORAGE_DIR":         "/tmp/alt-storage",
-				"PROCRASTINATOR_MAX_UPLOAD_BYTES":    "1024",
-				"PROCRASTINATOR_MAX_STATEMENT_BYTES": "10485760",
-				"PROCRASTINATOR_MAX_STATEMENT_LINES": "2500",
-				"PROCRASTINATOR_LLM_TIMEOUT":         "45s",
+				"PROCRASTINATOR_DATABASE_URL":                "postgres://user:pass@localhost:5432/db",
+				"PROCRASTINATOR_LLM_API_KEY":                 "api-key-123",
+				"PROCRASTINATOR_LLM_MODEL":                   "gemma-4-26b-a4b-it",
+				"PROCRASTINATOR_HTTP_ADDR":                   ":9090",
+				"PROCRASTINATOR_LLM_BASE_URL":                "https://example.invalid/v1",
+				"PROCRASTINATOR_STORAGE_DIR":                 "/tmp/alt-storage",
+				"PROCRASTINATOR_MAX_UPLOAD_BYTES":            "1024",
+				"PROCRASTINATOR_MAX_STATEMENT_BYTES":         "10485760",
+				"PROCRASTINATOR_MAX_STATEMENT_LINES":         "2500",
+				"PROCRASTINATOR_LLM_TIMEOUT":                 "45s",
+				"PROCRASTINATOR_INGEST_REVIEW_THRESHOLD":     "0.92",
 			},
 			wantErr: false,
 			want: &Config{
-				DatabaseURL:       "postgres://user:pass@localhost:5432/db",
-				HTTPAddr:          ":9090",
-				LLMBaseURL:        "https://example.invalid/v1",
-				LLMAPIKey:         "api-key-123",
-				LLMModel:          "gemma-4-26b-a4b-it",
-				StorageDir:        "/tmp/alt-storage",
-				MaxUploadBytes:    1024,
-				MaxStatementBytes: 10485760,
-				MaxStatementLines: 2500,
-				LLMTimeout:        45 * time.Second,
+				DatabaseURL:              "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:                 ":9090",
+				LLMBaseURL:               "https://example.invalid/v1",
+				LLMAPIKey:                "api-key-123",
+				LLMModel:                 "gemma-4-26b-a4b-it",
+				StorageDir:               "/tmp/alt-storage",
+				MaxUploadBytes:           1024,
+				MaxStatementBytes:        10485760,
+				MaxStatementLines:        2500,
+				LLMTimeout:               45 * time.Second,
+				IngestReviewThreshold:    0.92,
 			},
 		},
 		{
@@ -76,17 +78,135 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr: false,
 			want: &Config{
-				DatabaseURL:       "postgres://user:pass@localhost:5432/db",
-				HTTPAddr:          ":8080",
-				LLMBaseURL:        "https://generativelanguage.googleapis.com/v1beta/openai/",
-				LLMAPIKey:         "api-key-123",
-				LLMModel:          "gemma-4-26b-a4b-it",
-				StorageDir:        "./storage",
-				MaxUploadBytes:    20971520,
-				MaxStatementBytes: 52428800,
-				MaxStatementLines: 100000,
-				LLMTimeout:        60 * time.Second,
+				DatabaseURL:           "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:              ":8080",
+				LLMBaseURL:            "https://generativelanguage.googleapis.com/v1beta/openai/",
+				LLMAPIKey:             "api-key-123",
+				LLMModel:              "gemma-4-26b-a4b-it",
+				StorageDir:            "./storage",
+				MaxUploadBytes:        20971520,
+				MaxStatementBytes:     52428800,
+				MaxStatementLines:     100000,
+				LLMTimeout:            60 * time.Second,
+				IngestReviewThreshold: 0.7,
 			},
+		},
+		{
+			name: "valid threshold 0.0",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_INGEST_REVIEW_THRESHOLD"] = "0"
+				return m
+			}(),
+			wantErr: false,
+			want: &Config{
+				DatabaseURL:           "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:              ":9090",
+				LLMBaseURL:            "https://example.invalid/v1",
+				LLMAPIKey:             "api-key-123",
+				LLMModel:              "gemma-4-26b-a4b-it",
+				StorageDir:            "/tmp/alt-storage",
+				MaxUploadBytes:        1024,
+				MaxStatementBytes:     52428800,
+				MaxStatementLines:     100000,
+				LLMTimeout:            45 * time.Second,
+				IngestReviewThreshold: 0.0,
+			},
+		},
+		{
+			name: "valid threshold 1.0",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_INGEST_REVIEW_THRESHOLD"] = "1"
+				return m
+			}(),
+			wantErr: false,
+			want: &Config{
+				DatabaseURL:           "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:              ":9090",
+				LLMBaseURL:            "https://example.invalid/v1",
+				LLMAPIKey:             "api-key-123",
+				LLMModel:              "gemma-4-26b-a4b-it",
+				StorageDir:            "/tmp/alt-storage",
+				MaxUploadBytes:        1024,
+				MaxStatementBytes:     52428800,
+				MaxStatementLines:     100000,
+				LLMTimeout:            45 * time.Second,
+				IngestReviewThreshold: 1.0,
+			},
+		},
+		{
+			name: "valid threshold 0.9",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_INGEST_REVIEW_THRESHOLD"] = "0.9"
+				return m
+			}(),
+			wantErr: false,
+			want: &Config{
+				DatabaseURL:           "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:              ":9090",
+				LLMBaseURL:            "https://example.invalid/v1",
+				LLMAPIKey:             "api-key-123",
+				LLMModel:              "gemma-4-26b-a4b-it",
+				StorageDir:            "/tmp/alt-storage",
+				MaxUploadBytes:        1024,
+				MaxStatementBytes:     52428800,
+				MaxStatementLines:     100000,
+				LLMTimeout:            45 * time.Second,
+				IngestReviewThreshold: 0.9,
+			},
+		},
+		{
+			name: "invalid threshold abc",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_INGEST_REVIEW_THRESHOLD"] = "abc"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_INGEST_REVIEW_THRESHOLD",
+			want:        nil,
+		},
+		{
+			name: "invalid threshold 1.5 out of range",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_INGEST_REVIEW_THRESHOLD"] = "1.5"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_INGEST_REVIEW_THRESHOLD",
+			want:        nil,
+		},
+		{
+			name: "invalid threshold -0.1 out of range",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_INGEST_REVIEW_THRESHOLD"] = "-0.1"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_INGEST_REVIEW_THRESHOLD",
+			want:        nil,
 		},
 		{
 			name:        "missing PROCRASTINATOR_DATABASE_URL",

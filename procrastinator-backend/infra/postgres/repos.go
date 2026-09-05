@@ -1,7 +1,9 @@
 package postgres
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,6 +24,51 @@ var (
 // the scope-aware (owner + household membership) visibility behavior.
 type AssetRepository struct {
 	*pgRepository[entity.Asset]
+}
+
+// SearchAssets returns the user's assets whose brand, model, or serial_number
+// case-insensitively contain the (pre-escaped) ILIKE pattern, ordered by
+// created_at DESC, id ASC. It runs in a scope-bound transaction (app.user_id
+// RLS backstop), applies the D-8 visibility rule, and returns a non-nil empty
+// slice when nothing matches.
+func (r *AssetRepository) SearchAssets(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.Asset, error) {
+	o := repo.ApplyOptions(opts...)
+
+	tid, err := resolveOwner(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []entity.Asset
+	err = r.scope.run(ctx, tid, func(q Querier) error {
+		var args []any
+		vis, err := visibilityCond(ctx, q, tid, true, "", &args)
+		if err != nil {
+			return err
+		}
+		args = append(args, pattern)
+		patN := len(args)
+		stmt := fmt.Sprintf(
+			"SELECT * FROM assets WHERE %s AND (brand ILIKE $%d OR model ILIKE $%d OR serial_number ILIKE $%d) ORDER BY created_at DESC, id ASC",
+			vis, patN, patN, patN)
+
+		rows, err := q.Query(ctx, stmt, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		result = make([]entity.Asset, 0)
+		for rows.Next() {
+			item, err := scanAsset(rows)
+			if err != nil {
+				return err
+			}
+			result = append(result, item)
+		}
+		return rows.Err()
+	})
+	return result, err
 }
 
 // SourceRepository is the generic repository engine for entity.Source,
@@ -181,6 +228,9 @@ func assetToMap(a entity.Asset) map[string]any {
 			m["metadata"] = meta
 		}
 	}
+	if a.Confidence != nil {
+		m["confidence"] = a.Confidence
+	}
 	if a.OwnerHouseholdID != nil {
 		m["owner_household_id"] = a.OwnerHouseholdID
 	}
@@ -247,6 +297,9 @@ func documentToMap(d entity.Document) map[string]any {
 		if err == nil {
 			m["raw_extraction"] = raw
 		}
+	}
+	if d.Confidence != nil {
+		m["confidence"] = d.Confidence
 	}
 	if d.OwnerHouseholdID != nil {
 		m["owner_household_id"] = d.OwnerHouseholdID

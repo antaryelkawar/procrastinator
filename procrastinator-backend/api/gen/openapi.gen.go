@@ -19,6 +19,75 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for IngestReviewState.
+const (
+	IngestReviewStateApproved IngestReviewState = "approved"
+	IngestReviewStatePending  IngestReviewState = "pending"
+	IngestReviewStateRejected IngestReviewState = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the IngestReviewState enum.
+func (e IngestReviewState) Valid() bool {
+	switch e {
+	case IngestReviewStateApproved:
+		return true
+	case IngestReviewStatePending:
+		return true
+	case IngestReviewStateRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SearchHitType.
+const (
+	SearchHitTypeAccount     SearchHitType = "account"
+	SearchHitTypeAsset       SearchHitType = "asset"
+	SearchHitTypeDocument    SearchHitType = "document"
+	SearchHitTypeImportBatch SearchHitType = "import_batch"
+	SearchHitTypeMovement    SearchHitType = "movement"
+)
+
+// Valid indicates whether the value is a known member of the SearchHitType enum.
+func (e SearchHitType) Valid() bool {
+	switch e {
+	case SearchHitTypeAccount:
+		return true
+	case SearchHitTypeAsset:
+		return true
+	case SearchHitTypeDocument:
+		return true
+	case SearchHitTypeImportBatch:
+		return true
+	case SearchHitTypeMovement:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListReviewsParamsStatus.
+const (
+	ListReviewsParamsStatusApproved ListReviewsParamsStatus = "approved"
+	ListReviewsParamsStatusPending  ListReviewsParamsStatus = "pending"
+	ListReviewsParamsStatusRejected ListReviewsParamsStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the ListReviewsParamsStatus enum.
+func (e ListReviewsParamsStatus) Valid() bool {
+	switch e {
+	case ListReviewsParamsStatusApproved:
+		return true
+	case ListReviewsParamsStatusPending:
+		return true
+	case ListReviewsParamsStatusRejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // Account A financial account with its derived balance.
 type Account struct {
 	Balance            string    `json:"balance"`
@@ -37,9 +106,19 @@ type AddMemberRequest struct {
 	UserId string `json:"user_id"`
 }
 
+// ApproveReviewResponse Response for approving a review: the committed asset and the updated review.
+type ApproveReviewResponse struct {
+	// Asset A user asset derived from an ingested document.
+	Asset Asset `json:"asset"`
+
+	// Review An ingest review candidate held for human approval.
+	Review IngestReview `json:"review"`
+}
+
 // Asset A user asset derived from an ingested document.
 type Asset struct {
 	Brand            *string                `json:"brand,omitempty"`
+	Confidence       *float32               `json:"confidence,omitempty"`
 	CreatedAt        time.Time              `json:"created_at"`
 	Currency         *string                `json:"currency,omitempty"`
 	DocType          string                 `json:"doc_type"`
@@ -87,6 +166,7 @@ type CreateMovementRequest struct {
 
 // Document A document attached to an asset, with its source metadata.
 type Document struct {
+	Confidence       *float32  `json:"confidence,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	DocType          string    `json:"doc_type"`
 	Id               string    `json:"id"`
@@ -157,6 +237,24 @@ type ImportSource struct {
 	UploadedAt  time.Time `json:"uploaded_at"`
 }
 
+// IngestReview An ingest review candidate held for human approval.
+type IngestReview struct {
+	BestMatchedAssetId    *string                `json:"best_matched_asset_id,omitempty"`
+	BestMatchedAssetTitle *string                `json:"best_matched_asset_title,omitempty"`
+	CandidateFields       map[string]interface{} `json:"candidate_fields"`
+	Confidence            *float32               `json:"confidence,omitempty"`
+	CreatedAt             time.Time              `json:"created_at"`
+	DecidedAt             *time.Time             `json:"decided_at,omitempty"`
+	DocType               string                 `json:"doc_type"`
+	Id                    string                 `json:"id"`
+	SourceFilename        string                 `json:"source_filename"`
+	SourceUploadedAt      time.Time              `json:"source_uploaded_at"`
+	State                 IngestReviewState      `json:"state"`
+}
+
+// IngestReviewState defines model for IngestReview.State.
+type IngestReviewState string
+
 // LinkMovementRequest Request body to link a movement to a document.
 type LinkMovementRequest struct {
 	DocumentId string `json:"document_id"`
@@ -197,6 +295,31 @@ type PatchMovementRequest struct {
 	SourceAccountId      string `json:"source_account_id"`
 }
 
+// SearchHit A single search result hit.
+type SearchHit struct {
+	Confidence *float32      `json:"confidence,omitempty"`
+	Id         string        `json:"id"`
+	Subtitle   *string       `json:"subtitle,omitempty"`
+	Title      string        `json:"title"`
+	Type       SearchHitType `json:"type"`
+}
+
+// SearchHitType defines model for SearchHit.Type.
+type SearchHitType string
+
+// SearchQuickResponse Response for the quick search endpoint (no pagination metadata).
+type SearchQuickResponse struct {
+	Results []SearchHit `json:"results"`
+}
+
+// SearchResultsPage Paged search results with pagination metadata.
+type SearchResultsPage struct {
+	Page     int         `json:"page"`
+	PageSize int         `json:"page_size"`
+	Results  []SearchHit `json:"results"`
+	Total    int         `json:"total"`
+}
+
 // UploadDocumentMultipartBody defines parameters for UploadDocument.
 type UploadDocumentMultipartBody struct {
 	File             openapi_types.File `json:"file"`
@@ -214,6 +337,36 @@ type ListMovementsParams struct {
 	AccountId *string             `form:"account_id,omitempty" json:"account_id,omitempty"`
 	From      *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
 	To        *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// ListReviewsParams defines parameters for ListReviews.
+type ListReviewsParams struct {
+	// Status Filter by lifecycle state
+	Status *ListReviewsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListReviewsParamsStatus defines parameters for ListReviews.
+type ListReviewsParamsStatus string
+
+// SearchParams defines parameters for Search.
+type SearchParams struct {
+	// Q Search query (case-insensitive substring)
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Page Page number (1-based)
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Number of results per page
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
+// QuickSearchParams defines parameters for QuickSearch.
+type QuickSearchParams struct {
+	// Q Search query (case-insensitive substring)
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Limit Maximum number of hits to return
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // UploadDocumentMultipartRequestBody defines body for UploadDocument for multipart/form-data ContentType.
@@ -311,6 +464,24 @@ type ServerInterface interface {
 	// AddHouseholdMember Add a member to a household
 	// (POST /api/users/{userId}/households/{householdId}/members)
 	AddHouseholdMember(w http.ResponseWriter, r *http.Request, userId string, householdId string)
+	// ListReviews List ingest reviews
+	// (GET /api/users/{userId}/ingest/reviews)
+	ListReviews(w http.ResponseWriter, r *http.Request, userId string, params ListReviewsParams)
+	// GetReview Get an ingest review
+	// (GET /api/users/{userId}/ingest/reviews/{id})
+	GetReview(w http.ResponseWriter, r *http.Request, userId string, id string)
+	// ApproveReview Approve an ingest review
+	// (POST /api/users/{userId}/ingest/reviews/{id}/approve)
+	ApproveReview(w http.ResponseWriter, r *http.Request, userId string, id string)
+	// RejectReview Reject an ingest review
+	// (POST /api/users/{userId}/ingest/reviews/{id}/reject)
+	RejectReview(w http.ResponseWriter, r *http.Request, userId string, id string)
+	// Search Search (paged results)
+	// (GET /api/users/{userId}/search)
+	Search(w http.ResponseWriter, r *http.Request, userId string, params SearchParams)
+	// QuickSearch Quick search (typeahead)
+	// (GET /api/users/{userId}/search/quick)
+	QuickSearch(w http.ResponseWriter, r *http.Request, userId string, params QuickSearchParams)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -452,6 +623,42 @@ func (_ Unimplemented) GetHousehold(w http.ResponseWriter, r *http.Request, user
 // AddHouseholdMember Add a member to a household
 // (POST /api/users/{userId}/households/{householdId}/members)
 func (_ Unimplemented) AddHouseholdMember(w http.ResponseWriter, r *http.Request, userId string, householdId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListReviews List ingest reviews
+// (GET /api/users/{userId}/ingest/reviews)
+func (_ Unimplemented) ListReviews(w http.ResponseWriter, r *http.Request, userId string, params ListReviewsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetReview Get an ingest review
+// (GET /api/users/{userId}/ingest/reviews/{id})
+func (_ Unimplemented) GetReview(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ApproveReview Approve an ingest review
+// (POST /api/users/{userId}/ingest/reviews/{id}/approve)
+func (_ Unimplemented) ApproveReview(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RejectReview Reject an ingest review
+// (POST /api/users/{userId}/ingest/reviews/{id}/reject)
+func (_ Unimplemented) RejectReview(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Search Search (paged results)
+// (GET /api/users/{userId}/search)
+func (_ Unimplemented) Search(w http.ResponseWriter, r *http.Request, userId string, params SearchParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// QuickSearch Quick search (typeahead)
+// (GET /api/users/{userId}/search/quick)
+func (_ Unimplemented) QuickSearch(w http.ResponseWriter, r *http.Request, userId string, params QuickSearchParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1221,6 +1428,276 @@ func (siw *ServerInterfaceWrapper) AddHouseholdMember(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// ListReviews operation middleware
+func (siw *ServerInterfaceWrapper) ListReviews(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListReviewsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListReviews(w, r, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetReview operation middleware
+func (siw *ServerInterfaceWrapper) GetReview(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetReview(w, r, userId, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApproveReview operation middleware
+func (siw *ServerInterfaceWrapper) ApproveReview(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveReview(w, r, userId, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectReview operation middleware
+func (siw *ServerInterfaceWrapper) RejectReview(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectReview(w, r, userId, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Search operation middleware
+func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page_size", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page_size"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page_size", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Search(w, r, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// QuickSearch operation middleware
+func (siw *ServerInterfaceWrapper) QuickSearch(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params QuickSearchParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.QuickSearch(w, r, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1403,6 +1880,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/users/{userId}/households/{householdId}/members", wrapper.AddHouseholdMember)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/users/{userId}/search/quick", wrapper.QuickSearch)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/users/{userId}/search", wrapper.Search)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/users/{userId}/ingest/reviews", wrapper.ListReviews)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/users/{userId}/ingest/reviews/{id}", wrapper.GetReview)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/users/{userId}/ingest/reviews/{id}/approve", wrapper.ApproveReview)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/users/{userId}/ingest/reviews/{id}/reject", wrapper.RejectReview)
+	})
 
 	return r
 }
@@ -1564,6 +2059,20 @@ func (response UploadDocument201JSONResponse) VisitUploadDocumentResponse(w http
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocument202JSONResponse IngestReview
+
+func (response UploadDocument202JSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3065,6 +3574,382 @@ func (response AddHouseholdMember500JSONResponse) VisitAddHouseholdMemberRespons
 	return err
 }
 
+type ListReviewsRequestObject struct {
+	UserId string `json:"userId"`
+	Params ListReviewsParams
+}
+
+type ListReviewsResponseObject interface {
+	VisitListReviewsResponse(w http.ResponseWriter) error
+}
+
+type ListReviews200JSONResponse []IngestReview
+
+func (response ListReviews200JSONResponse) VisitListReviewsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReviews400JSONResponse Error
+
+func (response ListReviews400JSONResponse) VisitListReviewsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReviews404JSONResponse Error
+
+func (response ListReviews404JSONResponse) VisitListReviewsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReviews500JSONResponse Error
+
+func (response ListReviews500JSONResponse) VisitListReviewsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReviewRequestObject struct {
+	UserId string `json:"userId"`
+	Id     string `json:"id"`
+}
+
+type GetReviewResponseObject interface {
+	VisitGetReviewResponse(w http.ResponseWriter) error
+}
+
+type GetReview200JSONResponse IngestReview
+
+func (response GetReview200JSONResponse) VisitGetReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReview404JSONResponse Error
+
+func (response GetReview404JSONResponse) VisitGetReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReview500JSONResponse Error
+
+func (response GetReview500JSONResponse) VisitGetReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveReviewRequestObject struct {
+	UserId string `json:"userId"`
+	Id     string `json:"id"`
+}
+
+type ApproveReviewResponseObject interface {
+	VisitApproveReviewResponse(w http.ResponseWriter) error
+}
+
+type ApproveReview200JSONResponse ApproveReviewResponse
+
+func (response ApproveReview200JSONResponse) VisitApproveReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveReview404JSONResponse Error
+
+func (response ApproveReview404JSONResponse) VisitApproveReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveReview409JSONResponse Error
+
+func (response ApproveReview409JSONResponse) VisitApproveReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveReview500JSONResponse Error
+
+func (response ApproveReview500JSONResponse) VisitApproveReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReviewRequestObject struct {
+	UserId string `json:"userId"`
+	Id     string `json:"id"`
+}
+
+type RejectReviewResponseObject interface {
+	VisitRejectReviewResponse(w http.ResponseWriter) error
+}
+
+type RejectReview200JSONResponse IngestReview
+
+func (response RejectReview200JSONResponse) VisitRejectReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReview404JSONResponse Error
+
+func (response RejectReview404JSONResponse) VisitRejectReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReview409JSONResponse Error
+
+func (response RejectReview409JSONResponse) VisitRejectReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReview500JSONResponse Error
+
+func (response RejectReview500JSONResponse) VisitRejectReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchRequestObject struct {
+	UserId string `json:"userId"`
+	Params SearchParams
+}
+
+type SearchResponseObject interface {
+	VisitSearchResponse(w http.ResponseWriter) error
+}
+
+type Search200JSONResponse SearchResultsPage
+
+func (response Search200JSONResponse) VisitSearchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Search400JSONResponse Error
+
+func (response Search400JSONResponse) VisitSearchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Search404JSONResponse Error
+
+func (response Search404JSONResponse) VisitSearchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Search500JSONResponse Error
+
+func (response Search500JSONResponse) VisitSearchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuickSearchRequestObject struct {
+	UserId string `json:"userId"`
+	Params QuickSearchParams
+}
+
+type QuickSearchResponseObject interface {
+	VisitQuickSearchResponse(w http.ResponseWriter) error
+}
+
+type QuickSearch200JSONResponse SearchQuickResponse
+
+func (response QuickSearch200JSONResponse) VisitQuickSearchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuickSearch400JSONResponse Error
+
+func (response QuickSearch400JSONResponse) VisitQuickSearchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuickSearch404JSONResponse Error
+
+func (response QuickSearch404JSONResponse) VisitQuickSearchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuickSearch500JSONResponse Error
+
+func (response QuickSearch500JSONResponse) VisitQuickSearchResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ListAssets List all assets
@@ -3136,6 +4021,24 @@ type StrictServerInterface interface {
 	// AddHouseholdMember Add a member to a household
 	// (POST /api/users/{userId}/households/{householdId}/members)
 	AddHouseholdMember(ctx context.Context, request AddHouseholdMemberRequestObject) (AddHouseholdMemberResponseObject, error)
+	// ListReviews List ingest reviews
+	// (GET /api/users/{userId}/ingest/reviews)
+	ListReviews(ctx context.Context, request ListReviewsRequestObject) (ListReviewsResponseObject, error)
+	// GetReview Get an ingest review
+	// (GET /api/users/{userId}/ingest/reviews/{id})
+	GetReview(ctx context.Context, request GetReviewRequestObject) (GetReviewResponseObject, error)
+	// ApproveReview Approve an ingest review
+	// (POST /api/users/{userId}/ingest/reviews/{id}/approve)
+	ApproveReview(ctx context.Context, request ApproveReviewRequestObject) (ApproveReviewResponseObject, error)
+	// RejectReview Reject an ingest review
+	// (POST /api/users/{userId}/ingest/reviews/{id}/reject)
+	RejectReview(ctx context.Context, request RejectReviewRequestObject) (RejectReviewResponseObject, error)
+	// Search Search (paged results)
+	// (GET /api/users/{userId}/search)
+	Search(ctx context.Context, request SearchRequestObject) (SearchResponseObject, error)
+	// QuickSearch Quick search (typeahead)
+	// (GET /api/users/{userId}/search/quick)
+	QuickSearch(ctx context.Context, request QuickSearchRequestObject) (QuickSearchResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -3856,6 +4759,168 @@ func (sh *strictHandler) AddHouseholdMember(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(AddHouseholdMemberResponseObject); ok {
 		if err := validResponse.VisitAddHouseholdMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListReviews operation middleware
+func (sh *strictHandler) ListReviews(w http.ResponseWriter, r *http.Request, userId string, params ListReviewsParams) {
+	var request ListReviewsRequestObject
+
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListReviews(ctx, request.(ListReviewsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListReviews")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListReviewsResponseObject); ok {
+		if err := validResponse.VisitListReviewsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetReview operation middleware
+func (sh *strictHandler) GetReview(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	var request GetReviewRequestObject
+
+	request.UserId = userId
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetReview(ctx, request.(GetReviewRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetReview")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetReviewResponseObject); ok {
+		if err := validResponse.VisitGetReviewResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveReview operation middleware
+func (sh *strictHandler) ApproveReview(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	var request ApproveReviewRequestObject
+
+	request.UserId = userId
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveReview(ctx, request.(ApproveReviewRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveReview")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveReviewResponseObject); ok {
+		if err := validResponse.VisitApproveReviewResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RejectReview operation middleware
+func (sh *strictHandler) RejectReview(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	var request RejectReviewRequestObject
+
+	request.UserId = userId
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RejectReview(ctx, request.(RejectReviewRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RejectReview")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RejectReviewResponseObject); ok {
+		if err := validResponse.VisitRejectReviewResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// Search operation middleware
+func (sh *strictHandler) Search(w http.ResponseWriter, r *http.Request, userId string, params SearchParams) {
+	var request SearchRequestObject
+
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Search(ctx, request.(SearchRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Search")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SearchResponseObject); ok {
+		if err := validResponse.VisitSearchResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// QuickSearch operation middleware
+func (sh *strictHandler) QuickSearch(w http.ResponseWriter, r *http.Request, userId string, params QuickSearchParams) {
+	var request QuickSearchRequestObject
+
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.QuickSearch(ctx, request.(QuickSearchRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "QuickSearch")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(QuickSearchResponseObject); ok {
+		if err := validResponse.VisitQuickSearchResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -325,12 +325,12 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
   ];
 
   it('useUploadDocument: uploads for the active user, invalidates only ["assets", uid]', async () => {
-    vi.mocked(upload.uploadDocument).mockResolvedValue(assetFixture);
+    vi.mocked(upload.uploadDocument).mockResolvedValue({ kind: 'committed', asset: assetFixture });
     const { result, queryClient } = renderWithUser(() => useUploadDocument());
     vi.spyOn(queryClient, 'invalidateQueries');
     const returned = await act(async () => result.current.mutateAsync({ file: pdfFile }));
     expect(upload.uploadDocument).toHaveBeenCalledWith(ALICE, pdfFile, expect.any(Function));
-    expect(returned).toEqual(assetFixture);
+    expect(returned).toEqual({ kind: 'committed', asset: assetFixture });
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
     });

@@ -14,6 +14,7 @@ Extract document details. Return a JSON object with these fields:
 - price: string (exact decimal, e.g. "3999.99") or null
 - currency: 3-letter code (e.g. "INR", "USD") or null
 - metadata: object of additional useful fields found in the document (snake_case keys)
+- confidence: a single number in [0.0, 1.0] representing your overall confidence in the accuracy of this extraction (especially the identity fields: serial_number, brand, model). Use null if you cannot assess.
 
 Metadata examples: invoice_number, amc_card_number, amc_type, amc_period, customer_name, service_branch, icr_number, tax_rate, po_reference, system_order_no.
 

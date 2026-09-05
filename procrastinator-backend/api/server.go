@@ -14,6 +14,8 @@ import (
 	"procrastinator-backend/core/household"
 	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/core/review"
+	"procrastinator-backend/core/search"
 	"procrastinator-backend/core/statement"
 )
 
@@ -36,6 +38,10 @@ type Server struct {
 	maxStatementBytes int64
 	// household serves the household endpoints (create, add-member, list, get).
 	household *household.Service
+	// search serves the search endpoints (quick + paged).
+	search *search.Service
+	// review serves the ingest review endpoints (list, get, approve, reject).
+	review *review.Service
 }
 
 // New constructs a Server. ledgerSvc and balancer serve the finance accounts
@@ -44,7 +50,9 @@ type Server struct {
 // ingest service. statementSvc and maxStatementBytes serve the statement
 // import endpoints (import-batches); the statement size limit is enforced
 // both at the HTTP layer (MaxBytesReader) and inside the statement service.
-func New(svc *ingest.Service, factory *repo.Factory, ledgerSvc *ledger.Service, balancer ledger.BalanceQuerier, maxBytes int64, statementSvc *statement.Service, maxStatementBytes int64, householdSvc *household.Service) *Server {
+// searchSvc serves the search endpoints; reviewSvc serves the ingest review
+// endpoints.
+func New(svc *ingest.Service, factory *repo.Factory, ledgerSvc *ledger.Service, balancer ledger.BalanceQuerier, maxBytes int64, statementSvc *statement.Service, maxStatementBytes int64, householdSvc *household.Service, searchSvc *search.Service, reviewSvc *review.Service) *Server {
 	return &Server{
 		svc:               svc,
 		factory:           factory,
@@ -54,6 +62,8 @@ func New(svc *ingest.Service, factory *repo.Factory, ledgerSvc *ledger.Service, 
 		statement:         statementSvc,
 		maxStatementBytes: maxStatementBytes,
 		household:         householdSvc,
+		search:            searchSvc,
+		review:            reviewSvc,
 	}
 }
 

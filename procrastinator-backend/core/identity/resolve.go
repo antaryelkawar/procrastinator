@@ -64,6 +64,96 @@ func scopeFence(ownerHouseholdID *string) []repo.Option {
 	return []repo.Option{repo.Where("owner_household_id", "IS NULL", nil)}
 }
 
+// Match finds the best-matching existing asset for the given extraction
+// without committing (no writes). It applies the same identity hierarchy as
+// Resolve (serial first, then brand+model) within the scope fence. Returns
+// ErrNoIdentity when no usable identity fields are present. The boolean
+// reports whether a match was found; when false the returned asset is zero
+// (a new asset would be created).
+func Match(ctx context.Context, assets repo.Repository[entity.Asset], ext entity.Extraction, ownerHouseholdID *string) (entity.Asset, bool, error) {
+	tid, err := user.UserFrom(ctx)
+	if err != nil {
+		return entity.Asset{}, false, err
+	}
+
+	fence := scopeFence(ownerHouseholdID)
+
+	var normSerial, normBrand, normModel string
+	if ext.SerialNumber != nil {
+		normSerial = commons.NormalizeSerial(*ext.SerialNumber)
+	}
+	if ext.Brand != nil {
+		normBrand = commons.NormalizeName(*ext.Brand)
+	}
+	if ext.Model != nil {
+		normModel = commons.NormalizeName(*ext.Model)
+	}
+
+	switch {
+	case normSerial != "":
+		return lookup(ctx, assets, tid, "norm_serial", normSerial, fence...)
+	case normBrand != "" && normModel != "":
+		return lookup(ctx, assets, tid, "norm_brand", normBrand, append(fence, repo.Where("norm_model", "=", normModel))...)
+	default:
+		return entity.Asset{}, false, ErrNoIdentity
+	}
+}
+
+// lookup performs a single Limit(1) match query on the given field. When a
+// match is found it is returned with found=true; otherwise a zero asset with
+// found=false.
+func lookup(ctx context.Context, assets repo.Repository[entity.Asset], tid, field, value string, extra ...repo.Option) (entity.Asset, bool, error) {
+	opts := append([]repo.Option{repo.Owner(tid), repo.Where(field, "=", value), repo.Limit(1)}, extra...)
+	results, err := assets.List(ctx, opts...)
+	if err != nil {
+		return entity.Asset{}, false, err
+	}
+	if len(results) > 0 {
+		return results[0], true, nil
+	}
+	return entity.Asset{}, false, nil
+}
+
+// CommitCandidate commits a stored candidate: if matchedAssetID is non-nil it
+// loads the target asset and merges the extraction into it (falling back to
+// createNew when the asset no longer exists); if nil it creates a new asset.
+// Reuses the existing mergeInto / createNew / newAsset / scopeFence logic.
+func CommitCandidate(ctx context.Context, assets repo.Repository[entity.Asset], ext entity.Extraction, matchedAssetID *string, ownerHouseholdID *string) (entity.Asset, error) {
+	tid, err := user.UserFrom(ctx)
+	if err != nil {
+		return entity.Asset{}, err
+	}
+
+	fence := scopeFence(ownerHouseholdID)
+
+	var normSerial, normBrand, normModel string
+	if ext.SerialNumber != nil {
+		normSerial = commons.NormalizeSerial(*ext.SerialNumber)
+	}
+	if ext.Brand != nil {
+		normBrand = commons.NormalizeName(*ext.Brand)
+	}
+	if ext.Model != nil {
+		normModel = commons.NormalizeName(*ext.Model)
+	}
+
+	if matchedAssetID != nil {
+		getOpts := append([]repo.Option{repo.Owner(tid)}, fence...)
+		existing, err := assets.Get(ctx, *matchedAssetID, getOpts...)
+		if err == nil {
+			merged, _, err := mergeInto(ctx, assets, tid, ext, existing)
+			return merged, err
+		}
+		if !errors.Is(err, repo.ErrNotFound) {
+			return entity.Asset{}, err
+		}
+		// Asset was deleted or is no longer visible: fall through to createNew.
+	}
+
+	created, err := assets.Create(ctx, newAsset(ext, normSerial, normBrand, normModel, fence), repo.Owner(tid))
+	return created, err
+}
+
 // resolveBySerial matches on the normalized serial; on a miss it creates a
 // new asset.
 func resolveBySerial(ctx context.Context, assets repo.Repository[entity.Asset], tid string, ext entity.Extraction, normSerial, normBrand, normModel string, fence []repo.Option) (entity.Asset, bool, error) {
@@ -132,6 +222,7 @@ func newAsset(ext entity.Extraction, normSerial, normBrand, normModel string, fe
 		DocType:          ext.Classification,
 		Metadata:         ext.Metadata,
 		OwnerHouseholdID: scopeFromFence(fence),
+		Confidence:       ext.Confidence,
 	}
 }
 
@@ -188,6 +279,9 @@ func mergeInto(ctx context.Context, assets repo.Repository[entity.Asset], tid st
 	}
 	if ext.Metadata != nil {
 		updated.Metadata = mergeMetadata(existing.Metadata, ext.Metadata)
+	}
+	if ext.Confidence != nil {
+		updated.Confidence = ext.Confidence
 	}
 
 	merged, err := assets.Update(ctx, updated, repo.Owner(tid))

@@ -39,6 +39,7 @@ export interface Asset {
   created_at: string;
   updated_at: string;
   owner_household_id?: string | null;
+  confidence?: number | null;
 }
 
 /**
@@ -51,6 +52,7 @@ export interface Document {
   source_uploaded_at: string;
   created_at: string;
   owner_household_id?: string | null;
+  confidence?: number | null;
 }
 
 /**
@@ -236,6 +238,81 @@ export interface AddMemberRequest {
   user_id: string;
 }
 
+export type SearchHitType = typeof SearchHitType[keyof typeof SearchHitType];
+
+
+export const SearchHitType = {
+  asset: 'asset',
+  account: 'account',
+  movement: 'movement',
+  document: 'document',
+  import_batch: 'import_batch',
+} as const;
+
+/**
+ * A single search result hit.
+ */
+export interface SearchHit {
+  type: SearchHitType;
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  confidence?: number | null;
+}
+
+/**
+ * Response for the quick search endpoint (no pagination metadata).
+ */
+export interface SearchQuickResponse {
+  results: SearchHit[];
+}
+
+/**
+ * Paged search results with pagination metadata.
+ */
+export interface SearchResultsPage {
+  results: SearchHit[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export type IngestReviewCandidateFields = { [key: string]: unknown };
+
+export type IngestReviewState = typeof IngestReviewState[keyof typeof IngestReviewState];
+
+
+export const IngestReviewState = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+/**
+ * An ingest review candidate held for human approval.
+ */
+export interface IngestReview {
+  id: string;
+  doc_type: string;
+  confidence?: number | null;
+  candidate_fields: IngestReviewCandidateFields;
+  state: IngestReviewState;
+  source_filename: string;
+  source_uploaded_at: string;
+  best_matched_asset_id?: string | null;
+  best_matched_asset_title?: string | null;
+  created_at: string;
+  decided_at?: string | null;
+}
+
+/**
+ * Response for approving a review: the committed asset and the updated review.
+ */
+export interface ApproveReviewResponse {
+  asset: Asset;
+  review: IngestReview;
+}
+
 export type UploadDocumentBody = {
   file: Blob | File;
   owner_household_id?: string | null;
@@ -252,9 +329,61 @@ export type CreateImportBatchBody = {
   account_id: string;
 };
 
+export type QuickSearchParams = {
+/**
+ * Search query (case-insensitive substring)
+ */
+q?: string;
+/**
+ * Maximum number of hits to return
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+};
+
+export type SearchParams = {
+/**
+ * Search query (case-insensitive substring)
+ */
+q?: string;
+/**
+ * Page number (1-based)
+ * @minimum 1
+ */
+page?: number;
+/**
+ * Number of results per page
+ * @minimum 1
+ * @maximum 100
+ */
+page_size?: number;
+};
+
+export type ListReviewsParams = {
+/**
+ * Filter by lifecycle state
+ */
+status?: ListReviewsStatus;
+};
+
+export type ListReviewsStatus = typeof ListReviewsStatus[keyof typeof ListReviewsStatus];
+
+
+export const ListReviewsStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
 export type uploadDocumentResponse201 = {
   data: Asset
   status: 201
+}
+
+export type uploadDocumentResponse202 = {
+  data: IngestReview
+  status: 202
 }
 
 export type uploadDocumentResponse400 = {
@@ -287,7 +416,7 @@ export type uploadDocumentResponse502 = {
   status: 502
 }
 
-export type uploadDocumentResponseSuccess = (uploadDocumentResponse201) & {
+export type uploadDocumentResponseSuccess = (uploadDocumentResponse201 | uploadDocumentResponse202) & {
   headers: Headers;
 };
 export type uploadDocumentResponseError = (uploadDocumentResponse400 | uploadDocumentResponse413 | uploadDocumentResponse415 | uploadDocumentResponse422 | uploadDocumentResponse500 | uploadDocumentResponse502) & {
@@ -1659,5 +1788,372 @@ return customFetch<addHouseholdMemberResponse>(getAddHouseholdMemberUrl(userId,h
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(addMemberRequest)
+  }
+);}
+
+
+
+export type quickSearchResponse200 = {
+  data: SearchQuickResponse
+  status: 200
+}
+
+export type quickSearchResponse400 = {
+  data: Error
+  status: 400
+}
+
+export type quickSearchResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type quickSearchResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type quickSearchResponseSuccess = (quickSearchResponse200) & {
+  headers: Headers;
+};
+export type quickSearchResponseError = (quickSearchResponse400 | quickSearchResponse404 | quickSearchResponse500) & {
+  headers: Headers;
+};
+
+export type quickSearchResponse = (quickSearchResponseSuccess | quickSearchResponseError)
+
+export const getQuickSearchUrl = (userId: string,
+    params?: QuickSearchParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/users/${userId}/search/quick?${stringifiedParams}` : `/api/users/${userId}/search/quick`
+}
+
+/**
+ * Returns a fast, capped set of search hits for typeahead. Accepts
+ * optional `q` and `limit` query parameters. `limit` defaults to 10 and
+ * must be in [1,50]. An absent or blank `q` returns 200 with an empty
+ * result set.
+ * @summary Quick search (typeahead)
+ */
+export const quickSearch = async (userId: string,
+    params?: QuickSearchParams, options?: Parameters<typeof customFetch>[1]): Promise<quickSearchResponse> => {
+
+  return customFetch<quickSearchResponse>(getQuickSearchUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type searchResponse200 = {
+  data: SearchResultsPage
+  status: 200
+}
+
+export type searchResponse400 = {
+  data: Error
+  status: 400
+}
+
+export type searchResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type searchResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type searchResponseSuccess = (searchResponse200) & {
+  headers: Headers;
+};
+export type searchResponseError = (searchResponse400 | searchResponse404 | searchResponse500) & {
+  headers: Headers;
+};
+
+export type searchResponse = (searchResponseSuccess | searchResponseError)
+
+export const getSearchUrl = (userId: string,
+    params?: SearchParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/users/${userId}/search?${stringifiedParams}` : `/api/users/${userId}/search`
+}
+
+/**
+ * Returns a page of the combined, ordered search result set with
+ * pagination metadata. Accepts optional `q`, `page`, and `page_size`
+ * query parameters. `page` defaults to 1 (1-based). `page_size` defaults
+ * to 20 and must be in [1,100].
+ * @summary Search (paged results)
+ */
+export const search = async (userId: string,
+    params?: SearchParams, options?: Parameters<typeof customFetch>[1]): Promise<searchResponse> => {
+
+  return customFetch<searchResponse>(getSearchUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type listReviewsResponse200 = {
+  data: IngestReview[]
+  status: 200
+}
+
+export type listReviewsResponse400 = {
+  data: Error
+  status: 400
+}
+
+export type listReviewsResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type listReviewsResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type listReviewsResponseSuccess = (listReviewsResponse200) & {
+  headers: Headers;
+};
+export type listReviewsResponseError = (listReviewsResponse400 | listReviewsResponse404 | listReviewsResponse500) & {
+  headers: Headers;
+};
+
+export type listReviewsResponse = (listReviewsResponseSuccess | listReviewsResponseError)
+
+export const getListReviewsUrl = (userId: string,
+    params?: ListReviewsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/users/${userId}/ingest/reviews?${stringifiedParams}` : `/api/users/${userId}/ingest/reviews`
+}
+
+/**
+ * Returns the user's ingest reviews, ordered by created_at ASC then id
+ * ASC. Accepts an optional `status` query parameter; defaults to
+ * `pending`. Unrecognized status values are rejected with 400.
+ * @summary List ingest reviews
+ */
+export const listReviews = async (userId: string,
+    params?: ListReviewsParams, options?: Parameters<typeof customFetch>[1]): Promise<listReviewsResponse> => {
+
+  return customFetch<listReviewsResponse>(getListReviewsUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type getReviewResponse200 = {
+  data: IngestReview
+  status: 200
+}
+
+export type getReviewResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type getReviewResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type getReviewResponseSuccess = (getReviewResponse200) & {
+  headers: Headers;
+};
+export type getReviewResponseError = (getReviewResponse404 | getReviewResponse500) & {
+  headers: Headers;
+};
+
+export type getReviewResponse = (getReviewResponseSuccess | getReviewResponseError)
+
+export const getGetReviewUrl = (userId: string,
+    id: string,) => {
+
+
+
+
+  return `/api/users/${userId}/ingest/reviews/${id}`
+}
+
+/**
+ * Returns a single ingest review by id. Unknown or another owner's
+ * review ids yield 404.
+ * @summary Get an ingest review
+ */
+export const getReview = async (userId: string,
+    id: string, options?: Parameters<typeof customFetch>[1]): Promise<getReviewResponse> => {
+
+  return customFetch<getReviewResponse>(getGetReviewUrl(userId,id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type approveReviewResponse200 = {
+  data: ApproveReviewResponse
+  status: 200
+}
+
+export type approveReviewResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type approveReviewResponse409 = {
+  data: Error
+  status: 409
+}
+
+export type approveReviewResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type approveReviewResponseSuccess = (approveReviewResponse200) & {
+  headers: Headers;
+};
+export type approveReviewResponseError = (approveReviewResponse404 | approveReviewResponse409 | approveReviewResponse500) & {
+  headers: Headers;
+};
+
+export type approveReviewResponse = (approveReviewResponseSuccess | approveReviewResponseError)
+
+export const getApproveReviewUrl = (userId: string,
+    id: string,) => {
+
+
+
+
+  return `/api/users/${userId}/ingest/reviews/${id}/approve`
+}
+
+/**
+ * Commits the candidate of a pending review (merge or create Asset +
+ * Document) and transitions the review to approved. Approving a
+ * non-pending review yields 409. Unknown or another owner's review ids
+ * yield 404.
+ * @summary Approve an ingest review
+ */
+export const approveReview = async (userId: string,
+    id: string, options?: Parameters<typeof customFetch>[1]): Promise<approveReviewResponse> => {
+
+  return customFetch<approveReviewResponse>(getApproveReviewUrl(userId,id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export type rejectReviewResponse200 = {
+  data: IngestReview
+  status: 200
+}
+
+export type rejectReviewResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type rejectReviewResponse409 = {
+  data: Error
+  status: 409
+}
+
+export type rejectReviewResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type rejectReviewResponseSuccess = (rejectReviewResponse200) & {
+  headers: Headers;
+};
+export type rejectReviewResponseError = (rejectReviewResponse404 | rejectReviewResponse409 | rejectReviewResponse500) & {
+  headers: Headers;
+};
+
+export type rejectReviewResponse = (rejectReviewResponseSuccess | rejectReviewResponseError)
+
+export const getRejectReviewUrl = (userId: string,
+    id: string,) => {
+
+
+
+
+  return `/api/users/${userId}/ingest/reviews/${id}/reject`
+}
+
+/**
+ * Discards the candidate of a pending review (no Asset or Document
+ * created) and transitions the review to rejected. Rejecting a
+ * non-pending review yields 409. Unknown or another owner's review ids
+ * yield 404.
+ * @summary Reject an ingest review
+ */
+export const rejectReview = async (userId: string,
+    id: string, options?: Parameters<typeof customFetch>[1]): Promise<rejectReviewResponse> => {
+
+  return customFetch<rejectReviewResponse>(getRejectReviewUrl(userId,id),
+  {
+    ...options,
+    method: 'POST'
+
+
   }
 );}

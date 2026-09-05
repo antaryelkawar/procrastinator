@@ -17,6 +17,11 @@ export type CommitSummary = components['schemas']['commit_summary'];
 export type Household = components['schemas']['household'];
 export type HouseholdMember = components['schemas']['household_member'];
 export type ApiError = components['schemas']['error'];
+export type SearchHit = components['schemas']['search_hit'];
+export type SearchQuickResponse = components['schemas']['search_quick_response'];
+export type SearchResultsPage = components['schemas']['search_results_page'];
+export type IngestReview = components['schemas']['ingest_review'];
+export type ApproveReviewResponse = components['schemas']['approve_review_response'];
 
 // Request types
 export type CreateAccountRequest = components['schemas']['create_account_request'];

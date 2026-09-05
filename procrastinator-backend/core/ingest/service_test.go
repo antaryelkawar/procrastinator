@@ -21,7 +21,7 @@ const testUser = "test-user"
 
 // defaultRaw is the canonical LLM extraction payload used as the default
 // extractor result and in the invoice test cases.
-const defaultRaw = `{"classification":"invoice","brand":"LG","model":"WM-2000","serial_number":"SN-123","purchase_date":"2024-01-12","price":"39999.99","currency":"INR","metadata":{"invoice_number":"INV-1"}}`
+const defaultRaw = `{"classification":"invoice","brand":"LG","model":"WM-2000","serial_number":"SN-123","purchase_date":"2024-01-12","price":"39999.99","currency":"INR","confidence":0.95,"metadata":{"invoice_number":"INV-1"}}`
 
 // Test sentinels shared by multiple cases.
 var (
@@ -590,12 +590,54 @@ func copyMap(m map[string]any) map[string]any {
 	return out
 }
 
+// fakeReviewer is a configurable in-memory implementation of repo.Reviewer
+// with call recording.
+type fakeReviewer struct {
+	mu      sync.Mutex
+	calls   []repo.HoldInput
+	err     error
+	created entity.IngestReview
+}
+
+func (f *fakeReviewer) Hold(_ context.Context, input repo.HoldInput) (entity.IngestReview, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, input)
+	if f.err != nil {
+		return entity.IngestReview{}, f.err
+	}
+	// Simulate identity.Match: ErrNoIdentity when no usable identity.
+	ext := input.Extraction
+	hasIdentity := ext.SerialNumber != nil || (ext.Brand != nil && ext.Model != nil)
+	if !hasIdentity {
+		return entity.IngestReview{}, identity.ErrNoIdentity
+	}
+	out := f.created
+	out.SourceID = input.SourceID
+	out.DocType = input.Extraction.Classification
+	out.Confidence = input.Extraction.Confidence
+	out.State = entity.ReviewStatePending
+	out.CandidateFields = make(map[string]any)
+	out.RawExtraction = input.Extraction.RawPayload
+	out.OwnerHouseholdID = input.OwnerHouseholdID
+	return out, nil
+}
+
+func (f *fakeReviewer) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+var _ repo.Reviewer = (*fakeReviewer)(nil)
+
 // harness wires the fakes together with the Service under test.
 type harness struct {
 	svc       *Service
 	factory   *fakeFactory
 	extractor *fakeExtractor
 	storage   *fakeStorage
+	reviewer  *fakeReviewer
 	payload   []byte
 }
 
@@ -650,11 +692,13 @@ func newHarness(tc processCase) *harness {
 		maxBytes = 100
 	}
 
+	reviewer := &fakeReviewer{}
 	return &harness{
-		svc:       New(ff.factory, extractor, storage, maxBytes),
+		svc:       New(ff.factory, extractor, storage, maxBytes, 0.7, reviewer),
 		factory:   ff,
 		extractor: extractor,
 		storage:   storage,
+		reviewer:  reviewer,
 		payload:   payload,
 	}
 }
@@ -814,11 +858,11 @@ func TestProcess(t *testing.T) {
 			},
 		},
 		{
-			name: "second upload matching serial links and merges",
-			raws: []string{
-				`{"classification":"invoice","brand":"LG","model":"WM-2000","serial_number":"SN-123","price":"100.00","currency":"INR"}`,
-				`{"classification":"warranty","serial_number":"SN-123","warranty_end":"2026-01-01","price":"200.00"}`,
-			},
+		name: "second upload matching serial links and merges",
+		raws: []string{
+			`{"classification":"invoice","brand":"LG","model":"WM-2000","serial_number":"SN-123","price":"100.00","currency":"INR","confidence":0.95}`,
+			`{"classification":"warranty","serial_number":"SN-123","warranty_end":"2026-01-01","price":"200.00","confidence":0.95}`,
+		},
 			wantErrs:    []error{nil, nil},
 			wantStored:  2,
 			wantSources: 2,

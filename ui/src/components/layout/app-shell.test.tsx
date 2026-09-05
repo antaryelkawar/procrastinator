@@ -33,6 +33,11 @@ vi.mock('@/lib/api/hooks', () => ({
   useDiscardBatch: vi.fn(),
   useAccounts: vi.fn(),
   useCreateAccount: vi.fn(),
+  useQuickSearch: vi.fn(),
+  useSearch: vi.fn(),
+  useReviews: vi.fn(),
+  useApproveReview: vi.fn(),
+  useRejectReview: vi.fn(),
 }));
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/feedback/empty-state';
@@ -97,6 +102,10 @@ describe('app shell + router', () => {
     vi.mocked(hooks.useUploadStatement).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
     vi.mocked(hooks.useDiscardBatch).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
     vi.mocked(hooks.useCommitBatch).mockReturnValue({ mutate: vi.fn(), isPending: false, isSuccess: false, data: undefined } as any);
+    vi.mocked(hooks.useQuickSearch).mockReturnValue({ data: { results: [] }, isLoading: false } as any);
+    vi.mocked(hooks.useReviews).mockReturnValue({ data: [], isLoading: false, error: null } as any);
+    vi.mocked(hooks.useApproveReview).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
+    vi.mocked(hooks.useRejectReview).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
   });
   it('redirects "/" to the asset list without a reload', () => {
     renderApp('/');

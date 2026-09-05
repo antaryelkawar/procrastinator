@@ -824,6 +824,85 @@ func TestResolve_PersonalFence(t *testing.T) {
 	}
 }
 
+func TestResolve_ConfidenceStamped(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		existing   entity.Asset
+		extraction entity.Extraction
+		wantConf   *float64
+	}{
+		{
+			name:     "confidence stamped on create",
+			existing: entity.Asset{},
+			extraction: entity.Extraction{
+				SerialNumber: ptr("CONF-1"),
+				Confidence:   ptr(0.95),
+			},
+			wantConf: ptr(0.95),
+		},
+		{
+			name: "nil confidence stays nil on create",
+			existing: entity.Asset{},
+			extraction: entity.Extraction{
+				SerialNumber: ptr("CONF-2"),
+			},
+			wantConf: nil,
+		},
+		{
+			name: "confidence updated on merge",
+			existing: entity.Asset{
+				ID:         "CONF-M1",
+				NormSerial: ptr("CONF-M1"),
+			},
+			extraction: entity.Extraction{
+				SerialNumber: ptr("CONF-M1"),
+				Confidence:   ptr(0.4),
+			},
+			wantConf: ptr(0.4),
+		},
+		{
+			name: "existing confidence preserved when extraction nil",
+			existing: entity.Asset{
+				ID:         "CONF-M2",
+				NormSerial: ptr("CONF-M2"),
+				Confidence: ptr(0.8),
+			},
+			extraction: entity.Extraction{
+				SerialNumber: ptr("CONF-M2"),
+			},
+			wantConf: ptr(0.8),
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var repo *fakeAssetRepo
+			if tc.existing.ID != "" {
+				repo = newFakeAssetRepo(tc.existing)
+			} else {
+				repo = newFakeAssetRepo()
+			}
+			got, _, err := Resolve(testCtx(), repo, tc.extraction, nil)
+			if err != nil {
+				t.Fatalf("Resolve returned error: %v", err)
+			}
+			if tc.wantConf == nil {
+				if got.Confidence != nil {
+					t.Errorf("Confidence = %v, want nil", *got.Confidence)
+				}
+				return
+			}
+			if got.Confidence == nil || *got.Confidence != *tc.wantConf {
+				t.Errorf("Confidence = %v, want %v", got.Confidence, *tc.wantConf)
+			}
+		})
+	}
+}
+
 func TestResolve_ScopeStampedOnCreate(t *testing.T) {
 	t.Parallel()
 

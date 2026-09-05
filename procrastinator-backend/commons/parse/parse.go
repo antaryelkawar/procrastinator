@@ -39,6 +39,7 @@ type rawExtraction struct {
 	Price          any `json:"price"`
 	Currency       any `json:"currency"`
 	Metadata       any `json:"metadata"`
+	Confidence     any `json:"confidence"`
 }
 
 // ParseExtraction extracts a validated Extraction from an LLM response payload.
@@ -101,6 +102,7 @@ func ParseExtraction(raw string) (entity.Extraction, error) {
 	ext.WarrantyEnd = datePtr(r.WarrantyEnd)
 	ext.Price = pricePtr(r.Price)
 	ext.Currency = currencyPtr(r.Currency)
+	ext.Confidence = confidencePtr(r.Confidence)
 
 	if m, ok := r.Metadata.(map[string]any); ok {
 		ext.Metadata = m
@@ -210,4 +212,30 @@ func currencyPtr(v any) *string {
 		}
 	}
 	return &s
+}
+
+// confidencePtr parses v as a float64 in the range [0.0, 1.0]. Returns nil
+// for absent, non-numeric, or out-of-range values (never an error).
+func confidencePtr(v any) *float64 {
+	var f float64
+	switch n := v.(type) {
+	case json.Number:
+		val, err := n.Float64()
+		if err != nil {
+			return nil
+		}
+		f = val
+	case float64:
+		f = n
+	case int:
+		f = float64(n)
+	case int64:
+		f = float64(n)
+	default:
+		return nil
+	}
+	if f < 0.0 || f > 1.0 {
+		return nil
+	}
+	return &f
 }

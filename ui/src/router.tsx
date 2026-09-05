@@ -28,6 +28,8 @@ import { MovementsPage } from './pages/finance/movements-page';
 import { ImportPage } from './pages/finance/import-page';
 import { ImportHistoryPage } from './pages/finance/import-history-page';
 import { UploadPage } from './pages/upload/upload-page';
+import { SearchResultsPage } from './pages/search/search-results-page';
+import { ReviewQueuePage } from './pages/reviews/review-queue-page';
 
 function NotFoundPage() {
   return (
@@ -59,6 +61,8 @@ export function AppRoutes() {
         <Route path="/finance/import" element={<ImportPage />} />
         <Route path="/finance/import/history" element={<ImportHistoryPage />} />
         <Route path="/finance/import/:batchId" element={<ImportHistoryPage />} />
+        <Route path="/search" element={<SearchResultsPage />} />
+        <Route path="/ingest/reviews" element={<ReviewQueuePage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

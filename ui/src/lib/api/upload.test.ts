@@ -127,8 +127,22 @@ describe('uploadDocument', () => {
     expect('Content-Type' in xhr.requestHeaders).toBe(false);
 
     xhr.respond(201, JSON.stringify(ASSET_JSON));
-    const asset = await promise;
-    expect(asset).toEqual(ASSET_JSON);
+    const result = await promise;
+    expect(result.kind).toBe('committed');
+    expect((result as { kind: 'committed'; asset: unknown }).asset).toEqual(ASSET_JSON);
+  });
+
+  it('resolves with held state on 202', async () => {
+    installFakeXhr();
+    const file = makeFile('low-conf.pdf', 'application/pdf');
+    const promise = uploadDocument(ALICE, file, () => {});
+    const xhr = lastXhr();
+
+    const review = { id: 'rev-1', state: 'pending' };
+    xhr.respond(202, JSON.stringify(review));
+    const result = await promise;
+    expect(result.kind).toBe('held');
+    expect((result as { kind: 'held'; review: unknown }).review).toEqual(review);
   });
 });
 

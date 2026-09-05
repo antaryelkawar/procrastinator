@@ -30,6 +30,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import type { QueryClient, UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 import * as client from './client';
 import { uploadDocument, uploadStatement } from './upload';
+import type { UploadDocumentResult } from './upload';
 import { ApiError } from './errors';
 import { useActiveUser } from '../../context/active-user';
 import type {
@@ -243,10 +244,10 @@ export interface UploadDocumentVariables {
   readonly onProgress?: (event: { loaded: number; total: number }) => void;
 }
 
-export function useUploadDocument(): UseMutationResult<Asset, ApiError, UploadDocumentVariables> {
+export function useUploadDocument(): UseMutationResult<UploadDocumentResult, ApiError, UploadDocumentVariables> {
   const { activeUser } = useActiveUser();
   const queryClient = useQueryClient();
-  return useMutation<Asset, ApiError, UploadDocumentVariables>({
+  return useMutation<UploadDocumentResult, ApiError, UploadDocumentVariables>({
     mutationFn: ({ file, onProgress }: UploadDocumentVariables) =>
       requireUser(activeUser, (user) => uploadDocument(user, file, onProgress ?? (() => undefined))),
     onSuccess: () => {
@@ -467,4 +468,150 @@ export function useDiscardBatch(): UseMutationResult<ImportBatch, ApiError, Batc
       invalidatePrefixes(queryClient, [batchesKey(activeUser), batchKey(activeUser, variables.batchId)]);
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Search queries (read-only, no invalidation)
+// ---------------------------------------------------------------------------
+
+/** `["search-quick", uid, q, limit]` — quick search hits for the typeahead. */
+export function searchQuickKey(
+  userId: string | null,
+  q: string,
+  limit: number,
+): readonly ['search-quick', string | null, string, number] {
+  return ['search-quick', userId, q, limit];
+}
+
+/** `["search", uid, q, page, pageSize]` — paged search results. */
+export function searchKey(
+  userId: string | null,
+  q: string,
+  page: number,
+  pageSize: number,
+): readonly ['search', string | null, string, number, number] {
+  return ['search', userId, q, page, pageSize];
+}
+
+/** `["reviews", uid, status]` — ingest review list. */
+export function reviewsKey(
+  userId: string | null,
+  status: 'pending' | 'approved' | 'rejected',
+): readonly ['reviews', string | null, 'pending' | 'approved' | 'rejected'] {
+  return ['reviews', userId, status];
+}
+
+/** `["review", uid, id]` — a single ingest review. */
+export function reviewKey(
+  userId: string | null,
+  id: string,
+): readonly ['review', string | null, string] {
+  return ['review', userId, id];
+}
+
+/**
+ * Quick search (typeahead). Disabled while no user is active or when the
+ * query is blank/whitespace (mirrors the spec's "no request for blank").
+ */
+export function useQuickSearch(q: string, limit = 10): UseQueryResult<{ results: ReadonlyArray<import('./schema').SearchHit> }, Error> {
+  const { activeUser } = useActiveUser();
+  const trimmed = q.trim();
+  return useQuery({
+    queryKey: searchQuickKey(activeUser, trimmed, limit),
+    enabled: activeUser !== null && trimmed.length > 0,
+    queryFn: () => requireUser(activeUser, (user) => client.quickSearch(user, { q: trimmed, limit })),
+  });
+}
+
+/**
+ * Paged search. Disabled while no user is active or when the query is blank.
+ * `placeholderData: keepPreviousData` keeps the previous page on screen
+ * during pagination changes (matches `useMovements`).
+ */
+export function useSearch(
+  q: string,
+  page = 1,
+  pageSize = 20,
+): UseQueryResult<import('./schema').SearchResultsPage, Error> {
+  const { activeUser } = useActiveUser();
+  const trimmed = q.trim();
+  return useQuery({
+    queryKey: searchKey(activeUser, trimmed, page, pageSize),
+    enabled: activeUser !== null && trimmed.length > 0,
+    placeholderData: keepPreviousData,
+    queryFn: () => requireUser(activeUser, (user) => client.search(user, { q: trimmed, page, page_size: pageSize })),
+  });
+}
+
+/** `["reviews", uid, status]` — the active user's reviews by status. */
+export function useReviews(status: 'pending' | 'approved' | 'rejected' = 'pending'): UseQueryResult<ReadonlyArray<import('./schema').IngestReview>, Error> {
+  const { activeUser } = useActiveUser();
+  return useQuery({
+    queryKey: reviewsKey(activeUser, status),
+    enabled: activeUser !== null,
+    queryFn: () => requireUser(activeUser, (user) => client.listReviews(user, { status })),
+  });
+}
+
+/** `["review", uid, id]` — one ingest review. */
+export function useReview(id: string): UseQueryResult<import('./schema').IngestReview, Error> {
+  const { activeUser } = useActiveUser();
+  return useQuery({
+    queryKey: reviewKey(activeUser, id),
+    enabled: activeUser !== null && id !== '',
+    queryFn: () => requireUser(activeUser, (user) => client.getReview(user, id)),
+  });
+}
+
+/** Variables for approve/reject. */
+export interface ReviewIdVariables {
+  readonly reviewId: string;
+}
+
+/**
+ * D5: approve invalidates `["reviews", uid]`, `["review", uid, id]`, AND
+ * `["assets", uid]` (approve creates/merges an Asset + Document, mirroring
+ * `useCommitBatch`'s multi-prefix invalidation).
+ */
+export function useApproveReview(): UseMutationResult<import('./schema').ApproveReviewResponse, ApiError, ReviewIdVariables> {
+  const { activeUser } = useActiveUser();
+  const queryClient = useQueryClient();
+  return useMutation<import('./schema').ApproveReviewResponse, ApiError, ReviewIdVariables>({
+    mutationFn: ({ reviewId }: ReviewIdVariables) =>
+      requireUser(activeUser, (user) => client.approveReview(user, reviewId)),
+    onSuccess: (_data, variables) => {
+      if (activeUser === null) {
+        return;
+      }
+      invalidatePrefixes(queryClient, [
+        reviewsPrefix(activeUser),
+        reviewKey(activeUser, variables.reviewId),
+        assetsKey(activeUser),
+      ]);
+    },
+  });
+}
+
+/** D5: reject invalidates `["reviews", uid]` and `["review", uid, id]` only. */
+export function useRejectReview(): UseMutationResult<import('./schema').IngestReview, ApiError, ReviewIdVariables> {
+  const { activeUser } = useActiveUser();
+  const queryClient = useQueryClient();
+  return useMutation<import('./schema').IngestReview, ApiError, ReviewIdVariables>({
+    mutationFn: ({ reviewId }: ReviewIdVariables) =>
+      requireUser(activeUser, (user) => client.rejectReview(user, reviewId)),
+    onSuccess: (_data, variables) => {
+      if (activeUser === null) {
+        return;
+      }
+      invalidatePrefixes(queryClient, [
+        reviewsPrefix(activeUser),
+        reviewKey(activeUser, variables.reviewId),
+      ]);
+    },
+  });
+}
+
+/** Prefix of EVERY reviews key (any status) — the D5 invalidation unit. */
+function reviewsPrefix(userId: string): readonly ['reviews', string] {
+  return ['reviews', userId];
 }

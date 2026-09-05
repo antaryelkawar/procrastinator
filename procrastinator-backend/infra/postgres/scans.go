@@ -25,6 +25,7 @@ func toMetadataJSON(m map[string]any) ([]byte, error) {
 }
 
 // scanAsset scans a row into an entity.Asset, mapping pgx.ErrNoRows to repo.ErrNotFound.
+// Column order matches the assets table (migrations 00001 + 00005).
 func scanAsset(row rowScanner) (entity.Asset, error) {
 	var a entity.Asset
 	var id string
@@ -33,7 +34,7 @@ func scanAsset(row rowScanner) (entity.Asset, error) {
 		&id, &a.OwnerID, &a.Brand, &a.Model, &a.SerialNumber, &a.NormSerial,
 		&a.NormBrand, &a.NormModel, &a.PurchaseDate, &a.WarrantyEnd, &a.Price,
 		&a.Currency, &a.DocType, &metadataJSON, &a.CreatedAt, &a.UpdatedAt,
-		&a.OwnerHouseholdID,
+		&a.OwnerHouseholdID, &a.Confidence,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -70,6 +71,7 @@ func scanSource(row rowScanner) (entity.Source, error) {
 }
 
 // scanDocument scans a row into an entity.Document, mapping pgx.ErrNoRows to repo.ErrNotFound.
+// Column order matches the documents table (migrations 00002 + 00005).
 func scanDocument(row rowScanner) (entity.Document, error) {
 	var d entity.Document
 	var id string
@@ -77,7 +79,7 @@ func scanDocument(row rowScanner) (entity.Document, error) {
 	err := row.Scan(
 		&id, &d.OwnerID, &d.AssetID, &d.SourceID, &d.DocType,
 		&fieldsJSON, &rawJSON, &d.CreatedAt,
-		&d.OwnerHouseholdID,
+		&d.OwnerHouseholdID, &d.Confidence,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

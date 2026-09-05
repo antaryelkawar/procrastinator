@@ -36,7 +36,7 @@ describe('UploadPage', () => {
   });
 
   it('handles successful upload', async () => {
-    vi.mocked(uploadDocument).mockResolvedValue({ id: 'asset-123' } as never);
+    vi.mocked(uploadDocument).mockResolvedValue({ kind: 'committed', asset: { id: 'asset-123' } } as never);
 
     renderWithProviders();
     const file = new File(['hello'], 'success.pdf', { type: 'application/pdf' });
@@ -46,7 +46,7 @@ describe('UploadPage', () => {
     await waitFor(() => expect(screen.getByText('success.pdf')).toBeInTheDocument());
     
     // Check for success state (status span "success 0%" — exact text, not the "success.pdf" name)
-    await waitFor(() => expect(screen.getByText((content) => content === 'success 0%')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('success')).toBeInTheDocument());
     expect(screen.getByText(/Asset ID: asset-123/i)).toBeInTheDocument();
   });
 

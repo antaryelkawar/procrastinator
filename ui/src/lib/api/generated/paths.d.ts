@@ -422,6 +422,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/{userId}/search/quick": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Quick search (typeahead)
+         * @description Returns a fast, capped set of search hits for typeahead. Accepts
+         *     optional `q` and `limit` query parameters. `limit` defaults to 10 and
+         *     must be in [1,50]. An absent or blank `q` returns 200 with an empty
+         *     result set.
+         */
+        get: operations["quickSearch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{userId}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Search (paged results)
+         * @description Returns a page of the combined, ordered search result set with
+         *     pagination metadata. Accepts optional `q`, `page`, and `page_size`
+         *     query parameters. `page` defaults to 1 (1-based). `page_size` defaults
+         *     to 20 and must be in [1,100].
+         */
+        get: operations["search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{userId}/ingest/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List ingest reviews
+         * @description Returns the user's ingest reviews, ordered by created_at ASC then id
+         *     ASC. Accepts an optional `status` query parameter; defaults to
+         *     `pending`. Unrecognized status values are rejected with 400.
+         */
+        get: operations["listReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{userId}/ingest/reviews/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Get an ingest review
+         * @description Returns a single ingest review by id. Unknown or another owner's
+         *     review ids yield 404.
+         */
+        get: operations["getReview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{userId}/ingest/reviews/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve an ingest review
+         * @description Commits the candidate of a pending review (merge or create Asset +
+         *     Document) and transitions the review to approved. Approving a
+         *     non-pending review yields 409. Unknown or another owner's review ids
+         *     yield 404.
+         */
+        post: operations["approveReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{userId}/ingest/reviews/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject an ingest review
+         * @description Discards the candidate of a pending review (no Asset or Document
+         *     created) and transitions the review to rejected. Rejecting a
+         *     non-pending review yields 409. Unknown or another owner's review ids
+         *     yield 404.
+         */
+        post: operations["rejectReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -447,6 +603,8 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             owner_household_id?: string | null;
+            /** Format: float */
+            confidence?: number | null;
         };
         /** @description A document attached to an asset, with its source metadata. */
         document: {
@@ -458,6 +616,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             owner_household_id?: string | null;
+            /** Format: float */
+            confidence?: number | null;
         };
         /** @description A financial account with its derived balance. */
         account: {
@@ -609,6 +769,53 @@ export interface components {
         add_member_request: {
             user_id: string;
         };
+        /** @description A single search result hit. */
+        search_hit: {
+            /** @enum {string} */
+            type: "asset" | "account" | "movement" | "document" | "import_batch";
+            id: string;
+            title: string;
+            subtitle?: string | null;
+            /** Format: float */
+            confidence?: number | null;
+        };
+        /** @description Response for the quick search endpoint (no pagination metadata). */
+        search_quick_response: {
+            results: components["schemas"]["search_hit"][];
+        };
+        /** @description Paged search results with pagination metadata. */
+        search_results_page: {
+            results: components["schemas"]["search_hit"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
+        /** @description An ingest review candidate held for human approval. */
+        ingest_review: {
+            id: string;
+            doc_type: string;
+            /** Format: float */
+            confidence?: number | null;
+            candidate_fields: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            state: "pending" | "approved" | "rejected";
+            source_filename: string;
+            /** Format: date-time */
+            source_uploaded_at: string;
+            best_matched_asset_id?: string | null;
+            best_matched_asset_title?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            decided_at?: string | null;
+        };
+        /** @description Response for approving a review: the committed asset and the updated review. */
+        approve_review_response: {
+            asset: components["schemas"]["asset"];
+            review: components["schemas"]["ingest_review"];
+        };
     };
     responses: never;
     parameters: never;
@@ -645,6 +852,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["asset"];
+                };
+            };
+            /** @description Held for review (confidence below threshold) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ingest_review"];
                 };
             };
             /** @description Invalid request */
@@ -1918,6 +2134,315 @@ export interface operations {
             };
             /** @description Household not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    quickSearch: {
+        parameters: {
+            query?: {
+                /** @description Search query (case-insensitive substring) */
+                q?: string;
+                /** @description Maximum number of hits to return */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The quick search hits */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["search_quick_response"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description User not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    search: {
+        parameters: {
+            query?: {
+                /** @description Search query (case-insensitive substring) */
+                q?: string;
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Number of results per page */
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of search results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["search_results_page"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description User not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    listReviews: {
+        parameters: {
+            query?: {
+                /** @description Filter by lifecycle state */
+                status?: "pending" | "approved" | "rejected";
+            };
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's ingest reviews */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ingest_review"][];
+                };
+            };
+            /** @description Invalid status value */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description User not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    getReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ingest review */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ingest_review"];
+                };
+            };
+            /** @description Review not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    approveReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The committed asset and updated review */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["approve_review_response"];
+                };
+            };
+            /** @description Review not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Review is not pending */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    rejectReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The updated review (state rejected) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ingest_review"];
+                };
+            };
+            /** @description Review not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Review is not pending */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

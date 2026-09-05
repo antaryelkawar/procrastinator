@@ -1,7 +1,9 @@
 package postgres
 
 import (
+	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,6 +40,141 @@ type ImportBatchRepository struct {
 // ImportLineRepository is the generic repository engine for entity.ImportLine.
 type ImportLineRepository struct {
 	*pgRepository[entity.ImportLine]
+}
+
+// SearchAccounts returns the user's financial accounts whose name,
+// account_type, or institution case-insensitively contain the (pre-escaped)
+// ILIKE pattern, ordered by created_at DESC, id ASC. It runs in a scope-bound
+// transaction (app.user_id RLS backstop), applies the D-8 visibility rule, and
+// returns a non-nil empty slice when nothing matches.
+func (r *AccountRepository) SearchAccounts(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.FinancialAccount, error) {
+	o := repo.ApplyOptions(opts...)
+
+	tid, err := resolveOwner(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []entity.FinancialAccount
+	err = r.scope.run(ctx, tid, func(q Querier) error {
+		var args []any
+		vis, err := visibilityCond(ctx, q, tid, true, "", &args)
+		if err != nil {
+			return err
+		}
+		args = append(args, pattern)
+		patN := len(args)
+		stmt := fmt.Sprintf(
+			"SELECT * FROM financial_accounts WHERE %s AND (name ILIKE $%d OR account_type ILIKE $%d OR institution ILIKE $%d) ORDER BY created_at DESC, id ASC",
+			vis, patN, patN, patN)
+
+		rows, err := q.Query(ctx, stmt, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		result = make([]entity.FinancialAccount, 0)
+		for rows.Next() {
+			item, err := scanFinancialAccount(rows)
+			if err != nil {
+				return err
+			}
+			result = append(result, item)
+		}
+		return rows.Err()
+	})
+	return result, err
+}
+
+// SearchMovements returns the user's money movements whose description or
+// external_reference case-insensitively contain the (pre-escaped) ILIKE
+// pattern, ordered by created_at DESC, id ASC. It runs in a scope-bound
+// transaction (app.user_id RLS backstop), applies the D-8 visibility rule, and
+// returns a non-nil empty slice when nothing matches.
+func (r *MovementRepository) SearchMovements(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.MoneyMovement, error) {
+	o := repo.ApplyOptions(opts...)
+
+	tid, err := resolveOwner(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []entity.MoneyMovement
+	err = r.scope.run(ctx, tid, func(q Querier) error {
+		var args []any
+		vis, err := visibilityCond(ctx, q, tid, true, "", &args)
+		if err != nil {
+			return err
+		}
+		args = append(args, pattern)
+		patN := len(args)
+		stmt := fmt.Sprintf(
+			"SELECT * FROM money_movements WHERE %s AND (description ILIKE $%d OR external_reference ILIKE $%d) ORDER BY created_at DESC, id ASC",
+			vis, patN, patN)
+
+		rows, err := q.Query(ctx, stmt, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		result = make([]entity.MoneyMovement, 0)
+		for rows.Next() {
+			item, err := scanMoneyMovement(rows)
+			if err != nil {
+				return err
+			}
+			result = append(result, item)
+		}
+		return rows.Err()
+	})
+	return result, err
+}
+
+// SearchImportBatches returns the user's import batches whose filename
+// case-insensitively contains the (pre-escaped) ILIKE pattern, ordered by
+// created_at DESC, id ASC. It runs in a scope-bound transaction (app.user_id
+// RLS backstop), applies the D-8 visibility rule, and returns a non-nil empty
+// slice when nothing matches.
+func (r *ImportBatchRepository) SearchImportBatches(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.ImportBatch, error) {
+	o := repo.ApplyOptions(opts...)
+
+	tid, err := resolveOwner(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []entity.ImportBatch
+	err = r.scope.run(ctx, tid, func(q Querier) error {
+		var args []any
+		vis, err := visibilityCond(ctx, q, tid, true, "", &args)
+		if err != nil {
+			return err
+		}
+		args = append(args, pattern)
+		patN := len(args)
+		stmt := fmt.Sprintf(
+			"SELECT * FROM import_batches WHERE %s AND filename ILIKE $%d ORDER BY created_at DESC, id ASC",
+			vis, patN)
+
+		rows, err := q.Query(ctx, stmt, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		result = make([]entity.ImportBatch, 0)
+		for rows.Next() {
+			item, err := scanImportBatch(rows)
+			if err != nil {
+				return err
+			}
+			result = append(result, item)
+		}
+		return rows.Err()
+	})
+	return result, err
 }
 
 // NewAccountRepository returns a repository for entity.FinancialAccount.

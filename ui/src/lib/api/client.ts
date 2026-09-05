@@ -16,6 +16,10 @@ import type {
   ImportBatch,
   CommitSummary,
   Household,
+  SearchQuickResponse,
+  SearchResultsPage,
+  IngestReview,
+  ApproveReviewResponse,
   CreateAccountRequest,
   CreateMovementRequest,
   PatchMovementRequest,
@@ -45,6 +49,12 @@ import type {
   listHouseholdsResponseSuccess,
   getHouseholdResponseSuccess,
   createHouseholdResponseSuccess,
+  quickSearchResponseSuccess,
+  searchResponseSuccess,
+  listReviewsResponseSuccess,
+  getReviewResponseSuccess,
+  approveReviewResponseSuccess,
+  rejectReviewResponseSuccess,
 } from './generated/orval/procrastinator';
 
 import type { CreateMovementInput } from './schema';
@@ -71,6 +81,12 @@ import {
   getHousehold as _getHousehold,
   createHousehold as _createHousehold,
   addHouseholdMember as _addHouseholdMember,
+  quickSearch as _quickSearch,
+  search as _search,
+  listReviews as _listReviews,
+  getReview as _getReview,
+  approveReview as _approveReview,
+  rejectReview as _rejectReview,
 } from './generated/orval/procrastinator';
 
 // ---------------------------------------------------------------------------
@@ -219,4 +235,51 @@ export async function addHouseholdMember(
   body: AddMemberRequest
 ): Promise<void> {
   await _addHouseholdMember(userId, householdId, body);
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+export async function quickSearch(
+  userId: string,
+  params?: { q?: string; limit?: number },
+): Promise<SearchQuickResponse> {
+  const res = await _quickSearch(userId, params);
+  return (res as quickSearchResponseSuccess).data;
+}
+
+export async function search(
+  userId: string,
+  params?: { q?: string; page?: number; page_size?: number },
+): Promise<SearchResultsPage> {
+  const res = await _search(userId, params);
+  return (res as searchResponseSuccess).data;
+}
+
+// ---------------------------------------------------------------------------
+// Ingest Reviews
+// ---------------------------------------------------------------------------
+
+export async function listReviews(
+  userId: string,
+  params?: { status?: 'pending' | 'approved' | 'rejected' },
+): Promise<IngestReview[]> {
+  const res = await _listReviews(userId, params);
+  return (res as listReviewsResponseSuccess).data;
+}
+
+export async function getReview(userId: string, id: string): Promise<IngestReview> {
+  const res = await _getReview(userId, id);
+  return (res as getReviewResponseSuccess).data;
+}
+
+export async function approveReview(userId: string, id: string): Promise<ApproveReviewResponse> {
+  const res = await _approveReview(userId, id);
+  return (res as approveReviewResponseSuccess).data;
+}
+
+export async function rejectReview(userId: string, id: string): Promise<IngestReview> {
+  const res = await _rejectReview(userId, id);
+  return (res as rejectReviewResponseSuccess).data;
 }

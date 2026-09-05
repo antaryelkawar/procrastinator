@@ -81,12 +81,19 @@ func (s *Server) UploadDocument(ctx context.Context, request gen.UploadDocumentR
 		}
 	}
 
-	asset, err := s.svc.Process(ctx, filename, payload, contentType, ownerHH)
+	result, err := s.svc.Process(ctx, filename, payload, contentType, ownerHH)
 	if err != nil {
 		status, msg := mapIngestError(err)
 		return nil, newAPIError(status, msg)
 	}
-	return gen.UploadDocument201JSONResponse(toAsset(asset)), nil
+	if result.Review != nil {
+		dto, err := s.toReview(ctx, request.UserId, *result.Review)
+		if err != nil {
+			return nil, newAPIError(http.StatusInternalServerError, "internal error")
+		}
+		return gen.UploadDocument202JSONResponse(dto), nil
+	}
+	return gen.UploadDocument201JSONResponse(toAsset(*result.Committed)), nil
 }
 
 // isHouseholdMember reports whether userID is a member of householdID.

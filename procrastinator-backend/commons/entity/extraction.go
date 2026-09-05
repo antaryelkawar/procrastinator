@@ -15,4 +15,8 @@ type Extraction struct {
 	Currency       *string
 	Metadata       map[string]any
 	RawPayload     string
+	// Confidence is the LLM's self-assessed confidence in the extraction
+	// (0.0–1.0); nil means absent (the LLM did not emit it or it was
+	// unparseable/out-of-range).
+	Confidence *float64
 }

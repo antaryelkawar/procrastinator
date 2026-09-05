@@ -18,6 +18,8 @@ type Factory struct {
 	ImportLines   Repository[entity.ImportLine]
 	Households    HouseholdRepository
 	Users         UserRegistry
+	Search        SearchBackend
+	Reviews       Repository[entity.IngestReview]
 	InTx          func(ctx context.Context, fn func(ctx context.Context, repos *Repos) error) error
 }
 
@@ -32,4 +34,5 @@ type Repos struct {
 	ImportBatches Repository[entity.ImportBatch]
 	ImportLines   Repository[entity.ImportLine]
 	Households    HouseholdRepository
+	Reviews       Repository[entity.IngestReview]
 }

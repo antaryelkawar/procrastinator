@@ -1,12 +1,13 @@
 import { ApiError, errorCopy, errorDetailFromBody, NETWORK_STATUS } from './errors';
 import { getUploadDocumentUrl, getCreateImportBatchUrl } from './generated/orval/procrastinator';
-import type { Asset, ImportBatch } from './generated/orval/procrastinator';
+import type { Asset, ImportBatch, IngestReview } from './generated/orval/procrastinator';
 
 async function performUpload<T>(
   url: string,
   headers: Record<string, string>,
   formData: FormData,
-  onProgress: (event: { loaded: number; total: number }) => void
+  onProgress: (event: { loaded: number; total: number }) => void,
+  mapResponse?: (status: number, body: unknown) => T | null
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -22,11 +23,22 @@ async function performUpload<T>(
 
     xhr.onload = async () => {
       if (xhr.status >= 200 && xhr.status < 300) {
+        let body: unknown;
         try {
-          resolve(JSON.parse(xhr.responseText) as T);
+          body = JSON.parse(xhr.responseText);
         } catch {
-          resolve(xhr.responseText as unknown as T);
+          body = xhr.responseText;
         }
+        
+        if (mapResponse) {
+          const mapped = mapResponse(xhr.status, body);
+          if (mapped !== null) {
+            resolve(mapped);
+            return;
+          }
+        }
+        
+        resolve(body as T);
       } else {
         let detail = '';
         try {
@@ -51,15 +63,27 @@ async function performUpload<T>(
   });
 }
 
+export type UploadDocumentResult =
+  | { kind: 'committed'; asset: Asset }
+  | { kind: 'held'; review: IngestReview };
+
 export async function uploadDocument(
   userId: string,
   file: File,
   onProgress: (event: { loaded: number; total: number }) => void
-): Promise<Asset> {
+): Promise<UploadDocumentResult> {
   const url = getUploadDocumentUrl(userId);
   const formData = new FormData();
   formData.append('file', file);
-  return performUpload<Asset>(url, {}, formData, onProgress);
+  return performUpload<UploadDocumentResult>(url, {}, formData, onProgress, (status, body) => {
+    if (status === 201) {
+      return { kind: 'committed', asset: body as Asset };
+    }
+    if (status === 202) {
+      return { kind: 'held', review: body as IngestReview };
+    }
+    return null;
+  });
 }
 
 export async function uploadStatement(

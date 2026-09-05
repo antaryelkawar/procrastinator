@@ -6,8 +6,8 @@
 // backstop on the shared tables).
 //
 // Precondition: the compose `postgres` service is running and migrations are
-// applied to v4 (00004_row_level_security). When the database is unreachable or
-// not migrated, the test skips with a reason rather than failing.
+// applied to v5 (00005_confidence_reviews_search). When the database is
+// unreachable or not migrated, the test skips with a reason rather than failing.
 //
 // The test is self-contained and re-runnable: it provisions a unique
 // per-run prefix (e2e-<unix>-<hex>) and three users, then cleans up its rows
@@ -38,6 +38,8 @@ import (
 	"procrastinator-backend/core/household"
 	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/core/review"
+	"procrastinator-backend/core/search"
 	"procrastinator-backend/core/statement"
 	"procrastinator-backend/infra/filestorage"
 	"procrastinator-backend/infra/pdftext"
@@ -66,7 +68,16 @@ var _ repo.Extractor = fakeExtractor{}
 // run so identity resolution creates a distinct personal asset.
 func invoicePayload(runID string) string {
 	return fmt.Sprintf(
-		`{"classification":"invoice","brand":"E2E","model":"Model-%s","serial_number":"E2E-%s-P","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100.00","currency":"INR","metadata":{}}`,
+		`{"classification":"invoice","brand":"E2E","model":"Model-%s","serial_number":"E2E-%s-P","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100.00","currency":"INR","confidence":0.95,"metadata":{}}`,
+		runID, runID,
+	)
+}
+
+// lowConfPayload returns a valid invoice extraction with a low confidence
+// (below the 0.7 threshold) so the confidence gate holds it for review.
+func lowConfPayload(runID string) string {
+	return fmt.Sprintf(
+		`{"classification":"invoice","brand":"E2E","model":"Review-%s","serial_number":"E2E-%s-RC","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100.00","currency":"INR","confidence":0.4,"metadata":{}}`,
 		runID, runID,
 	)
 }
@@ -79,11 +90,15 @@ func buildServer(t *testing.T, storageDir, runID string, pool *pgxpool.Pool, fac
 
 	movRepo := postgres.NewMovementRepository(pool)
 	ledgerSvc := ledger.New(factory, movRepo)
+	reviewSvc := review.New(factory)
+	searchSvc := search.New(factory.Search)
 	ingestSvc := ingest.New(
 		factory,
 		fakeExtractor{payload: invoicePayload(runID)},
 		filestorage.New(storageDir),
 		maxBytes,
+		0.7,
+		reviewSvc,
 	)
 	stmtSvc := statement.New(
 		factory,
@@ -94,7 +109,7 @@ func buildServer(t *testing.T, storageDir, runID string, pool *pgxpool.Pool, fac
 		maxBytes,
 		100000,
 	)
-	srv := api.New(ingestSvc, factory, ledgerSvc, movRepo, maxBytes, stmtSvc, maxBytes, household.New(factory))
+	srv := api.New(ingestSvc, factory, ledgerSvc, movRepo, maxBytes, stmtSvc, maxBytes, household.New(factory), searchSvc, reviewSvc)
 	return srv.Routes()
 }
 
@@ -221,14 +236,14 @@ func TestTenancyE2E(t *testing.T) {
 		t.Skipf("PG unreachable (ping): %v", err)
 	}
 
-	// The owner model needs migration 00004 (row-level security + households).
-	// Skip if the schema is not at v4 rather than failing on a missing object.
+	// The owner model needs migration 00005 (confidence + reviews).
+	// Skip if the schema is not at v5 rather than failing on a missing object.
 	var maxVersion int
 	if err := pool.QueryRow(ctx, `SELECT coalesce(max(version_id), 0) FROM goose_db_version`).Scan(&maxVersion); err != nil {
 		t.Skipf("check goose_db_version: %v", err)
 	}
-	if maxVersion != 4 {
-		t.Skipf("schema not at v4 (final set); max goose version is %d; run goose migrations to v4 first", maxVersion)
+	if maxVersion != 5 {
+		t.Skipf("schema not at v5 (final set); max goose version is %d; run goose migrations to v5 first", maxVersion)
 	}
 
 	// Unique per-run prefix (matches ^[A-Za-z0-9_-]{1,64}$).
@@ -273,6 +288,9 @@ func TestTenancyE2E(t *testing.T) {
 		// created, in both scopes). Children before parents for the FKs.
 		if _, err := tx.Exec(cctx, "DELETE FROM documents WHERE owner_id = $1", u1); err != nil {
 			t.Errorf("cleanup documents: %v", err)
+		}
+		if _, err := tx.Exec(cctx, "DELETE FROM ingest_reviews WHERE owner_id = $1", u1); err != nil {
+			t.Errorf("cleanup ingest_reviews: %v", err)
 		}
 		if _, err := tx.Exec(cctx, "DELETE FROM assets WHERE owner_id = $1", u1); err != nil {
 			t.Errorf("cleanup assets: %v", err)
@@ -608,5 +626,562 @@ func TestTenancyE2E(t *testing.T) {
 			t.Errorf("u3 sees %d asset row(s), want 0 (u3 is in no household and owns nothing)", u3All)
 		}
 		_ = tx.Rollback(ctx)
+	})
+}
+
+// TestConfidenceReviewE2E drives the confidence gate + review lifecycle
+// end-to-end: low-confidence upload → 202 (held) → list → approve → asset+doc
+// created; separate low-confidence upload → 202 → reject → no asset, source
+// retained.
+func TestConfidenceReviewE2E(t *testing.T) {
+	dsn := os.Getenv("PROCRASTINATOR_E2E_DATABASE_URL")
+	if dsn == "" {
+		dsn = defaultDSN
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Skipf("PG unreachable (pgxpool.New): %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(ctx); err != nil {
+		t.Skipf("PG unreachable (ping): %v", err)
+	}
+
+	var maxVersion int
+	if err := pool.QueryRow(ctx, `SELECT coalesce(max(version_id), 0) FROM goose_db_version`).Scan(&maxVersion); err != nil {
+		t.Skipf("check goose_db_version: %v", err)
+	}
+	if maxVersion != 5 {
+		t.Skipf("schema not at v5; max goose version is %d", maxVersion)
+	}
+
+	var rb [4]byte
+	if _, err := rand.Read(rb[:]); err != nil {
+		t.Fatalf("read crypto/rand: %v", err)
+	}
+	runID := fmt.Sprintf("e2e-r-%d-%s", time.Now().Unix(), hex.EncodeToString(rb[:]))
+	u1, u2 := runID+"-owner", runID+"-other"
+
+	// Build server with a low-confidence extractor (0.4 < 0.7 threshold).
+	storageDir := t.TempDir()
+	factory := postgres.NewFactory(pool)
+	handler := buildServerWithPayload(t, storageDir, lowConfPayload(runID), pool, factory)
+
+	if err := provisionUsers(ctx, pool, u1, u2); err != nil {
+		t.Fatalf("provision users: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cctx, ccancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer ccancel()
+		tx, err := pool.Begin(cctx)
+		if err != nil {
+			return
+		}
+		if _, err := tx.Exec(cctx, `SELECT set_config('app.user_id', $1, true)`, u1); err != nil {
+			return
+		}
+		_, _ = tx.Exec(cctx, "DELETE FROM documents WHERE owner_id = $1", u1)
+		_, _ = tx.Exec(cctx, "DELETE FROM ingest_reviews WHERE owner_id = $1", u1)
+		_, _ = tx.Exec(cctx, "DELETE FROM assets WHERE owner_id = $1", u1)
+		_, _ = tx.Exec(cctx, "DELETE FROM sources WHERE owner_id = $1", u1)
+		_ = tx.Commit(cctx)
+		for _, u := range []string{u1, u2} {
+			_, _ = pool.Exec(cctx, "DELETE FROM users WHERE id = $1", u)
+		}
+	})
+
+	// (a) Upload with low confidence → 202 (held for review).
+	var reviewID string
+	t.Run("a_low_confidence_upload_held", func(t *testing.T) {
+		status, body := httpPostFileForm(t, handler, "/api/users/"+u1+"/documents", "review-approve.pdf", pdfBytes("ra-"+runID), nil)
+		if status != http.StatusAccepted {
+			t.Fatalf("low-conf upload status = %d, want 202 (body: %s)", status, body)
+		}
+		var rev map[string]any
+		if err := json.Unmarshal(body, &rev); err != nil {
+			t.Fatalf("unmarshal 202 response: %v (body: %s)", err, body)
+		}
+		reviewID = strVal(rev, "id")
+		if reviewID == "" {
+			t.Fatalf("review id is empty (body: %s)", body)
+		}
+		if state := strVal(rev, "state"); state != "pending" {
+			t.Errorf("review state = %q, want pending (body: %s)", state, body)
+		}
+		if conf, ok := rev["confidence"].(float64); !ok || conf < 0.4 || conf > 0.41 {
+			t.Errorf("review confidence = %v, want ~0.4 (body: %s)", rev["confidence"], body)
+		}
+	})
+
+	// (b) List reviews → the pending review appears.
+	t.Run("b_list_shows_pending_review", func(t *testing.T) {
+		status, body := httpGet(t, handler, "/api/users/"+u1+"/ingest/reviews")
+		if status != http.StatusOK {
+			t.Fatalf("list reviews status = %d, want 200 (body: %s)", status, body)
+		}
+		var reviews []map[string]any
+		if err := json.Unmarshal(body, &reviews); err != nil {
+			t.Fatalf("unmarshal reviews: %v (body: %s)", err, body)
+		}
+		if len(reviews) != 1 {
+			t.Fatalf("list returned %d reviews, want 1 (body: %s)", len(reviews), body)
+		}
+		if got := strVal(reviews[0], "id"); got != reviewID {
+			t.Errorf("listed review id = %q, want %q", got, reviewID)
+		}
+	})
+
+	// (c) Approve the review → 200 with the resulting asset.
+	var approvedAssetID string
+	t.Run("c_approve_creates_asset", func(t *testing.T) {
+		status, body := httpPostJSON(t, handler, "/api/users/"+u1+"/ingest/reviews/"+reviewID+"/approve", nil)
+		if status != http.StatusOK {
+			t.Fatalf("approve status = %d, want 200 (body: %s)", status, body)
+		}
+		var resp struct {
+			Asset  map[string]any `json:"asset"`
+			Review map[string]any `json:"review"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("unmarshal approve response: %v (body: %s)", err, body)
+		}
+		approvedAssetID = strVal(resp.Asset, "id")
+		if approvedAssetID == "" {
+			t.Fatalf("approved asset id is empty (body: %s)", body)
+		}
+		if state := strVal(resp.Review, "state"); state != "approved" {
+			t.Errorf("review state after approve = %q, want approved (body: %s)", state, body)
+		}
+		if resp.Review["decided_at"] == nil {
+			t.Error("decided_at is nil after approve, want set")
+		}
+	})
+
+	// (d) The approved asset is retrievable and has a document.
+	t.Run("d_approved_asset_exists", func(t *testing.T) {
+		if approvedAssetID == "" {
+			t.Skipf("prerequisite (c) did not produce an asset id")
+		}
+		status, body := httpGet(t, handler, "/api/users/"+u1+"/assets/"+approvedAssetID)
+		if status != http.StatusOK {
+			t.Fatalf("GET approved asset status = %d, want 200 (body: %s)", status, body)
+		}
+		var asset map[string]any
+		if err := json.Unmarshal(body, &asset); err != nil {
+			t.Fatalf("unmarshal asset: %v (body: %s)", err, body)
+		}
+		if strVal(asset, "id") != approvedAssetID {
+			t.Errorf("asset id = %q, want %q", strVal(asset, "id"), approvedAssetID)
+		}
+
+		// The asset should have a document linked.
+		dStatus, dBody := httpGet(t, handler, "/api/users/"+u1+"/assets/"+approvedAssetID+"/documents")
+		if dStatus != http.StatusOK {
+			t.Fatalf("GET asset documents status = %d, want 200 (body: %s)", dStatus, dBody)
+		}
+		var docs []map[string]any
+		if err := json.Unmarshal(dBody, &docs); err != nil {
+			t.Fatalf("unmarshal documents: %v (body: %s)", err, dBody)
+		}
+		if len(docs) < 1 {
+			t.Errorf("approved asset has %d documents, want >=1 (body: %s)", len(docs), dBody)
+		}
+	})
+
+	// (e) Upload a second document → 202, then reject → no asset created,
+	// source retained.
+	var rejectReviewID string
+	t.Run("e_second_upload_and_reject", func(t *testing.T) {
+		// Use a different serial to avoid identity merge.
+		payload := fmt.Sprintf(
+			`{"classification":"invoice","brand":"E2E","model":"Reject-%s","serial_number":"E2E-%s-RJ","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"50.00","currency":"INR","confidence":0.3,"metadata":{}}`,
+			runID, runID,
+		)
+		// Rebuild with different payload for this upload — use a second server.
+		factory2 := postgres.NewFactory(pool)
+		handler2 := buildServerWithPayload(t, storageDir, payload, pool, factory2)
+
+		status, body := httpPostFileForm(t, handler2, "/api/users/"+u1+"/documents", "review-reject.pdf", pdfBytes("rr-"+runID), nil)
+		if status != http.StatusAccepted {
+			t.Fatalf("second low-conf upload status = %d, want 202 (body: %s)", status, body)
+		}
+		var rev map[string]any
+		if err := json.Unmarshal(body, &rev); err != nil {
+			t.Fatalf("unmarshal second 202 response: %v (body: %s)", err, body)
+		}
+		rejectReviewID = strVal(rev, "id")
+		if rejectReviewID == "" {
+			t.Fatalf("second review id is empty (body: %s)", body)
+		}
+
+		// Record the source count (bound to u1 for RLS) for later verification.
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin source count tx: %v", err)
+		}
+		if _, err := tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, u1); err != nil {
+			t.Fatalf("set_config for source count: %v", err)
+		}
+		var srcCount int
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM sources WHERE owner_id = $1", u1).Scan(&srcCount); err != nil {
+			t.Fatalf("count sources: %v", err)
+		}
+		_ = tx.Rollback(ctx)
+		if srcCount < 2 {
+			t.Errorf("source count = %d, want >=2 (both uploads should retain sources)", srcCount)
+		}
+
+		// Reject the second review.
+		status, body = httpPostJSON(t, handler2, "/api/users/"+u1+"/ingest/reviews/"+rejectReviewID+"/reject", nil)
+		if status != http.StatusOK {
+			t.Fatalf("reject status = %d, want 200 (body: %s)", status, body)
+		}
+		var updated map[string]any
+		if err := json.Unmarshal(body, &updated); err != nil {
+			t.Fatalf("unmarshal reject response: %v (body: %s)", err, body)
+		}
+		if state := strVal(updated, "state"); state != "rejected" {
+			t.Errorf("review state after reject = %q, want rejected (body: %s)", state, body)
+		}
+		if updated["decided_at"] == nil {
+			t.Error("decided_at is nil after reject, want set")
+		}
+	})
+
+	// (f) After reject: no new asset was created for the rejected candidate,
+	// but the source is still retained.
+	t.Run("f_rejected_no_asset_source_retained", func(t *testing.T) {
+		if rejectReviewID == "" {
+			t.Skipf("prerequisite (e) did not produce a review id")
+		}
+		// The rejected review should not have produced an asset. Verify by
+		// listing assets: only the one from (c) should exist.
+		status, body := httpGet(t, handler, "/api/users/"+u1+"/assets")
+		if status != http.StatusOK {
+			t.Fatalf("list assets status = %d, want 200 (body: %s)", status, body)
+		}
+		var assets []map[string]any
+		if err := json.Unmarshal(body, &assets); err != nil {
+			t.Fatalf("unmarshal assets: %v (body: %s)", err, body)
+		}
+		if len(assets) != 1 {
+			t.Errorf("asset count = %d, want 1 (only the approved one; rejected candidate should not create an asset)", len(assets))
+		}
+
+		// Source is retained: bound DB check.
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin source-retain tx: %v", err)
+		}
+		if _, err := tx.Exec(ctx, `SELECT set_config('app.user_id', $1, true)`, u1); err != nil {
+			t.Fatalf("set_config for source retain check: %v", err)
+		}
+		var srcCount int
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM sources WHERE owner_id = $1", u1).Scan(&srcCount); err != nil {
+			t.Fatalf("count sources: %v", err)
+		}
+		_ = tx.Rollback(ctx)
+		if srcCount < 2 {
+			t.Errorf("source count = %d, want >=2 (rejected upload's source must be retained)", srcCount)
+		}
+	})
+
+	// (g) Another owner (u2) cannot see u1's reviews.
+	t.Run("g_cross_owner_review_invisible", func(t *testing.T) {
+		status, body := httpGet(t, handler, "/api/users/"+u2+"/ingest/reviews")
+		if status != http.StatusOK {
+			t.Fatalf("u2 list reviews status = %d, want 200 (body: %s)", status, body)
+		}
+		var reviews []map[string]any
+		if err := json.Unmarshal(body, &reviews); err != nil {
+			t.Fatalf("unmarshal u2 reviews: %v (body: %s)", err, body)
+		}
+		if len(reviews) != 0 {
+			t.Errorf("u2 sees %d reviews, want 0 (cross-owner isolation)", len(reviews))
+		}
+
+		// u2 cannot get u1's review by id.
+		if reviewID != "" {
+			if s, b := httpGet(t, handler, "/api/users/"+u2+"/ingest/reviews/"+reviewID); s != http.StatusNotFound {
+				t.Errorf("u2 GET u1's review status = %d, want 404 (body: %s)", s, b)
+			}
+		}
+	})
+}
+
+// buildServerWithPayload wires the real api.Server with a specific extractor
+// payload. It is a variant of buildServer that allows the E2E tests to control
+// the extraction confidence.
+func buildServerWithPayload(t *testing.T, storageDir, payload string, pool *pgxpool.Pool, factory *repo.Factory) http.Handler {
+	t.Helper()
+	const maxBytes = int64(20 * 1024 * 1024)
+
+	movRepo := postgres.NewMovementRepository(pool)
+	ledgerSvc := ledger.New(factory, movRepo)
+	reviewSvc := review.New(factory)
+	searchSvc := search.New(factory.Search)
+	ingestSvc := ingest.New(
+		factory,
+		fakeExtractor{payload: payload},
+		filestorage.New(storageDir),
+		maxBytes,
+		0.7,
+		reviewSvc,
+	)
+	stmtSvc := statement.New(
+		factory,
+		filestorage.NewStatement(t.TempDir()),
+		movRepo,
+		postgres.NewDocumentRepository(pool),
+		pdftext.New(),
+		maxBytes,
+		100000,
+	)
+	srv := api.New(ingestSvc, factory, ledgerSvc, movRepo, maxBytes, stmtSvc, maxBytes, household.New(factory), searchSvc, reviewSvc)
+	return srv.Routes()
+}
+
+// TestSearchIsolationE2E drives the search isolation scenarios end-to-end:
+// cross-owner isolation, household member sees household asset, non-member sees
+// nothing, unbound RLS session sees nothing.
+func TestSearchIsolationE2E(t *testing.T) {
+	dsn := os.Getenv("PROCRASTINATOR_E2E_DATABASE_URL")
+	if dsn == "" {
+		dsn = defaultDSN
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Skipf("PG unreachable (pgxpool.New): %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(ctx); err != nil {
+		t.Skipf("PG unreachable (ping): %v", err)
+	}
+
+	var maxVersion int
+	if err := pool.QueryRow(ctx, `SELECT coalesce(max(version_id), 0) FROM goose_db_version`).Scan(&maxVersion); err != nil {
+		t.Skipf("check goose_db_version: %v", err)
+	}
+	if maxVersion != 5 {
+		t.Skipf("schema not at v5; max goose version is %d", maxVersion)
+	}
+
+	var rb [4]byte
+	if _, err := rand.Read(rb[:]); err != nil {
+		t.Fatalf("read crypto/rand: %v", err)
+	}
+	runID := fmt.Sprintf("e2e-s-%d-%s", time.Now().Unix(), hex.EncodeToString(rb[:]))
+	u1, u2, u3 := runID+"-u1", runID+"-u2", runID+"-u3"
+
+	// Build server with high-confidence extractor (0.95 ≥ 0.7) so uploads
+	// auto-commit.
+	storageDir := t.TempDir()
+	factory := postgres.NewFactory(pool)
+	handler := buildServerWithPayload(t, storageDir, invoicePayload(runID), pool, factory)
+
+	if err := provisionUsers(ctx, pool, u1, u2, u3); err != nil {
+		t.Fatalf("provision users: %v", err)
+	}
+
+	var hhID, hhAssetID, personalAssetID string
+
+	t.Cleanup(func() {
+		cctx, ccancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer ccancel()
+		tx, err := pool.Begin(cctx)
+		if err != nil {
+			return
+		}
+		if _, err := tx.Exec(cctx, `SELECT set_config('app.user_id', $1, true)`, u1); err != nil {
+			return
+		}
+		_, _ = tx.Exec(cctx, "DELETE FROM documents WHERE owner_id = $1", u1)
+		_, _ = tx.Exec(cctx, "DELETE FROM ingest_reviews WHERE owner_id = $1", u1)
+		_, _ = tx.Exec(cctx, "DELETE FROM assets WHERE owner_id = $1", u1)
+		_, _ = tx.Exec(cctx, "DELETE FROM sources WHERE owner_id = $1", u1)
+		if hhID != "" {
+			_, _ = tx.Exec(cctx, "DELETE FROM household_members WHERE household_id = $1", hhID)
+		}
+		_, _ = tx.Exec(cctx, "DELETE FROM households WHERE owner_id = $1", u1)
+		_ = tx.Commit(cctx)
+		for _, u := range []string{u1, u2, u3} {
+			_, _ = pool.Exec(cctx, "DELETE FROM users WHERE id = $1", u)
+		}
+	})
+
+	// (a) Create household, add u2 as member.
+	t.Run("a_household_setup", func(t *testing.T) {
+		status, body := httpPostJSON(t, handler, "/api/users/"+u1+"/households", map[string]string{"display_name": "E2E Search HH"})
+		if status != http.StatusCreated {
+			t.Fatalf("create household status = %d, want 201 (body: %s)", status, body)
+		}
+		var hh struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(body, &hh); err != nil {
+			t.Fatalf("unmarshal household: %v (body: %s)", err, body)
+		}
+		hhID = hh.ID
+		if hhID == "" {
+			t.Fatal("household id is empty")
+		}
+		if s, b := httpPostJSON(t, handler, "/api/users/"+u1+"/households/"+hhID+"/members", map[string]string{"user_id": u2}); s != http.StatusNoContent {
+			t.Fatalf("add member status = %d, want 204 (body: %s)", s, b)
+		}
+	})
+
+	// (b) Upload a household-scoped asset and a personal asset (both auto-commit
+	// at confidence 0.95).
+	t.Run("b_upload_household_and_personal", func(t *testing.T) {
+		if hhID == "" {
+			t.Skipf("prerequisite (a) did not create household")
+		}
+		// Household upload.
+		status, body := httpPostFileForm(t, handler, "/api/users/"+u1+"/documents", "search-hh.pdf", pdfBytes("sh-"+runID), map[string]string{"owner_household_id": hhID})
+		if status != http.StatusCreated {
+			t.Fatalf("household upload status = %d, want 201 (body: %s)", status, body)
+		}
+		var hha map[string]any
+		if err := json.Unmarshal(body, &hha); err != nil {
+			t.Fatalf("unmarshal household asset: %v (body: %s)", err, body)
+		}
+		hhAssetID = strVal(hha, "id")
+		if hhAssetID == "" {
+			t.Fatal("household asset id is empty")
+		}
+
+		// Personal upload.
+		status, body = httpPostFileForm(t, handler, "/api/users/"+u1+"/documents", "search-personal.pdf", pdfBytes("sp-"+runID), nil)
+		if status != http.StatusCreated {
+			t.Fatalf("personal upload status = %d, want 201 (body: %s)", status, body)
+		}
+		var pa map[string]any
+		if err := json.Unmarshal(body, &pa); err != nil {
+			t.Fatalf("unmarshal personal asset: %v (body: %s)", err, body)
+		}
+		personalAssetID = strVal(pa, "id")
+		if personalAssetID == "" {
+			t.Fatal("personal asset id is empty")
+		}
+	})
+
+	// (c) u1 searches → sees both assets (the brand "E2E" matches both).
+	t.Run("c_u1_searches_sees_both", func(t *testing.T) {
+		if hhAssetID == "" || personalAssetID == "" {
+			t.Skipf("prerequisite (b) did not create assets")
+		}
+		status, body := httpGet(t, handler, "/api/users/"+u1+"/search/quick?q=E2E")
+		if status != http.StatusOK {
+			t.Fatalf("u1 quick search status = %d, want 200 (body: %s)", status, body)
+		}
+		var resp struct {
+			Results []struct {
+				Type string `json:"type"`
+				ID   string `json:"id"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("unmarshal search response: %v (body: %s)", err, body)
+		}
+		ids := make([]string, 0, len(resp.Results))
+		for _, r := range resp.Results {
+			ids = append(ids, r.ID)
+		}
+		if !contains(ids, hhAssetID) {
+			t.Errorf("u1 search does not include household asset %s (saw: %v)", hhAssetID, ids)
+		}
+		if !contains(ids, personalAssetID) {
+			t.Errorf("u1 search does not include personal asset %s (saw: %v)", personalAssetID, ids)
+		}
+	})
+
+	// (d) u2 (member of H1) searches → sees the household asset but NOT u1's
+	// personal asset.
+	t.Run("d_u2_member_sees_only_household", func(t *testing.T) {
+		if hhAssetID == "" || personalAssetID == "" {
+			t.Skipf("prerequisite (b) did not create assets")
+		}
+		status, body := httpGet(t, handler, "/api/users/"+u2+"/search/quick?q=E2E")
+		if status != http.StatusOK {
+			t.Fatalf("u2 quick search status = %d, want 200 (body: %s)", status, body)
+		}
+		var resp struct {
+			Results []struct {
+				Type string `json:"type"`
+				ID   string `json:"id"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("unmarshal search response: %v (body: %s)", err, body)
+		}
+		ids := make([]string, 0, len(resp.Results))
+		for _, r := range resp.Results {
+			ids = append(ids, r.ID)
+		}
+		if !contains(ids, hhAssetID) {
+			t.Errorf("u2 (member) search does not include household asset %s (saw: %v)", hhAssetID, ids)
+		}
+		if contains(ids, personalAssetID) {
+			t.Errorf("u2 (member) search includes u1's personal asset %s, which must stay hidden (saw: %v)", personalAssetID, ids)
+		}
+	})
+
+	// (e) u3 (non-member) searches → sees nothing.
+	t.Run("e_u3_nonmember_sees_nothing", func(t *testing.T) {
+		if hhAssetID == "" {
+			t.Skipf("prerequisite (b) did not create assets")
+		}
+		status, body := httpGet(t, handler, "/api/users/"+u3+"/search/quick?q=E2E")
+		if status != http.StatusOK {
+			t.Fatalf("u3 quick search status = %d, want 200 (body: %s)", status, body)
+		}
+		var resp struct {
+			Results []struct {
+				ID string `json:"id"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("unmarshal search response: %v (body: %s)", err, body)
+		}
+		if len(resp.Results) != 0 {
+			var ids []string
+			for _, r := range resp.Results {
+				ids = append(ids, r.ID)
+			}
+			t.Errorf("u3 (non-member) search returned %d hits, want 0 (saw: %v)", len(resp.Results), ids)
+		}
+	})
+
+	// (f) Unbound RLS backstop: a direct DB session with no bound app.user_id
+	// sees nothing in the searched tables.
+	t.Run("f_unbound_rls_sees_nothing", func(t *testing.T) {
+		if hhAssetID == "" {
+			t.Skipf("prerequisite (b) did not create assets")
+		}
+		conn, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			t.Fatalf("connect for RLS check: %v", err)
+		}
+		defer conn.Close(ctx)
+
+		// Unbound: no app.user_id set.
+		for _, table := range []string{"assets", "sources", "ingest_reviews"} {
+			var n int
+			if err := conn.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil {
+				t.Fatalf("unbound count %s: %v", table, err)
+			}
+			if n != 0 {
+				t.Errorf("unbound app role sees %d row(s) in %s, want 0 (RLS backstop)", n, table)
+			}
+		}
 	})
 }

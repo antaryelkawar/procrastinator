@@ -23,6 +23,7 @@ type Config struct {
 	// file accepted for ingestion.
 	MaxStatementLines int
 	LLMTimeout        time.Duration
+	IngestReviewThreshold float64
 }
 
 // Load populates a Config from the provided source map.
@@ -41,6 +42,7 @@ func Load(src map[string]string) (*Config, error) {
 			"PROCRASTINATOR_MAX_STATEMENT_BYTES",
 			"PROCRASTINATOR_MAX_STATEMENT_LINES",
 			"PROCRASTINATOR_LLM_TIMEOUT",
+			"PROCRASTINATOR_INGEST_REVIEW_THRESHOLD",
 		}
 		for _, v := range vars {
 			if val, ok := os.LookupEnv(v); ok {
@@ -99,6 +101,16 @@ func Load(src map[string]string) (*Config, error) {
 		return nil, fmt.Errorf("config: invalid PROCRASTINATOR_LLM_TIMEOUT: %w", err)
 	}
 	cfg.LLMTimeout = timeout
+
+	thresholdStr := getOrDefault(src, "PROCRASTINATOR_INGEST_REVIEW_THRESHOLD", "0.7")
+	threshold, err := strconv.ParseFloat(thresholdStr, 64)
+	if err != nil {
+		return nil, fmt.Errorf("config: invalid PROCRASTINATOR_INGEST_REVIEW_THRESHOLD: %w", err)
+	}
+	if threshold < 0 || threshold > 1 {
+		return nil, fmt.Errorf("config: PROCRASTINATOR_INGEST_REVIEW_THRESHOLD must be in [0,1], got %v", threshold)
+	}
+	cfg.IngestReviewThreshold = threshold
 
 	return cfg, nil
 }

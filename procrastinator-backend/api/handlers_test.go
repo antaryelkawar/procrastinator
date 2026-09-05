@@ -36,11 +36,14 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"procrastinator-backend/api/gen"
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
 	"procrastinator-backend/core/household"
 	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/core/review"
+	"procrastinator-backend/core/search"
 	"procrastinator-backend/core/statement"
 	"procrastinator-backend/infra/filestorage"
 	"procrastinator-backend/infra/llm"
@@ -238,11 +241,15 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 	factory := postgres.NewFactory(pool)
 	movRepo := postgres.NewMovementRepository(pool)
 	ledgerSvc := ledger.New(factory, movRepo)
+	reviewSvc := review.New(factory)
+	searchSvc := search.New(factory.Search)
 	svc := ingest.New(
 		factory,
 		llm.NewExtractor(llm.New(llmServer.URL, "test-key", "test-model", 10*time.Second)),
 		filestorage.New(t.TempDir()),
 		maxBytes,
+		0.7, // default review threshold
+		reviewSvc,
 	)
 	stmtMaxLines := opts.maxStatementLines
 	if stmtMaxLines == 0 {
@@ -257,7 +264,7 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 		maxBytes, // the statement size limit follows the env's upload limit (oversize tests use maxBytes: 64)
 		stmtMaxLines,
 	)
-	srv := New(svc, factory, ledgerSvc, movRepo, maxBytes, statementSvc, maxBytes, household.New(factory))
+	srv := New(svc, factory, ledgerSvc, movRepo, maxBytes, statementSvc, maxBytes, household.New(factory), searchSvc, reviewSvc)
 
 	t.Cleanup(func() {
 		llmServer.Close()
@@ -607,6 +614,36 @@ func TestUpload(t *testing.T) {
 			t.Fatalf("status = %d, want 403 (body: %s)", rec.Code, rec.Body.String())
 		}
 	})
+}
+
+// TestUploadDocument_LowConfidenceHolds verifies that a document whose
+// extraction confidence falls below the 0.7 threshold is held for review
+// (202) with a pending IngestReview rather than auto-committed.
+func TestUploadDocument_LowConfidenceHolds(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	seedUser(t, e.pool, "alice")
+
+	// Low-confidence payload (0.3 < 0.7 threshold) with valid identity fields.
+	e.llm.setPayload(`{"classification":"invoice","brand":"Test","model":"M1","serial_number":"SN-LOW-1","confidence":0.3}`)
+
+	body, ct := buildMultipart(t, "file", "low.pdf", "application/pdf", pdfBytes(16))
+	rec := do(t, e.handler, http.MethodPost, "/api/users/alice/documents", "", body, ct)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	var review gen.IngestReview
+	if err := json.Unmarshal(rec.Body.Bytes(), &review); err != nil {
+		t.Fatalf("unmarshal ingest review: %v (body: %s)", err, rec.Body.String())
+	}
+	if review.Id == "" {
+		t.Errorf("review id is empty, want non-empty (body: %s)", rec.Body.String())
+	}
+	if review.State != "pending" {
+		t.Errorf("review state = %q, want %q (body: %s)", review.State, "pending", rec.Body.String())
+	}
 }
 
 // uploadWithOwnerHousehold posts a multipart file with an owner_household_id
