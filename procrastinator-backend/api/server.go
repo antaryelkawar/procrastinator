@@ -131,11 +131,13 @@ func responseErrorFunc(w http.ResponseWriter, _ *http.Request, err error) {
 // by the generated strict server (gen.NewStrictHandlerWithOptions) with the
 // centralized request/response error funcs.
 //
-// The UserMiddleware rejects an empty or malformed {userId} with a
-// {"error": string} 400 envelope before the strict handler runs. The {id}
-// segments (asset/account/movement/batch/household IDs) are not rejected: an
-// empty {id} routes to the handler, which resolves it as not-found (404) —
-// matching the pre-change contract.
+// Note: the generated strict wrapper binds path params BEFORE the
+// Middlewares chain runs, so an empty {userId} surfaces as the generated
+// plain-text 400, not a JSON envelope. UserMiddleware handles the
+// well-formed cases: malformed {userId} → {"error": string} 400 envelope,
+// unknown user → 404 envelope. The {id} segments (asset/account/movement/
+// batch/household IDs) are not rejected: an empty {id} routes to the handler,
+// which resolves it as not-found (404) — matching the pre-change contract.
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
 	return gen.HandlerWithOptions(

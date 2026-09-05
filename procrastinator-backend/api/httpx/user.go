@@ -16,9 +16,11 @@ import (
 // unregistered → 404. Registered users are stored in ctx via user.WithUser.
 //
 // It is installed as a chi-level middleware (r.Use / chi ServerOptions
-// middlewares) so it runs BEFORE the generated strict handler would try to
-// bind an empty {userId} (the generated binding would emit a plain-text 400
-// "Invalid format for parameter userId").
+// middlewares). Ordering note: the generated strict wrapper binds path
+// params BEFORE this middleware runs, so an empty {userId} surfaces as the
+// generated plain-text 400 ("Invalid format for parameter userId"), not the
+// envelope below. This middleware catches a well-formed-but-empty or
+// malformed {userId} that passes the binding, plus the registry checks.
 func UserMiddleware(reg repo.UserRegistry) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
