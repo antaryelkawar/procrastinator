@@ -51,13 +51,13 @@ func (s *Service) Hold(ctx context.Context, input repo.HoldInput) (entity.Ingest
 
 	var created entity.IngestReview
 	err = s.factory.InTx(ctx, func(ctx context.Context, r *repo.Repos) error {
-		matched, found, err := identity.Match(ctx, r.Assets, input.Extraction, input.OwnerHouseholdID)
+		m, err := identity.Match(ctx, r.Assets, input.Extraction, input.OwnerHouseholdID, identity.DefaultCandidateLimit)
 		if err != nil {
 			return err
 		}
 		var bestMatchID *string
-		if found {
-			bestMatchID = &matched.ID
+		if m.Kind == identity.MatchMerge {
+			bestMatchID = m.AssetID
 		}
 
 		created, err = r.Reviews.Create(ctx, entity.IngestReview{
@@ -69,6 +69,7 @@ func (s *Service) Hold(ctx context.Context, input repo.HoldInput) (entity.Ingest
 			OwnerHouseholdID:   input.OwnerHouseholdID,
 			Confidence:         input.Extraction.Confidence,
 			BestMatchedAssetID: bestMatchID,
+			Provenance:         input.Provenance,
 		}, repo.Owner(tid))
 		return err
 	})

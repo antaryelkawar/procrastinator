@@ -40,7 +40,7 @@ describe('UploadPage', () => {
 
     renderWithProviders();
     const file = new File(['hello'], 'success.pdf', { type: 'application/pdf' });
-    const input = screen.getByLabelText(/file upload/i);
+    const input = screen.getByLabelText('file upload', { selector: 'input' });
     fireEvent.change(input, { target: { files: [file] } });
     
     await waitFor(() => expect(screen.getByText('success.pdf')).toBeInTheDocument());
@@ -55,7 +55,7 @@ describe('UploadPage', () => {
 
     renderWithProviders();
     const file = new File(['hello'], 'error.pdf', { type: 'application/pdf' });
-    const input = screen.getByLabelText(/file upload/i);
+    const input = screen.getByLabelText('file upload', { selector: 'input' });
     fireEvent.change(input, { target: { files: [file] } });
     
     await waitFor(() => expect(screen.getByText('error.pdf')).toBeInTheDocument());
@@ -67,7 +67,7 @@ describe('UploadPage', () => {
 
     renderWithProviders();
     const file = new File(['hello'], 'retry.pdf', { type: 'application/pdf' });
-    const input = screen.getByLabelText(/file upload/i);
+    const input = screen.getByLabelText('file upload', { selector: 'input' });
     fireEvent.change(input, { target: { files: [file] } });
     
     await waitFor(() => expect(screen.getByText('retry.pdf')).toBeInTheDocument());

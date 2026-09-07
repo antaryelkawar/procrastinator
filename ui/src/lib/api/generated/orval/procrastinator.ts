@@ -19,35 +19,83 @@
  * OpenAPI spec version: 1.0.0
  */
 import { customFetch } from '../mutator';
+/**
+ * Intrinsic category of the asset
+ */
+export type AssetAssetCategory = typeof AssetAssetCategory[keyof typeof AssetAssetCategory] | null;
+
+
+export const AssetAssetCategory = {
+  appliance: 'appliance',
+  electronics: 'electronics',
+  computing: 'computing',
+  furniture: 'furniture',
+  vehicle: 'vehicle',
+  tool: 'tool',
+  clothing: 'clothing',
+  document_only: 'document_only',
+  other: 'other',
+} as const;
+
 export type AssetMetadata = { [key: string]: unknown };
+
+export type AssetMergedAssetsItem = {
+  asset_id: string;
+  merged_at: string;
+};
 
 /**
  * A user asset derived from an ingested document.
  */
 export interface Asset {
   id: string;
+  /** Canonical product name (e.g. "Microwave Oven") */
+  name?: string | null;
   brand?: string | null;
   model?: string | null;
   serial_number?: string | null;
+  /** Intrinsic category of the asset */
+  asset_category?: AssetAssetCategory;
+  /** Confidence in the category assignment [0.0, 1.0] */
+  category_confidence?: number | null;
   purchase_date?: string | null;
   warranty_end?: string | null;
   /** @pattern ^[0-9]+(\.[0-9]+)?$ */
   price?: string | null;
   currency?: string | null;
-  doc_type: string;
   metadata: AssetMetadata;
   created_at: string;
   updated_at: string;
   owner_household_id?: string | null;
   confidence?: number | null;
+  /** Set when the asset is soft-deleted */
+  deleted_at?: string | null;
+  /** Id of the survivor asset if this asset was merged */
+  merged_into?: string | null;
+  /** Timestamp of the merge */
+  merged_at?: string | null;
+  /** Assets that were merged into this asset (survivor view) */
+  merged_assets?: AssetMergedAssetsItem[] | null;
 }
+
+export type DocumentDocType = typeof DocumentDocType[keyof typeof DocumentDocType];
+
+
+export const DocumentDocType = {
+  invoice: 'invoice',
+  receipt: 'receipt',
+  warranty: 'warranty',
+  amc: 'amc',
+  statement: 'statement',
+  other: 'other',
+} as const;
 
 /**
  * A document attached to an asset, with its source metadata.
  */
 export interface Document {
   id: string;
-  doc_type: string;
+  doc_type: DocumentDocType;
   source_filename: string;
   source_uploaded_at: string;
   created_at: string;
@@ -313,9 +361,100 @@ export interface ApproveReviewResponse {
   review: IngestReview;
 }
 
+export type AddItemOutcomeKind = typeof AddItemOutcomeKind[keyof typeof AddItemOutcomeKind];
+
+
+export const AddItemOutcomeKind = {
+  asset_committed: 'asset_committed',
+  held_for_review: 'held_for_review',
+  duplicate: 'duplicate',
+  statement_preview: 'statement_preview',
+  failed: 'failed',
+} as const;
+
+/**
+ * The uniform per-item outcome of a unified add request.
+ */
+export interface AddItemOutcome {
+  kind: AddItemOutcomeKind;
+  /** Set when kind is asset_committed */
+  asset_id?: string | null;
+  /** Set when kind is held_for_review */
+  review_id?: string | null;
+  /** Set when kind is duplicate (the existing asset) */
+  duplicate_asset_id?: string | null;
+  /** Set when kind is duplicate (the existing document) */
+  duplicate_document_id?: string | null;
+  /** Set when kind is duplicate and the existing asset is soft-deleted */
+  asset_deleted?: boolean | null;
+  /** Set when kind is statement_preview */
+  import_batch_id?: string | null;
+  /** Set when kind is failed */
+  reason?: string | null;
+}
+
+/**
+ * Request body to merge a duplicate asset into the target.
+ */
+export interface MergeRequest {
+  duplicate_asset_id: string;
+}
+
+export type PatchAssetRequestAssetCategory = typeof PatchAssetRequestAssetCategory[keyof typeof PatchAssetRequestAssetCategory];
+
+
+export const PatchAssetRequestAssetCategory = {
+  appliance: 'appliance',
+  electronics: 'electronics',
+  computing: 'computing',
+  furniture: 'furniture',
+  vehicle: 'vehicle',
+  tool: 'tool',
+  clothing: 'clothing',
+  document_only: 'document_only',
+  other: 'other',
+} as const;
+
+/**
+ * Request body to patch an asset with user corrections. All fields are
+ * optional; only provided fields are applied. Setting `asset_category`
+ * marks it as user-set (sticky against future inference).
+ */
+export interface PatchAssetRequest {
+  name?: string;
+  asset_category?: PatchAssetRequestAssetCategory;
+  brand?: string;
+  model?: string;
+  serial_number?: string;
+  /** @pattern ^[0-9]+(\.[0-9]+)?$ */
+  price?: string;
+  currency?: string;
+}
+
 export type UploadDocumentBody = {
   file: Blob | File;
   owner_household_id?: string | null;
+};
+
+export type AddItemsBody = {
+  files?: (Blob | File)[];
+  text?: string | null;
+  /** Required for statement items; scopes the import to a finance account. */
+  account_id?: string | null;
+};
+
+export type ListAssetsParams = {
+/**
+ * Include soft-deleted assets in the result
+ */
+include_deleted?: boolean;
+};
+
+export type GetAssetParams = {
+/**
+ * Include soft-deleted assets in the result
+ */
+include_deleted?: boolean;
 };
 
 export type ListMovementsParams = {
@@ -340,7 +479,47 @@ q?: string;
  * @maximum 50
  */
 limit?: number;
+/**
+ * Filter by asset category
+ */
+category?: string;
+/**
+ * Filter by brand
+ */
+brand?: string;
+/**
+ * Filter by purchase date (from, inclusive)
+ */
+purchase_from?: string;
+/**
+ * Filter by purchase date (to, inclusive)
+ */
+purchase_to?: string;
+/**
+ * Filter by warranty status (e.g. active, expiring_within:90, expired)
+ */
+warranty_status?: string;
+/**
+ * Filter to assets that have (true) or lack (false) linked documents
+ */
+has_documents?: boolean;
+/**
+ * Filter by document classification
+ */
+doc_classification?: QuickSearchDocClassification;
 };
+
+export type QuickSearchDocClassification = typeof QuickSearchDocClassification[keyof typeof QuickSearchDocClassification];
+
+
+export const QuickSearchDocClassification = {
+  invoice: 'invoice',
+  receipt: 'receipt',
+  warranty: 'warranty',
+  amc: 'amc',
+  statement: 'statement',
+  other: 'other',
+} as const;
 
 export type SearchParams = {
 /**
@@ -358,7 +537,47 @@ page?: number;
  * @maximum 100
  */
 page_size?: number;
+/**
+ * Filter by asset category
+ */
+category?: string;
+/**
+ * Filter by brand
+ */
+brand?: string;
+/**
+ * Filter by purchase date (from, inclusive)
+ */
+purchase_from?: string;
+/**
+ * Filter by purchase date (to, inclusive)
+ */
+purchase_to?: string;
+/**
+ * Filter by warranty status (e.g. active, expiring_within:90, expired)
+ */
+warranty_status?: string;
+/**
+ * Filter to assets that have (true) or lack (false) linked documents
+ */
+has_documents?: boolean;
+/**
+ * Filter by document classification
+ */
+doc_classification?: SearchDocClassification;
 };
+
+export type SearchDocClassification = typeof SearchDocClassification[keyof typeof SearchDocClassification];
+
+
+export const SearchDocClassification = {
+  invoice: 'invoice',
+  receipt: 'receipt',
+  warranty: 'warranty',
+  amc: 'amc',
+  statement: 'statement',
+  other: 'other',
+} as const;
 
 export type ListReviewsParams = {
 /**
@@ -461,6 +680,84 @@ if(uploadDocumentBody?.owner_household_id !== undefined && uploadDocumentBody.ow
 
 
 
+export type addItemsResponse200 = {
+  data: AddItemOutcome[]
+  status: 200
+}
+
+export type addItemsResponse400 = {
+  data: Error
+  status: 400
+}
+
+export type addItemsResponse401 = {
+  data: Error
+  status: 401
+}
+
+export type addItemsResponse413 = {
+  data: Error
+  status: 413
+}
+
+export type addItemsResponse415 = {
+  data: Error
+  status: 415
+}
+
+export type addItemsResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type addItemsResponseSuccess = (addItemsResponse200) & {
+  headers: Headers;
+};
+export type addItemsResponseError = (addItemsResponse400 | addItemsResponse401 | addItemsResponse413 | addItemsResponse415 | addItemsResponse500) & {
+  headers: Headers;
+};
+
+export type addItemsResponse = (addItemsResponseSuccess | addItemsResponseError)
+
+export const getAddItemsUrl = (userId: string,) => {
+
+
+
+
+  return `/api/users/${userId}/add`
+}
+
+/**
+ * Accepts one or more files (multipart) and/or a text body. Each item is
+ * auto-detected: statement files are routed to the ledger import pipeline
+ * (requiring `account_id`); all other items go through the document
+ * processing pipeline. Returns a uniform per-item outcome array.
+ * @summary Unified add (files and/or text)
+ */
+export const addItems = async (userId: string,
+    addItemsBody?: AddItemsBody, options?: Parameters<typeof customFetch>[1]): Promise<addItemsResponse> => {
+    const formData = new FormData();
+if(addItemsBody?.files !== undefined) {
+ addItemsBody?.files.forEach(value => formData.append(`files`, value));
+ }
+if(addItemsBody?.text !== undefined && addItemsBody.text !== null) {
+ formData.append(`text`, addItemsBody.text);
+ }
+if(addItemsBody?.account_id !== undefined && addItemsBody.account_id !== null) {
+ formData.append(`account_id`, addItemsBody.account_id);
+ }
+
+  return customFetch<addItemsResponse>(getAddItemsUrl(userId),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
 export type listAssetsResponse200 = {
   data: Asset[]
   status: 200
@@ -480,21 +777,30 @@ export type listAssetsResponseError = (listAssetsResponse500) & {
 
 export type listAssetsResponse = (listAssetsResponseSuccess | listAssetsResponseError)
 
-export const getListAssetsUrl = (userId: string,) => {
+export const getListAssetsUrl = (userId: string,
+    params?: ListAssetsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/users/${userId}/assets`
+  return stringifiedParams.length > 0 ? `/api/users/${userId}/assets?${stringifiedParams}` : `/api/users/${userId}/assets`
 }
 
 /**
  * Returns all assets visible to the user, ordered by created_at then id.
  * @summary List all assets
  */
-export const listAssets = async (userId: string, options?: Parameters<typeof customFetch>[1]): Promise<listAssetsResponse> => {
+export const listAssets = async (userId: string,
+    params?: ListAssetsParams, options?: Parameters<typeof customFetch>[1]): Promise<listAssetsResponse> => {
 
-  return customFetch<listAssetsResponse>(getListAssetsUrl(userId),
+  return customFetch<listAssetsResponse>(getListAssetsUrl(userId,params),
   {
     ...options,
     method: 'GET'
@@ -530,6 +836,66 @@ export type getAssetResponseError = (getAssetResponse404 | getAssetResponse500) 
 export type getAssetResponse = (getAssetResponseSuccess | getAssetResponseError)
 
 export const getGetAssetUrl = (userId: string,
+    assetId: string,
+    params?: GetAssetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/users/${userId}/assets/${assetId}?${stringifiedParams}` : `/api/users/${userId}/assets/${assetId}`
+}
+
+/**
+ * Returns a single asset by id. Unknown or another user's assets fail with 404.
+ * @summary Get a single asset
+ */
+export const getAsset = async (userId: string,
+    assetId: string,
+    params?: GetAssetParams, options?: Parameters<typeof customFetch>[1]): Promise<getAssetResponse> => {
+
+  return customFetch<getAssetResponse>(getGetAssetUrl(userId,assetId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type deleteAssetResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteAssetResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type deleteAssetResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type deleteAssetResponseSuccess = (deleteAssetResponse204) & {
+  headers: Headers;
+};
+export type deleteAssetResponseError = (deleteAssetResponse404 | deleteAssetResponse500) & {
+  headers: Headers;
+};
+
+export type deleteAssetResponse = (deleteAssetResponseSuccess | deleteAssetResponseError)
+
+export const getDeleteAssetUrl = (userId: string,
     assetId: string,) => {
 
 
@@ -539,18 +905,216 @@ export const getGetAssetUrl = (userId: string,
 }
 
 /**
- * Returns a single asset by id. Unknown or another user's assets fail with 404.
- * @summary Get a single asset
+ * Soft-deletes an asset by setting its `deleted_at` timestamp. The asset is
+ * excluded from list, search, and get responses (404 on direct get) until
+ * restored or purged. Owner-scoped; unknown or another user's ids yield 404.
+ * @summary Soft-delete an asset
  */
-export const getAsset = async (userId: string,
-    assetId: string, options?: Parameters<typeof customFetch>[1]): Promise<getAssetResponse> => {
+export const deleteAsset = async (userId: string,
+    assetId: string, options?: Parameters<typeof customFetch>[1]): Promise<deleteAssetResponse> => {
 
-  return customFetch<getAssetResponse>(getGetAssetUrl(userId,assetId),
+  return customFetch<deleteAssetResponse>(getDeleteAssetUrl(userId,assetId),
   {
     ...options,
-    method: 'GET'
+    method: 'DELETE'
 
 
+  }
+);}
+
+
+
+export type patchAssetResponse200 = {
+  data: Asset
+  status: 200
+}
+
+export type patchAssetResponse400 = {
+  data: Error
+  status: 400
+}
+
+export type patchAssetResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type patchAssetResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type patchAssetResponseSuccess = (patchAssetResponse200) & {
+  headers: Headers;
+};
+export type patchAssetResponseError = (patchAssetResponse400 | patchAssetResponse404 | patchAssetResponse500) & {
+  headers: Headers;
+};
+
+export type patchAssetResponse = (patchAssetResponseSuccess | patchAssetResponseError)
+
+export const getPatchAssetUrl = (userId: string,
+    assetId: string,) => {
+
+
+
+
+  return `/api/users/${userId}/assets/${assetId}`
+}
+
+/**
+ * Applies user corrections to an asset. At minimum supports `asset_category`
+ * (setting it marks the category as user-set and sticky against future
+ * inference). Owner-scoped; unknown or another user's ids yield 404.
+ * @summary Patch an asset (user corrections)
+ */
+export const patchAsset = async (userId: string,
+    assetId: string,
+    patchAssetRequest?: PatchAssetRequest, options?: Parameters<typeof customFetch>[1]): Promise<patchAssetResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<patchAssetResponse>(getPatchAssetUrl(userId,assetId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(patchAssetRequest)
+  }
+);}
+
+
+
+export type restoreAssetResponse200 = {
+  data: Asset
+  status: 200
+}
+
+export type restoreAssetResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type restoreAssetResponse409 = {
+  data: Error
+  status: 409
+}
+
+export type restoreAssetResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type restoreAssetResponseSuccess = (restoreAssetResponse200) & {
+  headers: Headers;
+};
+export type restoreAssetResponseError = (restoreAssetResponse404 | restoreAssetResponse409 | restoreAssetResponse500) & {
+  headers: Headers;
+};
+
+export type restoreAssetResponse = (restoreAssetResponseSuccess | restoreAssetResponseError)
+
+export const getRestoreAssetUrl = (userId: string,
+    assetId: string,) => {
+
+
+
+
+  return `/api/users/${userId}/assets/${assetId}/restore`
+}
+
+/**
+ * Restores a soft-deleted asset within the retention window, clearing
+ * `deleted_at`. The asset reappears in list/search with all prior fields
+ * and document links intact. Restoring beyond the retention window yields
+ * 409. Owner-scoped; unknown or another user's ids yield 404.
+ * @summary Restore a soft-deleted asset
+ */
+export const restoreAsset = async (userId: string,
+    assetId: string, options?: Parameters<typeof customFetch>[1]): Promise<restoreAssetResponse> => {
+
+  return customFetch<restoreAssetResponse>(getRestoreAssetUrl(userId,assetId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export type mergeAssetResponse200 = {
+  data: Asset
+  status: 200
+}
+
+export type mergeAssetResponse400 = {
+  data: Error
+  status: 400
+}
+
+export type mergeAssetResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type mergeAssetResponse409 = {
+  data: Error
+  status: 409
+}
+
+export type mergeAssetResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type mergeAssetResponseSuccess = (mergeAssetResponse200) & {
+  headers: Headers;
+};
+export type mergeAssetResponseError = (mergeAssetResponse400 | mergeAssetResponse404 | mergeAssetResponse409 | mergeAssetResponse500) & {
+  headers: Headers;
+};
+
+export type mergeAssetResponse = (mergeAssetResponseSuccess | mergeAssetResponseError)
+
+export const getMergeAssetUrl = (userId: string,
+    assetId: string,) => {
+
+
+
+
+  return `/api/users/${userId}/assets/${assetId}/merge`
+}
+
+/**
+ * Merges the duplicate asset (identified by `duplicate_asset_id`) into this
+ * asset (the survivor). The survivor retains its identity; non-null fields
+ * from the duplicate fill null survivor fields; documents are re-pointed
+ * to the survivor; the duplicate is soft-deleted with `merged_into` set to
+ * the survivor. Returns the updated survivor.
+ * @summary Merge a duplicate asset into this asset
+ */
+export const mergeAsset = async (userId: string,
+    assetId: string,
+    mergeRequest?: MergeRequest, options?: Parameters<typeof customFetch>[1]): Promise<mergeAssetResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<mergeAssetResponse>(getMergeAssetUrl(userId,assetId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(mergeRequest)
   }
 );}
 

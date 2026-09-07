@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,12 +28,13 @@ type AssetRepository struct {
 	*pgRepository[entity.Asset]
 }
 
-// SearchAssets returns the user's assets whose brand, model, or serial_number
-// case-insensitively contain the (pre-escaped) ILIKE pattern, ordered by
-// created_at DESC, id ASC. It runs in a scope-bound transaction (app.user_id
-// RLS backstop), applies the D-8 visibility rule, and returns a non-nil empty
-// slice when nothing matches.
-func (r *AssetRepository) SearchAssets(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.Asset, error) {
+// SearchAssets returns the user's assets whose name, brand, model, or
+// serial_number case-insensitively contain the (pre-escaped) ILIKE pattern,
+// ANDed with any structured filters (category, brand substring, purchase date
+// range, warranty status, has-documents), ordered by created_at DESC, id ASC.
+// It runs in a scope-bound transaction (app.user_id RLS backstop), applies the
+// D-8 visibility rule, and returns a non-nil empty slice when nothing matches.
+func (r *AssetRepository) SearchAssets(ctx context.Context, pattern string, filters repo.Filters, opts ...repo.Option) ([]entity.Asset, error) {
 	o := repo.ApplyOptions(opts...)
 
 	tid, err := resolveOwner(ctx, o)
@@ -48,9 +51,52 @@ func (r *AssetRepository) SearchAssets(ctx context.Context, pattern string, opts
 		}
 		args = append(args, pattern)
 		patN := len(args)
+
+		var conds []string
+		if filters.Category != nil {
+			args = append(args, *filters.Category)
+			conds = append(conds, fmt.Sprintf("asset_category = $%d", len(args)))
+		}
+		if filters.Brand != nil {
+			args = append(args, "%"+*filters.Brand+"%")
+			conds = append(conds, fmt.Sprintf("brand ILIKE $%d", len(args)))
+		}
+		if filters.PurchaseFrom != nil {
+			args = append(args, *filters.PurchaseFrom)
+			conds = append(conds, fmt.Sprintf("purchase_date >= $%d", len(args)))
+		}
+		if filters.PurchaseTo != nil {
+			args = append(args, *filters.PurchaseTo)
+			conds = append(conds, fmt.Sprintf("purchase_date <= $%d", len(args)))
+		}
+		if filters.WarrantyStatus != nil {
+			switch {
+			case *filters.WarrantyStatus == "active":
+				conds = append(conds, "warranty_end > now()")
+			case *filters.WarrantyStatus == "expired":
+				conds = append(conds, "warranty_end < now()")
+			case strings.HasPrefix(*filters.WarrantyStatus, "expiring_within:"):
+				if days, err := strconv.Atoi(strings.TrimPrefix(*filters.WarrantyStatus, "expiring_within:")); err == nil {
+					args = append(args, days)
+					conds = append(conds, fmt.Sprintf("warranty_end > now() AND warranty_end <= now() + ($%d * interval '1 day')", len(args)))
+				}
+			}
+		}
+		if filters.HasDocuments != nil {
+			if *filters.HasDocuments {
+				conds = append(conds, "EXISTS (SELECT 1 FROM documents WHERE documents.asset_id = assets.id)")
+			} else {
+				conds = append(conds, "NOT EXISTS (SELECT 1 FROM documents WHERE documents.asset_id = assets.id)")
+			}
+		}
+
+		extra := ""
+		if len(conds) > 0 {
+			extra = " AND " + strings.Join(conds, " AND ")
+		}
 		stmt := fmt.Sprintf(
-			"SELECT * FROM assets WHERE %s AND (brand ILIKE $%d OR model ILIKE $%d OR serial_number ILIKE $%d) ORDER BY created_at DESC, id ASC",
-			vis, patN, patN, patN)
+			"SELECT * FROM assets WHERE %s AND (name ILIKE $%d OR brand ILIKE $%d OR model ILIKE $%d OR serial_number ILIKE $%d)%s ORDER BY created_at DESC, id ASC",
+			vis, patN, patN, patN, patN, extra)
 
 		rows, err := q.Query(ctx, stmt, args...)
 		if err != nil {
@@ -219,9 +265,6 @@ func assetToMap(a entity.Asset) map[string]any {
 	if a.Currency != nil {
 		m["currency"] = a.Currency
 	}
-	if a.DocType != "" {
-		m["doc_type"] = a.DocType
-	}
 	if a.Metadata != nil {
 		meta, err := toMetadataJSON(a.Metadata)
 		if err == nil {
@@ -233,6 +276,36 @@ func assetToMap(a entity.Asset) map[string]any {
 	}
 	if a.OwnerHouseholdID != nil {
 		m["owner_household_id"] = a.OwnerHouseholdID
+	}
+	if a.Name != nil {
+		m["name"] = a.Name
+		if a.NormName != nil {
+			m["norm_name"] = a.NormName
+		} else {
+			nn := commons.NormalizeName(*a.Name)
+			m["norm_name"] = &nn
+		}
+	}
+	if a.NormName != nil && a.Name == nil {
+		m["norm_name"] = a.NormName
+	}
+	if a.AssetCategory != nil {
+		m["asset_category"] = a.AssetCategory
+	}
+	if a.CategoryConfidence != nil {
+		m["category_confidence"] = a.CategoryConfidence
+	}
+	if a.CategoryUserSet {
+		m["category_user_set"] = a.CategoryUserSet
+	}
+	if a.DeletedAt != nil {
+		m["deleted_at"] = a.DeletedAt
+	}
+	if a.MergedInto != nil {
+		m["merged_into"] = a.MergedInto
+	}
+	if a.MergedAt != nil {
+		m["merged_at"] = a.MergedAt
 	}
 	return m
 }
@@ -325,13 +398,16 @@ var assetFieldCols = map[string]string{
 	"norm_serial":        "norm_serial",
 	"norm_brand":         "norm_brand",
 	"norm_model":         "norm_model",
+	"name":               "name",
+	"norm_name":          "norm_name",
+	"asset_category":     "asset_category",
 	"purchase_date":      "purchase_date",
 	"warranty_end":       "warranty_end",
 	"price":              "price",
 	"currency":           "currency",
-	"doc_type":           "doc_type",
 	"created_at":         "created_at",
 	"updated_at":         "updated_at",
+	"deleted_at":         "deleted_at",
 	"owner_household_id": "owner_household_id",
 }
 
@@ -341,7 +417,7 @@ var assetOrderCols = map[string]string{
 	"updated_at":    "updated_at",
 	"brand":         "brand",
 	"model":         "model",
-	"doc_type":      "doc_type",
+	"name":          "name",
 	"purchase_date": "purchase_date",
 	"warranty_end":  "warranty_end",
 }

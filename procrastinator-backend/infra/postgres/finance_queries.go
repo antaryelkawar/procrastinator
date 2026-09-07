@@ -214,13 +214,14 @@ func (r *DocumentRepository) LinkCandidates(ctx context.Context, amount, currenc
 }
 
 // SearchDocuments returns the user's documents whose joined source filename
-// case-insensitively contains the (pre-escaped) ILIKE pattern, ordered by
-// created_at DESC, id ASC. The join is on documents.source_id = sources.id; the
-// D-8 visibility predicate is applied on the documents row (aliased "d") and
-// relies on the same-scope invariant that a document and its source share
-// owner_id / owner_household_id. It runs in a scope-bound transaction (app.user_id
-// RLS backstop) and returns a non-nil empty slice when nothing matches.
-func (r *DocumentRepository) SearchDocuments(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.Document, error) {
+// case-insensitively contains the (pre-escaped) ILIKE pattern, ANDed with any
+// structured filters (doc classification), ordered by created_at DESC, id ASC.
+// The join is on documents.source_id = sources.id; the D-8 visibility predicate
+// is applied on the documents row (aliased "d") and relies on the same-scope
+// invariant that a document and its source share owner_id / owner_household_id.
+// It runs in a scope-bound transaction (app.user_id RLS backstop) and returns a
+// non-nil empty slice when nothing matches.
+func (r *DocumentRepository) SearchDocuments(ctx context.Context, pattern string, filters repo.Filters, opts ...repo.Option) ([]entity.Document, error) {
 	o := repo.ApplyOptions(opts...)
 
 	tid, err := resolveOwner(ctx, o)
@@ -237,9 +238,14 @@ func (r *DocumentRepository) SearchDocuments(ctx context.Context, pattern string
 		}
 		args = append(args, pattern)
 		patN := len(args)
+		extra := ""
+		if filters.DocClassification != nil {
+			args = append(args, *filters.DocClassification)
+			extra = fmt.Sprintf(" AND d.doc_type = $%d", len(args))
+		}
 		stmt := fmt.Sprintf(
-			"SELECT d.* FROM documents d INNER JOIN sources s ON s.id = d.source_id WHERE %s AND s.filename ILIKE $%d ORDER BY d.created_at DESC, d.id ASC",
-			vis, patN)
+			"SELECT d.* FROM documents d INNER JOIN sources s ON s.id = d.source_id WHERE %s AND s.filename ILIKE $%d%s ORDER BY d.created_at DESC, d.id ASC",
+			vis, patN, extra)
 
 		rows, err := q.Query(ctx, stmt, args...)
 		if err != nil {

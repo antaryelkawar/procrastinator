@@ -6,7 +6,7 @@
 // backstop on the shared tables).
 //
 // Precondition: the compose `postgres` service is running and migrations are
-// applied to v5 (00005_confidence_reviews_search). When the database is
+// applied to v6 (00006_asset_rework). When the database is
 // unreachable or not migrated, the test skips with a reason rather than failing.
 //
 // The test is self-contained and re-runnable: it provisions a unique
@@ -36,8 +36,9 @@ import (
 	"procrastinator-backend/api"
 	"procrastinator-backend/commons/repo"
 	"procrastinator-backend/core/household"
-	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/core/lifecycle"
+	"procrastinator-backend/core/processing"
 	"procrastinator-backend/core/review"
 	"procrastinator-backend/core/search"
 	"procrastinator-backend/core/statement"
@@ -51,18 +52,18 @@ import (
 // overridden with PROCRASTINATOR_E2E_DATABASE_URL.
 const defaultDSN = "postgres://procrastinator:procrastinator@localhost:5432/procrastinator?sslmode=disable"
 
-// fakeExtractor is a deterministic repo.Extractor that returns a fixed, valid
-// invoice extraction. The external LLM is the only stubbed collaborator (the
-// established pattern in the api package tests); everything else — HTTP, PG,
-// file storage — is real.
-type fakeExtractor struct{ payload string }
+// fakeChatter is a deterministic processing.Chatter that returns a fixed
+// extraction payload as the LLM content. The external LLM is the only stubbed
+// collaborator (the established pattern in the api package tests); everything
+// else — HTTP, PG, file storage — is real.
+type fakeChatter struct{ payload string }
 
-// Extract implements repo.Extractor.
-func (e fakeExtractor) Extract(_ context.Context, _ string, _ []byte) (string, error) {
+// Chat implements processing.Chatter.
+func (e fakeChatter) Chat(_ context.Context, _ string, _ []processing.ContentPart) (string, error) {
 	return e.payload, nil
 }
 
-var _ repo.Extractor = fakeExtractor{}
+var _ processing.Chatter = fakeChatter{}
 
 // invoicePayload returns a valid invoice extraction whose serial is unique per
 // run so identity resolution creates a distinct personal asset.
@@ -73,18 +74,13 @@ func invoicePayload(runID string) string {
 	)
 }
 
-// lowConfPayload returns a valid invoice extraction with a low confidence
-// (below the 0.7 threshold) so the confidence gate holds it for review.
-func lowConfPayload(runID string) string {
-	return fmt.Sprintf(
-		`{"classification":"invoice","brand":"E2E","model":"Review-%s","serial_number":"E2E-%s-RC","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"100.00","currency":"INR","confidence":0.4,"metadata":{}}`,
-		runID, runID,
-	)
-}
-
-// buildServer wires the real api.Server (ingest + ledger + statement) over the
-// given factory/storage and returns its chi router.
-func buildServer(t *testing.T, storageDir, runID string, pool *pgxpool.Pool, factory *repo.Factory) http.Handler {
+// buildServer wires the real api.Server (processing + lifecycle + ledger +
+// statement) over the given factory/storage with a deterministic fake LLM and
+// the requested number of extraction workers, and returns its chi router.
+// Two agreeing workers yield consensus confidence 0.9 (auto-commit at the 0.7
+// threshold -> 201); a single worker caps confidence at 0.6 (held for review
+// -> 202).
+func buildServer(t *testing.T, storageDir string, pool *pgxpool.Pool, factory *repo.Factory, payload string, workerCount int) http.Handler {
 	t.Helper()
 	const maxBytes = int64(20 * 1024 * 1024)
 
@@ -92,14 +88,19 @@ func buildServer(t *testing.T, storageDir, runID string, pool *pgxpool.Pool, fac
 	ledgerSvc := ledger.New(factory, movRepo)
 	reviewSvc := review.New(factory)
 	searchSvc := search.New(factory.Search)
-	ingestSvc := ingest.New(
-		factory,
-		fakeExtractor{payload: invoicePayload(runID)},
-		filestorage.New(storageDir),
-		maxBytes,
-		0.7,
-		reviewSvc,
-	)
+
+	workers := make([]processing.Worker, 0, workerCount)
+	for i := 0; i < workerCount; i++ {
+		workers = append(workers, processing.Worker{
+			Model:    "e2e-worker",
+			BaseURL:  "",
+			Strategy: processing.Strategy{Name: "extract"},
+		})
+	}
+	extractor := processing.NewExtractor(fakeChatter{payload: payload}, workers, 10*time.Second, "")
+	svc := processing.New(factory, extractor, filestorage.New(storageDir), maxBytes, 0.7, reviewSvc, 30, 10, 10*time.Second)
+	svc.SetTextStorage(filestorage.NewText(t.TempDir()))
+	lifecycleSvc := lifecycle.New(factory, 30)
 	stmtSvc := statement.New(
 		factory,
 		filestorage.NewStatement(t.TempDir()),
@@ -109,7 +110,7 @@ func buildServer(t *testing.T, storageDir, runID string, pool *pgxpool.Pool, fac
 		maxBytes,
 		100000,
 	)
-	srv := api.New(ingestSvc, factory, ledgerSvc, movRepo, maxBytes, stmtSvc, maxBytes, household.New(factory), searchSvc, reviewSvc)
+	srv := api.New(svc, factory, ledgerSvc, movRepo, maxBytes, stmtSvc, maxBytes, household.New(factory), searchSvc, reviewSvc, lifecycleSvc)
 	return srv.Routes()
 }
 
@@ -236,14 +237,14 @@ func TestTenancyE2E(t *testing.T) {
 		t.Skipf("PG unreachable (ping): %v", err)
 	}
 
-	// The owner model needs migration 00005 (confidence + reviews).
-	// Skip if the schema is not at v5 rather than failing on a missing object.
+	// The owner model needs migration 00006 (asset rework).
+	// Skip if the schema is not at v6 rather than failing on a missing object.
 	var maxVersion int
 	if err := pool.QueryRow(ctx, `SELECT coalesce(max(version_id), 0) FROM goose_db_version`).Scan(&maxVersion); err != nil {
 		t.Skipf("check goose_db_version: %v", err)
 	}
-	if maxVersion != 5 {
-		t.Skipf("schema not at v5 (final set); max goose version is %d; run goose migrations to v5 first", maxVersion)
+	if maxVersion != 6 {
+		t.Skipf("schema not at v6 (final set); max goose version is %d; run goose migrations to v6 first", maxVersion)
 	}
 
 	// Unique per-run prefix (matches ^[A-Za-z0-9_-]{1,64}$).
@@ -257,7 +258,7 @@ func TestTenancyE2E(t *testing.T) {
 	// Real server stack + real on-disk storage in a temp dir.
 	storageDir := t.TempDir()
 	factory := postgres.NewFactory(pool)
-	handler := buildServer(t, storageDir, runID, pool, factory)
+	handler := buildServer(t, storageDir, pool, factory, invoicePayload(runID), 2)
 
 	if err := provisionUsers(ctx, pool, u1, u2, u3); err != nil {
 		t.Fatalf("provision users: %v", err)
@@ -655,8 +656,8 @@ func TestConfidenceReviewE2E(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT coalesce(max(version_id), 0) FROM goose_db_version`).Scan(&maxVersion); err != nil {
 		t.Skipf("check goose_db_version: %v", err)
 	}
-	if maxVersion != 5 {
-		t.Skipf("schema not at v5; max goose version is %d", maxVersion)
+	if maxVersion != 6 {
+		t.Skipf("schema not at v6; max goose version is %d", maxVersion)
 	}
 
 	var rb [4]byte
@@ -666,10 +667,11 @@ func TestConfidenceReviewE2E(t *testing.T) {
 	runID := fmt.Sprintf("e2e-r-%d-%s", time.Now().Unix(), hex.EncodeToString(rb[:]))
 	u1, u2 := runID+"-owner", runID+"-other"
 
-	// Build server with a low-confidence extractor (0.4 < 0.7 threshold).
+	// Build server with a single worker (confidence capped at 0.6 < 0.7
+	// threshold, so uploads are held for review).
 	storageDir := t.TempDir()
 	factory := postgres.NewFactory(pool)
-	handler := buildServerWithPayload(t, storageDir, lowConfPayload(runID), pool, factory)
+	handler := buildServer(t, storageDir, pool, factory, invoicePayload(runID), 1)
 
 	if err := provisionUsers(ctx, pool, u1, u2); err != nil {
 		t.Fatalf("provision users: %v", err)
@@ -713,8 +715,8 @@ func TestConfidenceReviewE2E(t *testing.T) {
 		if state := strVal(rev, "state"); state != "pending" {
 			t.Errorf("review state = %q, want pending (body: %s)", state, body)
 		}
-		if conf, ok := rev["confidence"].(float64); !ok || conf < 0.4 || conf > 0.41 {
-			t.Errorf("review confidence = %v, want ~0.4 (body: %s)", rev["confidence"], body)
+		if conf, ok := rev["confidence"].(float64); !ok || conf < 0.6 || conf > 0.61 {
+			t.Errorf("review confidence = %v, want ~0.6 (body: %s)", rev["confidence"], body)
 		}
 	})
 
@@ -804,7 +806,7 @@ func TestConfidenceReviewE2E(t *testing.T) {
 		)
 		// Rebuild with different payload for this upload — use a second server.
 		factory2 := postgres.NewFactory(pool)
-		handler2 := buildServerWithPayload(t, storageDir, payload, pool, factory2)
+		handler2 := buildServer(t, storageDir, pool, factory2, payload, 1)
 
 		status, body := httpPostFileForm(t, handler2, "/api/users/"+u1+"/documents", "review-reject.pdf", pdfBytes("rr-"+runID), nil)
 		if status != http.StatusAccepted {
@@ -914,38 +916,6 @@ func TestConfidenceReviewE2E(t *testing.T) {
 	})
 }
 
-// buildServerWithPayload wires the real api.Server with a specific extractor
-// payload. It is a variant of buildServer that allows the E2E tests to control
-// the extraction confidence.
-func buildServerWithPayload(t *testing.T, storageDir, payload string, pool *pgxpool.Pool, factory *repo.Factory) http.Handler {
-	t.Helper()
-	const maxBytes = int64(20 * 1024 * 1024)
-
-	movRepo := postgres.NewMovementRepository(pool)
-	ledgerSvc := ledger.New(factory, movRepo)
-	reviewSvc := review.New(factory)
-	searchSvc := search.New(factory.Search)
-	ingestSvc := ingest.New(
-		factory,
-		fakeExtractor{payload: payload},
-		filestorage.New(storageDir),
-		maxBytes,
-		0.7,
-		reviewSvc,
-	)
-	stmtSvc := statement.New(
-		factory,
-		filestorage.NewStatement(t.TempDir()),
-		movRepo,
-		postgres.NewDocumentRepository(pool),
-		pdftext.New(),
-		maxBytes,
-		100000,
-	)
-	srv := api.New(ingestSvc, factory, ledgerSvc, movRepo, maxBytes, stmtSvc, maxBytes, household.New(factory), searchSvc, reviewSvc)
-	return srv.Routes()
-}
-
 // TestSearchIsolationE2E drives the search isolation scenarios end-to-end:
 // cross-owner isolation, household member sees household asset, non-member sees
 // nothing, unbound RLS session sees nothing.
@@ -971,8 +941,8 @@ func TestSearchIsolationE2E(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT coalesce(max(version_id), 0) FROM goose_db_version`).Scan(&maxVersion); err != nil {
 		t.Skipf("check goose_db_version: %v", err)
 	}
-	if maxVersion != 5 {
-		t.Skipf("schema not at v5; max goose version is %d", maxVersion)
+	if maxVersion != 6 {
+		t.Skipf("schema not at v6; max goose version is %d", maxVersion)
 	}
 
 	var rb [4]byte
@@ -982,11 +952,11 @@ func TestSearchIsolationE2E(t *testing.T) {
 	runID := fmt.Sprintf("e2e-s-%d-%s", time.Now().Unix(), hex.EncodeToString(rb[:]))
 	u1, u2, u3 := runID+"-u1", runID+"-u2", runID+"-u3"
 
-	// Build server with high-confidence extractor (0.95 ≥ 0.7) so uploads
-	// auto-commit.
+	// Build server with two agreeing workers (consensus confidence 0.9 ≥ 0.7)
+	// so uploads auto-commit.
 	storageDir := t.TempDir()
 	factory := postgres.NewFactory(pool)
-	handler := buildServerWithPayload(t, storageDir, invoicePayload(runID), pool, factory)
+	handler := buildServer(t, storageDir, pool, factory, invoicePayload(runID), 2)
 
 	if err := provisionUsers(ctx, pool, u1, u2, u3); err != nil {
 		t.Fatalf("provision users: %v", err)

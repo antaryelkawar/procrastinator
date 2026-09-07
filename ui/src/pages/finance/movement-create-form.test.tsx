@@ -108,16 +108,28 @@ function fillForm(fields: { amount?: string; description?: string; occurredOn?: 
   fireEvent.change(screen.getByLabelText('Description'), { target: { value: description } });
 }
 
+const KIND_LABELS: Record<string, string> = { expense: 'Expense', income: 'Income', transfer: 'Transfer' };
+
+/** Open a shared Radix Select (by its trigger aria-label) and pick an option by accessible text. */
+function pickOption(triggerLabel: string, optionName: string): void {
+  fireEvent.click(screen.getByLabelText(triggerLabel));
+  fireEvent.click(screen.getByRole('option', { name: optionName }));
+}
+
 function selectKind(kind: string): void {
-  fireEvent.change(screen.getByLabelText('Kind'), { target: { value: kind } });
+  pickOption('Kind', KIND_LABELS[kind] ?? kind);
 }
 
 function selectSource(accountId: string): void {
-  fireEvent.change(screen.getByLabelText('Source account'), { target: { value: accountId } });
+  const account = accounts.find((a) => a.id === accountId);
+  if (!account) throw new Error(`unknown account in selectSource: ${accountId}`);
+  pickOption('Source account', `${account.name} (${account.currency})`);
 }
 
 function selectDestination(accountId: string): void {
-  fireEvent.change(screen.getByLabelText('Destination account'), { target: { value: accountId } });
+  const account = accounts.find((a) => a.id === accountId);
+  if (!account) throw new Error(`unknown account in selectDestination: ${accountId}`);
+  pickOption('Destination account', `${account.name} (${account.currency})`);
 }
 
 function submit(): void {
@@ -404,7 +416,8 @@ describe('MovementCreateForm (rendered)', () => {
     // form reset to its initial values (amount/description/accounts cleared)
     await waitFor(() => expect(screen.getByLabelText('Amount')).toHaveValue(''));
     expect(screen.getByLabelText('Description')).toHaveValue('');
-    expect(screen.getByLabelText('Source account')).toHaveValue('');
+    // the source account Select is unselected → its placeholder text is shown
+    expect(screen.getByText('Select an account')).toBeInTheDocument();
     expect(screen.queryByTestId('movement-form-error')).not.toBeInTheDocument();
 
     // D5 invalidation: movements + accounts for the active user
@@ -433,7 +446,10 @@ describe('MovementCreateForm (rendered)', () => {
     // …and the user's values are retained (D7)
     expect(screen.getByLabelText('Amount')).toHaveValue('999999');
     expect(screen.getByLabelText('Description')).toHaveValue('Too big');
-    expect(screen.getByLabelText('Source account')).toHaveValue(inrAccount.id);
+    // the selected source account is shown in the Select trigger (the combobox
+    // itself, not the open option list)
+    const trigger = screen.getByLabelText('Source account');
+    expect(trigger).toHaveTextContent(`${inrAccount.name} (${inrAccount.currency})`);
   });
 
   it('is axe-clean (full transfer form incl. the error region)', async () => {

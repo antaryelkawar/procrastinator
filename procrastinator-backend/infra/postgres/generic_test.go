@@ -101,15 +101,15 @@ func TestGenericAssetListWithUserAndWhere(t *testing.T) {
 	ctx := context.Background()
 
 	serials := []string{"WM-2024-001", "WM-2024-002", "WM-2024-003"}
-	for i, dt := range []string{entity.DocTypeInvoice, entity.DocTypeAMC, entity.DocTypeInvoice} {
+	for i, cat := range []string{entity.AssetCategoryAppliance, entity.AssetCategoryFurniture, entity.AssetCategoryAppliance} {
 		serial := serials[i]
 		// Distinct serial per row: 00001_init added the partial unique index
 		// partial unique index on (owner_id, norm_serial).
 		if _, err := assets.Create(ctx, testAsset(func(a *entity.Asset) {
-			a.DocType = dt
+			a.AssetCategory = &cat
 			a.SerialNumber = &serial
 		}), repo.Owner(userA)); err != nil {
-			t.Fatalf("Create(%s): %v", dt, err)
+			t.Fatalf("Create(%s): %v", cat, err)
 		}
 	}
 
@@ -119,15 +119,15 @@ func TestGenericAssetListWithUserAndWhere(t *testing.T) {
 		val  any
 		want int
 	}{
-		{"equals invoice", "=", entity.DocTypeInvoice, 2},
-		{"equals amc", "=", entity.DocTypeAMC, 1},
-		{"equals warranty (none)", "=", entity.DocTypeWarranty, 0},
-		{"not equals invoice", "!=", entity.DocTypeInvoice, 1},
+		{"equals appliance", "=", entity.AssetCategoryAppliance, 2},
+		{"equals furniture", "=", entity.AssetCategoryFurniture, 1},
+		{"equals vehicle (none)", "=", entity.AssetCategoryVehicle, 0},
+		{"not equals appliance", "!=", entity.AssetCategoryAppliance, 1},
 	}
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := assets.List(ctx, repo.Owner(userA), repo.Where("doc_type", tc.op, tc.val))
+			got, err := assets.List(ctx, repo.Owner(userA), repo.Where("asset_category", tc.op, tc.val))
 			if err != nil {
 				t.Fatalf("List: %v", err)
 			}
@@ -135,8 +135,8 @@ func TestGenericAssetListWithUserAndWhere(t *testing.T) {
 				t.Fatalf("List = %d rows, want %d", len(got), tc.want)
 			}
 			for _, a := range got {
-				if tc.op == "=" && a.DocType != tc.val {
-					t.Errorf("row DocType = %q, want %q", a.DocType, tc.val)
+				if tc.op == "=" && (a.AssetCategory == nil || *a.AssetCategory != tc.val) {
+					t.Errorf("row AssetCategory = %v, want %v", a.AssetCategory, tc.val)
 				}
 			}
 		})
@@ -194,9 +194,7 @@ func TestGenericAssetUpdatePartial(t *testing.T) {
 	assertPtrEqual(t, "Model", got.Model, created.Model)
 	assertPtrEqual(t, "SerialNumber", got.SerialNumber, created.SerialNumber)
 	assertTimePtrEqual(t, "PurchaseDate", got.PurchaseDate, created.PurchaseDate)
-	if got.DocType != created.DocType {
-		t.Errorf("DocType = %q, want unchanged %q", got.DocType, created.DocType)
-	}
+	assertPtrEqual(t, "AssetCategory", got.AssetCategory, created.AssetCategory)
 }
 
 func TestGenericAssetDelete(t *testing.T) {

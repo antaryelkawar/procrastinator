@@ -51,15 +51,16 @@ func newReviewRepoForTx(tx pgx.Tx) *ReviewRepository {
 
 // scanReview scans a row into an entity.IngestReview, mapping pgx.ErrNoRows to
 // repo.ErrNotFound. Column order matches the ingest_reviews table (migration
-// 00005).
+// 00005 + 00006). provenance was added in 00006.
 func scanReview(row rowScanner) (entity.IngestReview, error) {
 	var r entity.IngestReview
 	var id string
-	var candidateFieldsJSON, rawJSON []byte
+	var candidateFieldsJSON, rawJSON, provenanceJSON []byte
 	err := row.Scan(
 		&id, &r.OwnerID, &r.OwnerHouseholdID, &r.SourceID, &r.DocType,
 		&candidateFieldsJSON, &rawJSON, &r.Confidence, &r.BestMatchedAssetID,
 		&r.State, &r.CreatedAt, &r.DecidedAt, &r.DecidedBy,
+		&provenanceJSON,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -76,6 +77,11 @@ func scanReview(row rowScanner) (entity.IngestReview, error) {
 	if len(rawJSON) > 0 {
 		if err := json.Unmarshal(rawJSON, &r.RawExtraction); err != nil {
 			return entity.IngestReview{}, fmt.Errorf("decode raw_extraction: %w", err)
+		}
+	}
+	if len(provenanceJSON) > 0 {
+		if err := json.Unmarshal(provenanceJSON, &r.Provenance); err != nil {
+			return entity.IngestReview{}, fmt.Errorf("decode provenance: %w", err)
 		}
 	}
 	return r, nil
@@ -126,6 +132,12 @@ func reviewToMap(r entity.IngestReview) map[string]any {
 	}
 	if r.DecidedBy != nil {
 		m["decided_by"] = r.DecidedBy
+	}
+	if r.Provenance != nil {
+		prov, err := toMetadataJSON(r.Provenance)
+		if err == nil {
+			m["provenance"] = prov
+		}
 	}
 	return m
 }

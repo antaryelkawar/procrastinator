@@ -19,6 +19,102 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AddItemOutcomeKind.
+const (
+	AssetCommitted   AddItemOutcomeKind = "asset_committed"
+	Duplicate        AddItemOutcomeKind = "duplicate"
+	Failed           AddItemOutcomeKind = "failed"
+	HeldForReview    AddItemOutcomeKind = "held_for_review"
+	StatementPreview AddItemOutcomeKind = "statement_preview"
+)
+
+// Valid indicates whether the value is a known member of the AddItemOutcomeKind enum.
+func (e AddItemOutcomeKind) Valid() bool {
+	switch e {
+	case AssetCommitted:
+		return true
+	case Duplicate:
+		return true
+	case Failed:
+		return true
+	case HeldForReview:
+		return true
+	case StatementPreview:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AssetAssetCategory.
+const (
+	AssetAssetCategoryAppliance    AssetAssetCategory = "appliance"
+	AssetAssetCategoryClothing     AssetAssetCategory = "clothing"
+	AssetAssetCategoryComputing    AssetAssetCategory = "computing"
+	AssetAssetCategoryDocumentOnly AssetAssetCategory = "document_only"
+	AssetAssetCategoryElectronics  AssetAssetCategory = "electronics"
+	AssetAssetCategoryFurniture    AssetAssetCategory = "furniture"
+	AssetAssetCategoryOther        AssetAssetCategory = "other"
+	AssetAssetCategoryTool         AssetAssetCategory = "tool"
+	AssetAssetCategoryVehicle      AssetAssetCategory = "vehicle"
+)
+
+// Valid indicates whether the value is a known member of the AssetAssetCategory enum.
+func (e AssetAssetCategory) Valid() bool {
+	switch e {
+	case AssetAssetCategoryAppliance:
+		return true
+	case AssetAssetCategoryClothing:
+		return true
+	case AssetAssetCategoryComputing:
+		return true
+	case AssetAssetCategoryDocumentOnly:
+		return true
+	case AssetAssetCategoryElectronics:
+		return true
+	case AssetAssetCategoryFurniture:
+		return true
+	case AssetAssetCategoryOther:
+		return true
+	case AssetAssetCategoryTool:
+		return true
+	case AssetAssetCategoryVehicle:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DocumentDocType.
+const (
+	DocumentDocTypeAmc       DocumentDocType = "amc"
+	DocumentDocTypeInvoice   DocumentDocType = "invoice"
+	DocumentDocTypeOther     DocumentDocType = "other"
+	DocumentDocTypeReceipt   DocumentDocType = "receipt"
+	DocumentDocTypeStatement DocumentDocType = "statement"
+	DocumentDocTypeWarranty  DocumentDocType = "warranty"
+)
+
+// Valid indicates whether the value is a known member of the DocumentDocType enum.
+func (e DocumentDocType) Valid() bool {
+	switch e {
+	case DocumentDocTypeAmc:
+		return true
+	case DocumentDocTypeInvoice:
+		return true
+	case DocumentDocTypeOther:
+		return true
+	case DocumentDocTypeReceipt:
+		return true
+	case DocumentDocTypeStatement:
+		return true
+	case DocumentDocTypeWarranty:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IngestReviewState.
 const (
 	IngestReviewStateApproved IngestReviewState = "approved"
@@ -34,6 +130,45 @@ func (e IngestReviewState) Valid() bool {
 	case IngestReviewStatePending:
 		return true
 	case IngestReviewStateRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PatchAssetRequestAssetCategory.
+const (
+	PatchAssetRequestAssetCategoryAppliance    PatchAssetRequestAssetCategory = "appliance"
+	PatchAssetRequestAssetCategoryClothing     PatchAssetRequestAssetCategory = "clothing"
+	PatchAssetRequestAssetCategoryComputing    PatchAssetRequestAssetCategory = "computing"
+	PatchAssetRequestAssetCategoryDocumentOnly PatchAssetRequestAssetCategory = "document_only"
+	PatchAssetRequestAssetCategoryElectronics  PatchAssetRequestAssetCategory = "electronics"
+	PatchAssetRequestAssetCategoryFurniture    PatchAssetRequestAssetCategory = "furniture"
+	PatchAssetRequestAssetCategoryOther        PatchAssetRequestAssetCategory = "other"
+	PatchAssetRequestAssetCategoryTool         PatchAssetRequestAssetCategory = "tool"
+	PatchAssetRequestAssetCategoryVehicle      PatchAssetRequestAssetCategory = "vehicle"
+)
+
+// Valid indicates whether the value is a known member of the PatchAssetRequestAssetCategory enum.
+func (e PatchAssetRequestAssetCategory) Valid() bool {
+	switch e {
+	case PatchAssetRequestAssetCategoryAppliance:
+		return true
+	case PatchAssetRequestAssetCategoryClothing:
+		return true
+	case PatchAssetRequestAssetCategoryComputing:
+		return true
+	case PatchAssetRequestAssetCategoryDocumentOnly:
+		return true
+	case PatchAssetRequestAssetCategoryElectronics:
+		return true
+	case PatchAssetRequestAssetCategoryFurniture:
+		return true
+	case PatchAssetRequestAssetCategoryOther:
+		return true
+	case PatchAssetRequestAssetCategoryTool:
+		return true
+	case PatchAssetRequestAssetCategoryVehicle:
 		return true
 	default:
 		return false
@@ -88,6 +223,66 @@ func (e ListReviewsParamsStatus) Valid() bool {
 	}
 }
 
+// Defines values for SearchParamsDocClassification.
+const (
+	SearchParamsDocClassificationAmc       SearchParamsDocClassification = "amc"
+	SearchParamsDocClassificationInvoice   SearchParamsDocClassification = "invoice"
+	SearchParamsDocClassificationOther     SearchParamsDocClassification = "other"
+	SearchParamsDocClassificationReceipt   SearchParamsDocClassification = "receipt"
+	SearchParamsDocClassificationStatement SearchParamsDocClassification = "statement"
+	SearchParamsDocClassificationWarranty  SearchParamsDocClassification = "warranty"
+)
+
+// Valid indicates whether the value is a known member of the SearchParamsDocClassification enum.
+func (e SearchParamsDocClassification) Valid() bool {
+	switch e {
+	case SearchParamsDocClassificationAmc:
+		return true
+	case SearchParamsDocClassificationInvoice:
+		return true
+	case SearchParamsDocClassificationOther:
+		return true
+	case SearchParamsDocClassificationReceipt:
+		return true
+	case SearchParamsDocClassificationStatement:
+		return true
+	case SearchParamsDocClassificationWarranty:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for QuickSearchParamsDocClassification.
+const (
+	QuickSearchParamsDocClassificationAmc       QuickSearchParamsDocClassification = "amc"
+	QuickSearchParamsDocClassificationInvoice   QuickSearchParamsDocClassification = "invoice"
+	QuickSearchParamsDocClassificationOther     QuickSearchParamsDocClassification = "other"
+	QuickSearchParamsDocClassificationReceipt   QuickSearchParamsDocClassification = "receipt"
+	QuickSearchParamsDocClassificationStatement QuickSearchParamsDocClassification = "statement"
+	QuickSearchParamsDocClassificationWarranty  QuickSearchParamsDocClassification = "warranty"
+)
+
+// Valid indicates whether the value is a known member of the QuickSearchParamsDocClassification enum.
+func (e QuickSearchParamsDocClassification) Valid() bool {
+	switch e {
+	case QuickSearchParamsDocClassificationAmc:
+		return true
+	case QuickSearchParamsDocClassificationInvoice:
+		return true
+	case QuickSearchParamsDocClassificationOther:
+		return true
+	case QuickSearchParamsDocClassificationReceipt:
+		return true
+	case QuickSearchParamsDocClassificationStatement:
+		return true
+	case QuickSearchParamsDocClassificationWarranty:
+		return true
+	default:
+		return false
+	}
+}
+
 // Account A financial account with its derived balance.
 type Account struct {
 	Balance            string    `json:"balance"`
@@ -100,6 +295,34 @@ type Account struct {
 	Type               string    `json:"type"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
+
+// AddItemOutcome The uniform per-item outcome of a unified add request.
+type AddItemOutcome struct {
+	// AssetDeleted Set when kind is duplicate and the existing asset is soft-deleted
+	AssetDeleted *bool `json:"asset_deleted,omitempty"`
+
+	// AssetId Set when kind is asset_committed
+	AssetId *string `json:"asset_id,omitempty"`
+
+	// DuplicateAssetId Set when kind is duplicate (the existing asset)
+	DuplicateAssetId *string `json:"duplicate_asset_id,omitempty"`
+
+	// DuplicateDocumentId Set when kind is duplicate (the existing document)
+	DuplicateDocumentId *string `json:"duplicate_document_id,omitempty"`
+
+	// ImportBatchId Set when kind is statement_preview
+	ImportBatchId *string            `json:"import_batch_id,omitempty"`
+	Kind          AddItemOutcomeKind `json:"kind"`
+
+	// Reason Set when kind is failed
+	Reason *string `json:"reason,omitempty"`
+
+	// ReviewId Set when kind is held_for_review
+	ReviewId *string `json:"review_id,omitempty"`
+}
+
+// AddItemOutcomeKind defines model for AddItemOutcome.Kind.
+type AddItemOutcomeKind string
 
 // AddMemberRequest Request body to add a member to a household.
 type AddMemberRequest struct {
@@ -117,21 +340,46 @@ type ApproveReviewResponse struct {
 
 // Asset A user asset derived from an ingested document.
 type Asset struct {
-	Brand            *string                `json:"brand,omitempty"`
-	Confidence       *float32               `json:"confidence,omitempty"`
-	CreatedAt        time.Time              `json:"created_at"`
-	Currency         *string                `json:"currency,omitempty"`
-	DocType          string                 `json:"doc_type"`
-	Id               string                 `json:"id"`
-	Metadata         map[string]interface{} `json:"metadata"`
-	Model            *string                `json:"model,omitempty"`
-	OwnerHouseholdId *string                `json:"owner_household_id,omitempty"`
-	Price            *string                `json:"price,omitempty"`
-	PurchaseDate     *time.Time             `json:"purchase_date,omitempty"`
-	SerialNumber     *string                `json:"serial_number,omitempty"`
-	UpdatedAt        time.Time              `json:"updated_at"`
-	WarrantyEnd      *time.Time             `json:"warranty_end,omitempty"`
+	// AssetCategory Intrinsic category of the asset
+	AssetCategory *AssetAssetCategory `json:"asset_category,omitempty"`
+	Brand         *string             `json:"brand,omitempty"`
+
+	// CategoryConfidence Confidence in the category assignment [0.0, 1.0]
+	CategoryConfidence *float32  `json:"category_confidence,omitempty"`
+	Confidence         *float32  `json:"confidence,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	Currency           *string   `json:"currency,omitempty"`
+
+	// DeletedAt Set when the asset is soft-deleted
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	Id        string     `json:"id"`
+
+	// MergedAssets Assets that were merged into this asset (survivor view)
+	MergedAssets *[]struct {
+		AssetId  string    `json:"asset_id"`
+		MergedAt time.Time `json:"merged_at"`
+	} `json:"merged_assets,omitempty"`
+
+	// MergedAt Timestamp of the merge
+	MergedAt *time.Time `json:"merged_at,omitempty"`
+
+	// MergedInto Id of the survivor asset if this asset was merged
+	MergedInto *string                `json:"merged_into,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata"`
+	Model      *string                `json:"model,omitempty"`
+
+	// Name Canonical product name (e.g. "Microwave Oven")
+	Name             *string    `json:"name,omitempty"`
+	OwnerHouseholdId *string    `json:"owner_household_id,omitempty"`
+	Price            *string    `json:"price,omitempty"`
+	PurchaseDate     *time.Time `json:"purchase_date,omitempty"`
+	SerialNumber     *string    `json:"serial_number,omitempty"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	WarrantyEnd      *time.Time `json:"warranty_end,omitempty"`
 }
+
+// AssetAssetCategory Intrinsic category of the asset
+type AssetAssetCategory string
 
 // CommitSummary The result of committing an import batch.
 type CommitSummary struct {
@@ -166,14 +414,17 @@ type CreateMovementRequest struct {
 
 // Document A document attached to an asset, with its source metadata.
 type Document struct {
-	Confidence       *float32  `json:"confidence,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	DocType          string    `json:"doc_type"`
-	Id               string    `json:"id"`
-	OwnerHouseholdId *string   `json:"owner_household_id,omitempty"`
-	SourceFilename   string    `json:"source_filename"`
-	SourceUploadedAt time.Time `json:"source_uploaded_at"`
+	Confidence       *float32        `json:"confidence,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
+	DocType          DocumentDocType `json:"doc_type"`
+	Id               string          `json:"id"`
+	OwnerHouseholdId *string         `json:"owner_household_id,omitempty"`
+	SourceFilename   string          `json:"source_filename"`
+	SourceUploadedAt time.Time       `json:"source_uploaded_at"`
 }
+
+// DocumentDocType defines model for Document.DocType.
+type DocumentDocType string
 
 // Error The standard error envelope for non-2xx responses.
 type Error struct {
@@ -260,6 +511,11 @@ type LinkMovementRequest struct {
 	DocumentId string `json:"document_id"`
 }
 
+// MergeRequest Request body to merge a duplicate asset into the target.
+type MergeRequest struct {
+	DuplicateAssetId string `json:"duplicate_asset_id"`
+}
+
 // Movement A money movement in the ledger.
 type Movement struct {
 	Amount               string             `json:"amount"`
@@ -281,6 +537,22 @@ type Movement struct {
 	SourceAccountId      *string            `json:"source_account_id,omitempty"`
 	UpdatedAt            time.Time          `json:"updated_at"`
 }
+
+// PatchAssetRequest Request body to patch an asset with user corrections. All fields are
+// optional; only provided fields are applied. Setting `asset_category`
+// marks it as user-set (sticky against future inference).
+type PatchAssetRequest struct {
+	AssetCategory *PatchAssetRequestAssetCategory `json:"asset_category,omitempty"`
+	Brand         *string                         `json:"brand,omitempty"`
+	Currency      *string                         `json:"currency,omitempty"`
+	Model         *string                         `json:"model,omitempty"`
+	Name          *string                         `json:"name,omitempty"`
+	Price         *string                         `json:"price,omitempty"`
+	SerialNumber  *string                         `json:"serial_number,omitempty"`
+}
+
+// PatchAssetRequestAssetCategory defines model for PatchAssetRequest.AssetCategory.
+type PatchAssetRequestAssetCategory string
 
 // PatchMovementRequest Request body to patch a money movement. Only `description` is editable;
 // the remaining core fields must be blank, otherwise the request is
@@ -318,6 +590,26 @@ type SearchResultsPage struct {
 	PageSize int         `json:"page_size"`
 	Results  []SearchHit `json:"results"`
 	Total    int         `json:"total"`
+}
+
+// AddItemsMultipartBody defines parameters for AddItems.
+type AddItemsMultipartBody struct {
+	// AccountId Required for statement items; scopes the import to a finance account.
+	AccountId *string               `json:"account_id,omitempty"`
+	Files     *[]openapi_types.File `json:"files,omitempty"`
+	Text      *string               `json:"text,omitempty"`
+}
+
+// ListAssetsParams defines parameters for ListAssets.
+type ListAssetsParams struct {
+	// IncludeDeleted Include soft-deleted assets in the result
+	IncludeDeleted *bool `form:"include_deleted,omitempty" json:"include_deleted,omitempty"`
+}
+
+// GetAssetParams defines parameters for GetAsset.
+type GetAssetParams struct {
+	// IncludeDeleted Include soft-deleted assets in the result
+	IncludeDeleted *bool `form:"include_deleted,omitempty" json:"include_deleted,omitempty"`
 }
 
 // UploadDocumentMultipartBody defines parameters for UploadDocument.
@@ -358,7 +650,31 @@ type SearchParams struct {
 
 	// PageSize Number of results per page
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// Category Filter by asset category
+	Category *string `form:"category,omitempty" json:"category,omitempty"`
+
+	// Brand Filter by brand
+	Brand *string `form:"brand,omitempty" json:"brand,omitempty"`
+
+	// PurchaseFrom Filter by purchase date (from, inclusive)
+	PurchaseFrom *openapi_types.Date `form:"purchase_from,omitempty" json:"purchase_from,omitempty"`
+
+	// PurchaseTo Filter by purchase date (to, inclusive)
+	PurchaseTo *openapi_types.Date `form:"purchase_to,omitempty" json:"purchase_to,omitempty"`
+
+	// WarrantyStatus Filter by warranty status (e.g. active, expiring_within:90, expired)
+	WarrantyStatus *string `form:"warranty_status,omitempty" json:"warranty_status,omitempty"`
+
+	// HasDocuments Filter to assets that have (true) or lack (false) linked documents
+	HasDocuments *bool `form:"has_documents,omitempty" json:"has_documents,omitempty"`
+
+	// DocClassification Filter by document classification
+	DocClassification *SearchParamsDocClassification `form:"doc_classification,omitempty" json:"doc_classification,omitempty"`
 }
+
+// SearchParamsDocClassification defines parameters for Search.
+type SearchParamsDocClassification string
 
 // QuickSearchParams defines parameters for QuickSearch.
 type QuickSearchParams struct {
@@ -367,7 +683,40 @@ type QuickSearchParams struct {
 
 	// Limit Maximum number of hits to return
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Category Filter by asset category
+	Category *string `form:"category,omitempty" json:"category,omitempty"`
+
+	// Brand Filter by brand
+	Brand *string `form:"brand,omitempty" json:"brand,omitempty"`
+
+	// PurchaseFrom Filter by purchase date (from, inclusive)
+	PurchaseFrom *openapi_types.Date `form:"purchase_from,omitempty" json:"purchase_from,omitempty"`
+
+	// PurchaseTo Filter by purchase date (to, inclusive)
+	PurchaseTo *openapi_types.Date `form:"purchase_to,omitempty" json:"purchase_to,omitempty"`
+
+	// WarrantyStatus Filter by warranty status (e.g. active, expiring_within:90, expired)
+	WarrantyStatus *string `form:"warranty_status,omitempty" json:"warranty_status,omitempty"`
+
+	// HasDocuments Filter to assets that have (true) or lack (false) linked documents
+	HasDocuments *bool `form:"has_documents,omitempty" json:"has_documents,omitempty"`
+
+	// DocClassification Filter by document classification
+	DocClassification *QuickSearchParamsDocClassification `form:"doc_classification,omitempty" json:"doc_classification,omitempty"`
 }
+
+// QuickSearchParamsDocClassification defines parameters for QuickSearch.
+type QuickSearchParamsDocClassification string
+
+// AddItemsMultipartRequestBody defines body for AddItems for multipart/form-data ContentType.
+type AddItemsMultipartRequestBody AddItemsMultipartBody
+
+// PatchAssetJSONRequestBody defines body for PatchAsset for application/json ContentType.
+type PatchAssetJSONRequestBody = PatchAssetRequest
+
+// MergeAssetJSONRequestBody defines body for MergeAsset for application/json ContentType.
+type MergeAssetJSONRequestBody = MergeRequest
 
 // UploadDocumentMultipartRequestBody defines body for UploadDocument for multipart/form-data ContentType.
 type UploadDocumentMultipartRequestBody UploadDocumentMultipartBody
@@ -395,15 +744,30 @@ type AddHouseholdMemberJSONRequestBody = AddMemberRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// AddItems Unified add (files and/or text)
+	// (POST /api/users/{userId}/add)
+	AddItems(w http.ResponseWriter, r *http.Request, userId string)
 	// ListAssets List all assets
 	// (GET /api/users/{userId}/assets)
-	ListAssets(w http.ResponseWriter, r *http.Request, userId string)
+	ListAssets(w http.ResponseWriter, r *http.Request, userId string, params ListAssetsParams)
+	// DeleteAsset Soft-delete an asset
+	// (DELETE /api/users/{userId}/assets/{assetId})
+	DeleteAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string)
 	// GetAsset Get a single asset
 	// (GET /api/users/{userId}/assets/{assetId})
-	GetAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string)
+	GetAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string, params GetAssetParams)
+	// PatchAsset Patch an asset (user corrections)
+	// (PATCH /api/users/{userId}/assets/{assetId})
+	PatchAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string)
 	// ListAssetDocuments List documents for an asset
 	// (GET /api/users/{userId}/assets/{assetId}/documents)
 	ListAssetDocuments(w http.ResponseWriter, r *http.Request, userId string, assetId string)
+	// MergeAsset Merge a duplicate asset into this asset
+	// (POST /api/users/{userId}/assets/{assetId}/merge)
+	MergeAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string)
+	// RestoreAsset Restore a soft-deleted asset
+	// (POST /api/users/{userId}/assets/{assetId}/restore)
+	RestoreAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string)
 	// UploadDocument Upload a document
 	// (POST /api/users/{userId}/documents)
 	UploadDocument(w http.ResponseWriter, r *http.Request, userId string)
@@ -488,21 +852,51 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// AddItems Unified add (files and/or text)
+// (POST /api/users/{userId}/add)
+func (_ Unimplemented) AddItems(w http.ResponseWriter, r *http.Request, userId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // ListAssets List all assets
 // (GET /api/users/{userId}/assets)
-func (_ Unimplemented) ListAssets(w http.ResponseWriter, r *http.Request, userId string) {
+func (_ Unimplemented) ListAssets(w http.ResponseWriter, r *http.Request, userId string, params ListAssetsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteAsset Soft-delete an asset
+// (DELETE /api/users/{userId}/assets/{assetId})
+func (_ Unimplemented) DeleteAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // GetAsset Get a single asset
 // (GET /api/users/{userId}/assets/{assetId})
-func (_ Unimplemented) GetAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
+func (_ Unimplemented) GetAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string, params GetAssetParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// PatchAsset Patch an asset (user corrections)
+// (PATCH /api/users/{userId}/assets/{assetId})
+func (_ Unimplemented) PatchAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // ListAssetDocuments List documents for an asset
 // (GET /api/users/{userId}/assets/{assetId}/documents)
 func (_ Unimplemented) ListAssetDocuments(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// MergeAsset Merge a duplicate asset into this asset
+// (POST /api/users/{userId}/assets/{assetId}/merge)
+func (_ Unimplemented) MergeAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RestoreAsset Restore a soft-deleted asset
+// (POST /api/users/{userId}/assets/{assetId}/restore)
+func (_ Unimplemented) RestoreAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -671,6 +1065,32 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
+// AddItems operation middleware
+func (siw *ServerInterfaceWrapper) AddItems(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddItems(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListAssets operation middleware
 func (siw *ServerInterfaceWrapper) ListAssets(w http.ResponseWriter, r *http.Request) {
 
@@ -686,8 +1106,59 @@ func (siw *ServerInterfaceWrapper) ListAssets(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAssetsParams
+
+	// ------------- Optional query parameter "include_deleted" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_deleted", r.URL.Query(), &params.IncludeDeleted, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_deleted"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_deleted", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListAssets(w, r, userId)
+		siw.Handler.ListAssets(w, r, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAsset operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAsset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "assetId" -------------
+	var assetId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "assetId", chi.URLParam(r, "assetId"), &assetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAsset(w, r, userId, assetId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -721,8 +1192,59 @@ func (siw *ServerInterfaceWrapper) GetAsset(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAssetParams
+
+	// ------------- Optional query parameter "include_deleted" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_deleted", r.URL.Query(), &params.IncludeDeleted, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_deleted"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_deleted", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAsset(w, r, userId, assetId)
+		siw.Handler.GetAsset(w, r, userId, assetId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PatchAsset operation middleware
+func (siw *ServerInterfaceWrapper) PatchAsset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "assetId" -------------
+	var assetId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "assetId", chi.URLParam(r, "assetId"), &assetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchAsset(w, r, userId, assetId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -758,6 +1280,76 @@ func (siw *ServerInterfaceWrapper) ListAssetDocuments(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAssetDocuments(w, r, userId, assetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MergeAsset operation middleware
+func (siw *ServerInterfaceWrapper) MergeAsset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "assetId" -------------
+	var assetId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "assetId", chi.URLParam(r, "assetId"), &assetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MergeAsset(w, r, userId, assetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestoreAsset operation middleware
+func (siw *ServerInterfaceWrapper) RestoreAsset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "assetId" -------------
+	var assetId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "assetId", chi.URLParam(r, "assetId"), &assetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreAsset(w, r, userId, assetId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1632,6 +2224,97 @@ func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "brand" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "brand", r.URL.Query(), &params.Brand, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "brand"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "brand", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "purchase_from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "purchase_from", r.URL.Query(), &params.PurchaseFrom, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "purchase_from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "purchase_from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "purchase_to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "purchase_to", r.URL.Query(), &params.PurchaseTo, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "purchase_to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "purchase_to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "warranty_status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "warranty_status", r.URL.Query(), &params.WarrantyStatus, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "warranty_status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "warranty_status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "has_documents" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "has_documents", r.URL.Query(), &params.HasDocuments, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "has_documents"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "has_documents", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "doc_classification" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "doc_classification", r.URL.Query(), &params.DocClassification, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "doc_classification"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doc_classification", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Search(w, r, userId, params)
 	}))
@@ -1683,6 +2366,97 @@ func (siw *ServerInterfaceWrapper) QuickSearch(w http.ResponseWriter, r *http.Re
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "brand" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "brand", r.URL.Query(), &params.Brand, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "brand"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "brand", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "purchase_from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "purchase_from", r.URL.Query(), &params.PurchaseFrom, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "purchase_from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "purchase_from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "purchase_to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "purchase_to", r.URL.Query(), &params.PurchaseTo, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "purchase_to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "purchase_to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "warranty_status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "warranty_status", r.URL.Query(), &params.WarrantyStatus, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "warranty_status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "warranty_status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "has_documents" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "has_documents", r.URL.Query(), &params.HasDocuments, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "has_documents"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "has_documents", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "doc_classification" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "doc_classification", r.URL.Query(), &params.DocClassification, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "doc_classification"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doc_classification", Err: err})
 		}
 		return
 	}
@@ -1815,10 +2589,25 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/users/{userId}/documents", wrapper.UploadDocument)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/users/{userId}/add", wrapper.AddItems)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/users/{userId}/assets", wrapper.ListAssets)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/users/{userId}/assets/{assetId}", wrapper.DeleteAsset)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/users/{userId}/assets/{assetId}", wrapper.GetAsset)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/users/{userId}/assets/{assetId}", wrapper.PatchAsset)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/users/{userId}/assets/{assetId}/restore", wrapper.RestoreAsset)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/users/{userId}/assets/{assetId}/merge", wrapper.MergeAsset)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/users/{userId}/assets/{assetId}/documents", wrapper.ListAssetDocuments)
@@ -1902,8 +2691,102 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	return r
 }
 
+type AddItemsRequestObject struct {
+	UserId string `json:"userId"`
+	Body   *multipart.Reader
+}
+
+type AddItemsResponseObject interface {
+	VisitAddItemsResponse(w http.ResponseWriter) error
+}
+
+type AddItems200JSONResponse []AddItemOutcome
+
+func (response AddItems200JSONResponse) VisitAddItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddItems400JSONResponse Error
+
+func (response AddItems400JSONResponse) VisitAddItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddItems401JSONResponse Error
+
+func (response AddItems401JSONResponse) VisitAddItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddItems413JSONResponse Error
+
+func (response AddItems413JSONResponse) VisitAddItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddItems415JSONResponse Error
+
+func (response AddItems415JSONResponse) VisitAddItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddItems500JSONResponse Error
+
+func (response AddItems500JSONResponse) VisitAddItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListAssetsRequestObject struct {
 	UserId string `json:"userId"`
+	Params ListAssetsParams
 }
 
 type ListAssetsResponseObject interface {
@@ -1938,9 +2821,55 @@ func (response ListAssets500JSONResponse) VisitListAssetsResponse(w http.Respons
 	return err
 }
 
+type DeleteAssetRequestObject struct {
+	UserId  string `json:"userId"`
+	AssetId string `json:"assetId"`
+}
+
+type DeleteAssetResponseObject interface {
+	VisitDeleteAssetResponse(w http.ResponseWriter) error
+}
+
+type DeleteAsset204Response struct {
+}
+
+func (response DeleteAsset204Response) VisitDeleteAssetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteAsset404JSONResponse Error
+
+func (response DeleteAsset404JSONResponse) VisitDeleteAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAsset500JSONResponse Error
+
+func (response DeleteAsset500JSONResponse) VisitDeleteAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetAssetRequestObject struct {
 	UserId  string `json:"userId"`
 	AssetId string `json:"assetId"`
+	Params  GetAssetParams
 }
 
 type GetAssetResponseObject interface {
@@ -1978,6 +2907,72 @@ func (response GetAsset404JSONResponse) VisitGetAssetResponse(w http.ResponseWri
 type GetAsset500JSONResponse Error
 
 func (response GetAsset500JSONResponse) VisitGetAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchAssetRequestObject struct {
+	UserId  string `json:"userId"`
+	AssetId string `json:"assetId"`
+	Body    *PatchAssetJSONRequestBody
+}
+
+type PatchAssetResponseObject interface {
+	VisitPatchAssetResponse(w http.ResponseWriter) error
+}
+
+type PatchAsset200JSONResponse Asset
+
+func (response PatchAsset200JSONResponse) VisitPatchAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchAsset400JSONResponse Error
+
+func (response PatchAsset400JSONResponse) VisitPatchAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchAsset404JSONResponse Error
+
+func (response PatchAsset404JSONResponse) VisitPatchAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchAsset500JSONResponse Error
+
+func (response PatchAsset500JSONResponse) VisitPatchAssetResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -2029,6 +3024,151 @@ func (response ListAssetDocuments404JSONResponse) VisitListAssetDocumentsRespons
 type ListAssetDocuments500JSONResponse Error
 
 func (response ListAssetDocuments500JSONResponse) VisitListAssetDocumentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeAssetRequestObject struct {
+	UserId  string `json:"userId"`
+	AssetId string `json:"assetId"`
+	Body    *MergeAssetJSONRequestBody
+}
+
+type MergeAssetResponseObject interface {
+	VisitMergeAssetResponse(w http.ResponseWriter) error
+}
+
+type MergeAsset200JSONResponse Asset
+
+func (response MergeAsset200JSONResponse) VisitMergeAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeAsset400JSONResponse Error
+
+func (response MergeAsset400JSONResponse) VisitMergeAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeAsset404JSONResponse Error
+
+func (response MergeAsset404JSONResponse) VisitMergeAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeAsset409JSONResponse Error
+
+func (response MergeAsset409JSONResponse) VisitMergeAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeAsset500JSONResponse Error
+
+func (response MergeAsset500JSONResponse) VisitMergeAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreAssetRequestObject struct {
+	UserId  string `json:"userId"`
+	AssetId string `json:"assetId"`
+}
+
+type RestoreAssetResponseObject interface {
+	VisitRestoreAssetResponse(w http.ResponseWriter) error
+}
+
+type RestoreAsset200JSONResponse Asset
+
+func (response RestoreAsset200JSONResponse) VisitRestoreAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreAsset404JSONResponse Error
+
+func (response RestoreAsset404JSONResponse) VisitRestoreAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreAsset409JSONResponse Error
+
+func (response RestoreAsset409JSONResponse) VisitRestoreAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreAsset500JSONResponse Error
+
+func (response RestoreAsset500JSONResponse) VisitRestoreAssetResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -3952,15 +5092,30 @@ func (response QuickSearch500JSONResponse) VisitQuickSearchResponse(w http.Respo
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// AddItems Unified add (files and/or text)
+	// (POST /api/users/{userId}/add)
+	AddItems(ctx context.Context, request AddItemsRequestObject) (AddItemsResponseObject, error)
 	// ListAssets List all assets
 	// (GET /api/users/{userId}/assets)
 	ListAssets(ctx context.Context, request ListAssetsRequestObject) (ListAssetsResponseObject, error)
+	// DeleteAsset Soft-delete an asset
+	// (DELETE /api/users/{userId}/assets/{assetId})
+	DeleteAsset(ctx context.Context, request DeleteAssetRequestObject) (DeleteAssetResponseObject, error)
 	// GetAsset Get a single asset
 	// (GET /api/users/{userId}/assets/{assetId})
 	GetAsset(ctx context.Context, request GetAssetRequestObject) (GetAssetResponseObject, error)
+	// PatchAsset Patch an asset (user corrections)
+	// (PATCH /api/users/{userId}/assets/{assetId})
+	PatchAsset(ctx context.Context, request PatchAssetRequestObject) (PatchAssetResponseObject, error)
 	// ListAssetDocuments List documents for an asset
 	// (GET /api/users/{userId}/assets/{assetId}/documents)
 	ListAssetDocuments(ctx context.Context, request ListAssetDocumentsRequestObject) (ListAssetDocumentsResponseObject, error)
+	// MergeAsset Merge a duplicate asset into this asset
+	// (POST /api/users/{userId}/assets/{assetId}/merge)
+	MergeAsset(ctx context.Context, request MergeAssetRequestObject) (MergeAssetResponseObject, error)
+	// RestoreAsset Restore a soft-deleted asset
+	// (POST /api/users/{userId}/assets/{assetId}/restore)
+	RestoreAsset(ctx context.Context, request RestoreAssetRequestObject) (RestoreAssetResponseObject, error)
 	// UploadDocument Upload a document
 	// (POST /api/users/{userId}/documents)
 	UploadDocument(ctx context.Context, request UploadDocumentRequestObject) (UploadDocumentResponseObject, error)
@@ -4080,11 +5235,45 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
+// AddItems operation middleware
+func (sh *strictHandler) AddItems(w http.ResponseWriter, r *http.Request, userId string) {
+	var request AddItemsRequestObject
+
+	request.UserId = userId
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddItems(ctx, request.(AddItemsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddItems")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddItemsResponseObject); ok {
+		if err := validResponse.VisitAddItemsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListAssets operation middleware
-func (sh *strictHandler) ListAssets(w http.ResponseWriter, r *http.Request, userId string) {
+func (sh *strictHandler) ListAssets(w http.ResponseWriter, r *http.Request, userId string, params ListAssetsParams) {
 	var request ListAssetsRequestObject
 
 	request.UserId = userId
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListAssets(ctx, request.(ListAssetsRequestObject))
@@ -4106,12 +5295,40 @@ func (sh *strictHandler) ListAssets(w http.ResponseWriter, r *http.Request, user
 	}
 }
 
+// DeleteAsset operation middleware
+func (sh *strictHandler) DeleteAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
+	var request DeleteAssetRequestObject
+
+	request.UserId = userId
+	request.AssetId = assetId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteAsset(ctx, request.(DeleteAssetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteAsset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteAssetResponseObject); ok {
+		if err := validResponse.VisitDeleteAssetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetAsset operation middleware
-func (sh *strictHandler) GetAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
+func (sh *strictHandler) GetAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string, params GetAssetParams) {
 	var request GetAssetRequestObject
 
 	request.UserId = userId
 	request.AssetId = assetId
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.GetAsset(ctx, request.(GetAssetRequestObject))
@@ -4126,6 +5343,43 @@ func (sh *strictHandler) GetAsset(w http.ResponseWriter, r *http.Request, userId
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetAssetResponseObject); ok {
 		if err := validResponse.VisitGetAssetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PatchAsset operation middleware
+func (sh *strictHandler) PatchAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
+	var request PatchAssetRequestObject
+
+	request.UserId = userId
+	request.AssetId = assetId
+
+	var body PatchAssetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchAsset(ctx, request.(PatchAssetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchAsset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchAssetResponseObject); ok {
+		if err := validResponse.VisitPatchAssetResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -4153,6 +5407,70 @@ func (sh *strictHandler) ListAssetDocuments(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListAssetDocumentsResponseObject); ok {
 		if err := validResponse.VisitListAssetDocumentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MergeAsset operation middleware
+func (sh *strictHandler) MergeAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
+	var request MergeAssetRequestObject
+
+	request.UserId = userId
+	request.AssetId = assetId
+
+	var body MergeAssetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MergeAsset(ctx, request.(MergeAssetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MergeAsset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MergeAssetResponseObject); ok {
+		if err := validResponse.VisitMergeAssetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreAsset operation middleware
+func (sh *strictHandler) RestoreAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string) {
+	var request RestoreAssetRequestObject
+
+	request.UserId = userId
+	request.AssetId = assetId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreAsset(ctx, request.(RestoreAssetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreAsset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreAssetResponseObject); ok {
+		if err := validResponse.VisitRestoreAssetResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

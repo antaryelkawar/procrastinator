@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,6 +36,11 @@ type fakeAssetRepo struct {
 	assets map[string]entity.Asset
 	nextID int
 	calls  []string
+	// listSignatures records, per List call in order, a canonical signature
+	// of the identity filter fields used (e.g. "norm_serial",
+	// "norm_brand+norm_model", "norm_model+norm_name"). owner-household
+	// fencing is ignored.
+	listSignatures []string
 	// createErr, when non-nil, is returned by Create.
 	createErr error
 	// conflictReturn, when non-nil, is returned by Create instead of
@@ -80,6 +86,7 @@ func (r *fakeAssetRepo) List(ctx context.Context, opts ...repo.Option) ([]entity
 	defer r.mu.Unlock()
 	o := repo.ApplyOptions(opts...)
 	r.calls = append(r.calls, "List")
+	r.listSignatures = append(r.listSignatures, identityFilterSignature(o.Filters))
 
 	out := make([]entity.Asset, 0, len(r.assets))
 	for _, a := range r.assets {
@@ -132,6 +139,8 @@ func (r *fakeAssetRepo) matchesFilter(a entity.Asset, f repo.Filter) bool {
 		got = a.NormBrand
 	case "norm_model":
 		got = a.NormModel
+	case "norm_name":
+		got = a.NormName
 	default:
 		return false
 	}
@@ -187,7 +196,35 @@ func (r *fakeAssetRepo) Delete(ctx context.Context, id string, opts ...repo.Opti
 	return nil
 }
 
-// callsWith returns the recorded calls matching a prefix.
+// listStages returns, in call order, the canonical identity-filter signatures
+// recorded for each List call (see List).
+func (r *fakeAssetRepo) listStages() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.listSignatures...)
+}
+
+// identityFilterSignature builds a canonical signature of a List call's
+// identity filter fields: the sorted join of the norm_* fields present in the
+// filters, ignoring owner-household fencing, joined with "+". For example
+// "norm_serial", "norm_brand+norm_model", or "norm_model+norm_name".
+func identityFilterSignature(filters []repo.Filter) string {
+	known := map[string]struct{}{
+		"norm_serial": {},
+		"norm_brand":  {},
+		"norm_model":  {},
+		"norm_name":   {},
+	}
+	present := make([]string, 0, len(known))
+	for _, f := range filters {
+		if _, ok := known[f.Field]; ok {
+			present = append(present, f.Field)
+		}
+	}
+	sort.Strings(present)
+	return strings.Join(present, "+")
+}
+
 func (r *fakeAssetRepo) callsWith(prefix string) []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -256,7 +293,7 @@ func TestResolve_SerialMatchWinsOverBrandModel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo(tc.repoAssets...)
-			got, created, err := Resolve(testCtx(), repo, tc.extraction, nil)
+			got, created, err := Resolve(testCtx(), repo, tc.extraction, nil, DefaultCandidateLimit)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -286,6 +323,7 @@ func TestResolve_BrandModelMatch(t *testing.T) {
 		wantID      string
 		wantCreated bool
 		wantCreate  bool
+		wantErr     error
 	}{
 		{
 			name: "both brand and model present, match found",
@@ -305,20 +343,16 @@ func TestResolve_BrandModelMatch(t *testing.T) {
 			extraction: entity.Extraction{
 				Brand: ptr("LG"),
 			},
-			repoAssets:  []entity.Asset{},
-			wantID:      "", // new asset gets a generated ID
-			wantCreated: true,
-			wantCreate:  true,
+			repoAssets: []entity.Asset{},
+			wantErr:    ErrNoIdentity, // no eligible stage without a model
 		},
 		{
 			name: "model alone, no match",
 			extraction: entity.Extraction{
 				Model: ptr("W1234"),
 			},
-			repoAssets:  []entity.Asset{},
-			wantID:      "", // new asset gets a generated ID
-			wantCreated: true,
-			wantCreate:  true,
+			repoAssets: []entity.Asset{},
+			wantErr:    ErrNoIdentity, // no eligible stage without a serial/brand+name
 		},
 	}
 
@@ -327,7 +361,16 @@ func TestResolve_BrandModelMatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo(tc.repoAssets...)
-			got, created, err := Resolve(testCtx(), repo, tc.extraction, nil)
+			got, created, err := Resolve(testCtx(), repo, tc.extraction, nil, DefaultCandidateLimit)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("Resolve error = %v, want %v", err, tc.wantErr)
+				}
+				if len(repo.calls) != 0 {
+					t.Errorf("expected no repo calls, got %v", repo.calls)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -383,7 +426,7 @@ func TestResolve_NoIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo()
-			_, _, err := Resolve(testCtx(), repo, tc.extraction, nil)
+			_, _, err := Resolve(testCtx(), repo, tc.extraction, nil, DefaultCandidateLimit)
 			if !errors.Is(err, ErrNoIdentity) {
 				t.Errorf("Resolve error = %v, want ErrNoIdentity", err)
 			}
@@ -424,7 +467,7 @@ func TestResolve_CreateNew(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo()
-			got, created, err := Resolve(testCtx(), repo, tc.extraction, nil)
+			got, created, err := Resolve(testCtx(), repo, tc.extraction, nil, DefaultCandidateLimit)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -498,7 +541,7 @@ func TestResolve_MergeSemantics(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo(tc.existing)
-			_, _, err := Resolve(testCtx(), repo, tc.extraction, nil)
+			_, _, err := Resolve(testCtx(), repo, tc.extraction, nil, DefaultCandidateLimit)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -626,7 +669,7 @@ func TestResolve_MetadataMerge(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newFakeAssetRepo(tc.existing)
-			_, _, err := Resolve(testCtx(), repo, tc.extraction, nil)
+			_, _, err := Resolve(testCtx(), repo, tc.extraction, nil, DefaultCandidateLimit)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -655,66 +698,6 @@ func TestResolve_MetadataMerge(t *testing.T) {
 			}
 			if len(stored.Metadata) != len(tc.wantMeta) {
 				t.Errorf("Metadata has %d keys, want %d: %v", len(stored.Metadata), len(tc.wantMeta), stored.Metadata)
-			}
-		})
-	}
-}
-
-func TestResolve_DocTypeSet(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name       string
-		existing   entity.Asset
-		extraction entity.Extraction
-		wantDoc    string
-	}{
-		{
-			name: "doc_type updated on merge",
-			existing: entity.Asset{
-				ID:         "DT1",
-				NormSerial: ptr("DT1-SN"),
-				DocType:    "invoice",
-			},
-			extraction: entity.Extraction{
-				SerialNumber:   ptr("DT1-SN"),
-				Classification: "amc",
-			},
-			wantDoc: "amc",
-		},
-		{
-			name:     "doc_type set on create",
-			existing: entity.Asset{},
-			extraction: entity.Extraction{
-				SerialNumber:   ptr("DT2-SN"),
-				Classification: "warranty",
-			},
-			wantDoc: "warranty",
-		},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			var repo *fakeAssetRepo
-			var wantID string
-			if tc.existing.ID != "" {
-				repo = newFakeAssetRepo(tc.existing)
-				wantID = tc.existing.ID
-			} else {
-				repo = newFakeAssetRepo()
-			}
-
-			got, _, err := Resolve(testCtx(), repo, tc.extraction, nil)
-			if err != nil {
-				t.Fatalf("Resolve returned error: %v", err)
-			}
-			if wantID != "" && got.ID != wantID {
-				t.Errorf("resolved asset ID = %q, want %q", got.ID, wantID)
-			}
-			if got.DocType != tc.wantDoc {
-				t.Errorf("DocType = %q, want %q", got.DocType, tc.wantDoc)
 			}
 		})
 	}
@@ -749,7 +732,7 @@ func TestResolve_HouseholdFence(t *testing.T) {
 		Price:        ptr("777.77"),
 	}
 
-	got, created, err := Resolve(testCtx(), repo, ext, ptr(h))
+	got, created, err := Resolve(testCtx(), repo, ext, ptr(h), DefaultCandidateLimit)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -792,7 +775,7 @@ func TestResolve_PersonalFence(t *testing.T) {
 		Price:        ptr("888.88"),
 	}
 
-	got, created, err := Resolve(testCtx(), repo, ext, nil)
+	got, created, err := Resolve(testCtx(), repo, ext, nil, DefaultCandidateLimit)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -843,7 +826,7 @@ func TestResolve_ConfidenceStamped(t *testing.T) {
 			wantConf: ptr(0.95),
 		},
 		{
-			name: "nil confidence stays nil on create",
+			name:     "nil confidence stays nil on create",
 			existing: entity.Asset{},
 			extraction: entity.Extraction{
 				SerialNumber: ptr("CONF-2"),
@@ -886,7 +869,7 @@ func TestResolve_ConfidenceStamped(t *testing.T) {
 			} else {
 				repo = newFakeAssetRepo()
 			}
-			got, _, err := Resolve(testCtx(), repo, tc.extraction, nil)
+			got, _, err := Resolve(testCtx(), repo, tc.extraction, nil, DefaultCandidateLimit)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -910,7 +893,7 @@ func TestResolve_ScopeStampedOnCreate(t *testing.T) {
 		t.Parallel()
 		h := "household-2"
 		repo := newFakeAssetRepo()
-		got, created, err := Resolve(testCtx(), repo, entity.Extraction{SerialNumber: ptr("FRESH-H")}, ptr(h))
+		got, created, err := Resolve(testCtx(), repo, entity.Extraction{SerialNumber: ptr("FRESH-H")}, ptr(h), DefaultCandidateLimit)
 		if err != nil {
 			t.Fatalf("Resolve returned error: %v", err)
 		}
@@ -925,7 +908,7 @@ func TestResolve_ScopeStampedOnCreate(t *testing.T) {
 	t.Run("personal scope stamped on create", func(t *testing.T) {
 		t.Parallel()
 		repo := newFakeAssetRepo()
-		got, created, err := Resolve(testCtx(), repo, entity.Extraction{SerialNumber: ptr("FRESH-P")}, nil)
+		got, created, err := Resolve(testCtx(), repo, entity.Extraction{SerialNumber: ptr("FRESH-P")}, nil, DefaultCandidateLimit)
 		if err != nil {
 			t.Fatalf("Resolve returned error: %v", err)
 		}
@@ -936,4 +919,382 @@ func TestResolve_ScopeStampedOnCreate(t *testing.T) {
 			t.Errorf("created OwnerHouseholdID = %v, want nil", *got.OwnerHouseholdID)
 		}
 	})
+}
+
+func TestMerge_CategorySticky_UserSetSurvivesLowerConfidence(t *testing.T) {
+	t.Parallel()
+
+	existing := entity.Asset{
+		ID:                 "STICKY-1",
+		NormSerial:         ptr("STICKY-1"),
+		AssetCategory:      ptr("electronics"),
+		CategoryConfidence: ptr(0.9),
+		CategoryUserSet:    true,
+	}
+	repo := newFakeAssetRepo(existing)
+	got, created, err := Resolve(testCtx(), repo, entity.Extraction{
+		SerialNumber:       ptr("sticky-1"),
+		AssetCategory:      ptr("other"),
+		CategoryConfidence: ptr(0.5),
+	}, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if created {
+		t.Fatal("created = true, want false (should have merged into the existing asset)")
+	}
+	if got.ID != "STICKY-1" {
+		t.Errorf("resolved asset ID = %q, want STICKY-1", got.ID)
+	}
+	// Assert via stored asset to be safe against returned-value quirks.
+	stored, err := repo.Get(testCtx(), "STICKY-1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if stored.AssetCategory == nil || *stored.AssetCategory != "electronics" {
+		t.Errorf("AssetCategory = %v, want electronics (user-set is sticky)", stored.AssetCategory)
+	}
+	if stored.CategoryConfidence == nil || *stored.CategoryConfidence != 0.9 {
+		t.Errorf("CategoryConfidence = %v, want 0.9 (unchanged)", stored.CategoryConfidence)
+	}
+	if !stored.CategoryUserSet {
+		t.Error("CategoryUserSet = false, want true (must remain user-set)")
+	}
+}
+
+func TestMerge_CategoryHigherConfidenceReplaces(t *testing.T) {
+	t.Parallel()
+
+	existing := entity.Asset{
+		ID:                 "CAT-UP",
+		NormSerial:         ptr("CAT-UP"),
+		AssetCategory:      ptr("other"),
+		CategoryConfidence: ptr(0.5),
+		CategoryUserSet:    false,
+	}
+	repo := newFakeAssetRepo(existing)
+	got, _, err := Resolve(testCtx(), repo, entity.Extraction{
+		SerialNumber:       ptr("cat-up"),
+		AssetCategory:      ptr("appliance"),
+		CategoryConfidence: ptr(0.9),
+	}, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if got.ID != "CAT-UP" {
+		t.Errorf("resolved asset ID = %q, want CAT-UP", got.ID)
+	}
+	stored, err := repo.Get(testCtx(), "CAT-UP")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if stored.AssetCategory == nil || *stored.AssetCategory != "appliance" {
+		t.Errorf("AssetCategory = %v, want appliance (higher confidence)", stored.AssetCategory)
+	}
+	if stored.CategoryConfidence == nil || *stored.CategoryConfidence != 0.9 {
+		t.Errorf("CategoryConfidence = %v, want 0.9", stored.CategoryConfidence)
+	}
+	if stored.CategoryUserSet {
+		t.Error("CategoryUserSet = true, want false")
+	}
+}
+
+func TestMerge_CategoryLowerConfidenceKeepsExisting(t *testing.T) {
+	t.Parallel()
+
+	existing := entity.Asset{
+		ID:                 "CAT-DN",
+		NormSerial:         ptr("CAT-DN"),
+		AssetCategory:      ptr("appliance"),
+		CategoryConfidence: ptr(0.9),
+		CategoryUserSet:    false,
+	}
+	repo := newFakeAssetRepo(existing)
+	_, _, err := Resolve(testCtx(), repo, entity.Extraction{
+		SerialNumber:       ptr("cat-dn"),
+		AssetCategory:      ptr("other"),
+		CategoryConfidence: ptr(0.5),
+	}, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	stored, err := repo.Get(testCtx(), "CAT-DN")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if stored.AssetCategory == nil || *stored.AssetCategory != "appliance" {
+		t.Errorf("AssetCategory = %v, want appliance (unchanged)", stored.AssetCategory)
+	}
+	if stored.CategoryConfidence == nil || *stored.CategoryConfidence != 0.9 {
+		t.Errorf("CategoryConfidence = %v, want 0.9 (unchanged)", stored.CategoryConfidence)
+	}
+}
+
+func TestMerge_NullCategoryAndNameNeverErase(t *testing.T) {
+	t.Parallel()
+
+	existing := entity.Asset{
+		ID:                 "NULL-1",
+		Name:               ptr("Old Name"),
+		AssetCategory:      ptr("appliance"),
+		CategoryConfidence: ptr(0.8),
+		NormSerial:         ptr("NULL-1"),
+		CategoryUserSet:    false,
+	}
+	repo := newFakeAssetRepo(existing)
+	_, _, err := Resolve(testCtx(), repo, entity.Extraction{
+		SerialNumber: ptr("null-1"),
+	}, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	stored, err := repo.Get(testCtx(), "NULL-1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if stored.Name == nil || *stored.Name != "Old Name" {
+		t.Errorf("Name = %v, want \"Old Name\" (nil extraction must not erase)", stored.Name)
+	}
+	if stored.AssetCategory == nil || *stored.AssetCategory != "appliance" {
+		t.Errorf("AssetCategory = %v, want appliance (unchanged)", stored.AssetCategory)
+	}
+	if stored.CategoryConfidence == nil || *stored.CategoryConfidence != 0.8 {
+		t.Errorf("CategoryConfidence = %v, want 0.8 (unchanged)", stored.CategoryConfidence)
+	}
+}
+
+func TestMerge_NewNameWins(t *testing.T) {
+	t.Parallel()
+
+	existing := entity.Asset{
+		ID:         "NAME-1",
+		Name:       ptr("Old"),
+		NormSerial: ptr("NAME-1"),
+	}
+	repo := newFakeAssetRepo(existing)
+	got, _, err := Resolve(testCtx(), repo, entity.Extraction{
+		SerialNumber: ptr("name-1"),
+		Name:         ptr("New Name"),
+	}, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if got.ID != "NAME-1" {
+		t.Errorf("resolved asset ID = %q, want NAME-1", got.ID)
+	}
+	stored, err := repo.Get(testCtx(), "NAME-1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if stored.Name == nil || *stored.Name != "New Name" {
+		t.Errorf("Name = %v, want \"New Name\"", stored.Name)
+	}
+}
+
+func TestNewAsset_NameCategoryConfidenceStamped(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeAssetRepo()
+	got, created, err := Resolve(testCtx(), repo, entity.Extraction{
+		SerialNumber:       ptr("FRESH-1"),
+		Name:               ptr("Microwave Oven"),
+		AssetCategory:      ptr("appliance"),
+		CategoryConfidence: ptr(0.6),
+	}, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if !created {
+		t.Fatal("created = false, want true")
+	}
+	stored, err := repo.Get(testCtx(), got.ID)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if stored.Name == nil || *stored.Name != "Microwave Oven" {
+		t.Errorf("Name = %v, want \"Microwave Oven\"", stored.Name)
+	}
+	if stored.AssetCategory == nil || *stored.AssetCategory != "appliance" {
+		t.Errorf("AssetCategory = %v, want appliance", stored.AssetCategory)
+	}
+	if stored.CategoryConfidence == nil || *stored.CategoryConfidence != 0.6 {
+		t.Errorf("CategoryConfidence = %v, want 0.6", stored.CategoryConfidence)
+	}
+	if stored.CategoryUserSet {
+		t.Error("CategoryUserSet = true, want false (a fresh asset is never user-set)")
+	}
+	if stored.NormName == nil || *stored.NormName != "microwave oven" {
+		t.Errorf("NormName = %v, want \"microwave oven\"", stored.NormName)
+	}
+}
+
+func TestMatch_SerialShortCircuit(t *testing.T) {
+	t.Parallel()
+
+	ext := entity.Extraction{
+		SerialNumber: ptr("SN-1"),
+		Brand:        ptr("LG"),
+		Model:        ptr("W1"),
+		Name:         ptr("Cool Box"),
+	}
+	repo := newFakeAssetRepo(
+		entity.Asset{
+			ID:         "A",
+			NormSerial: ptr("SN-1"),
+			NormBrand:  ptr("lg"),
+			NormModel:  ptr("w1"),
+			NormName:   ptr("cool box"),
+		},
+	)
+	m, err := Match(testCtx(), repo, ext, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Match returned error: %v", err)
+	}
+	if m.Kind != MatchMerge {
+		t.Fatalf("Kind = %v, want MatchMerge", m.Kind)
+	}
+	if m.AssetID == nil || *m.AssetID != "A" {
+		t.Fatalf("AssetID = %v, want A", m.AssetID)
+	}
+	stages := repo.listStages()
+	if len(stages) != 1 || stages[0] != "norm_serial" {
+		t.Fatalf("listStages = %v, want [norm_serial]", stages)
+	}
+}
+
+func TestMatch_BrandModelFallback(t *testing.T) {
+	t.Parallel()
+
+	ext := entity.Extraction{
+		Brand: ptr("LG"),
+		Model: ptr("W1"),
+	}
+	repo := newFakeAssetRepo(
+		entity.Asset{
+			ID:        "B",
+			NormBrand: ptr("lg"),
+			NormModel: ptr("w1"),
+		},
+	)
+	m, err := Match(testCtx(), repo, ext, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Match returned error: %v", err)
+	}
+	if m.Kind != MatchMerge {
+		t.Fatalf("Kind = %v, want MatchMerge", m.Kind)
+	}
+	if m.AssetID == nil || *m.AssetID != "B" {
+		t.Fatalf("AssetID = %v, want B", m.AssetID)
+	}
+	stages := repo.listStages()
+	if len(stages) != 1 || stages[0] != "norm_brand+norm_model" {
+		t.Fatalf("listStages = %v, want [norm_brand+norm_model]", stages)
+	}
+}
+
+func TestMatch_NameModelFallback(t *testing.T) {
+	t.Parallel()
+
+	ext := entity.Extraction{
+		Name:  ptr("Cool Box"),
+		Model: ptr("W1"),
+	}
+	repo := newFakeAssetRepo(
+		entity.Asset{
+			ID:        "C",
+			NormName:  ptr("cool box"),
+			NormModel: ptr("w1"),
+		},
+	)
+	m, err := Match(testCtx(), repo, ext, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Match returned error: %v", err)
+	}
+	if m.Kind != MatchMerge {
+		t.Fatalf("Kind = %v, want MatchMerge", m.Kind)
+	}
+	if m.AssetID == nil || *m.AssetID != "C" {
+		t.Fatalf("AssetID = %v, want C", m.AssetID)
+	}
+	stages := repo.listStages()
+	if len(stages) != 1 || stages[0] != "norm_model+norm_name" {
+		t.Fatalf("listStages = %v, want [norm_model+norm_name]", stages)
+	}
+}
+
+func TestMatch_Ambiguous(t *testing.T) {
+	t.Parallel()
+
+	ext := entity.Extraction{
+		Brand: ptr("LG"),
+		Model: ptr("W1"),
+	}
+	repo := newFakeAssetRepo(
+		entity.Asset{ID: "D1", NormBrand: ptr("lg"), NormModel: ptr("w1")},
+		entity.Asset{ID: "D2", NormBrand: ptr("lg"), NormModel: ptr("w1")},
+	)
+	m, err := Match(testCtx(), repo, ext, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Match returned error: %v", err)
+	}
+	if m.Kind != MatchAmbiguous {
+		t.Fatalf("Kind = %v, want MatchAmbiguous", m.Kind)
+	}
+	if m.AssetID != nil {
+		t.Fatalf("AssetID = %v, want nil", *m.AssetID)
+	}
+	if len(m.Candidates) != 2 {
+		t.Fatalf("Candidates = %v, want 2", m.Candidates)
+	}
+}
+
+func TestMatch_SoftDeletedNotMatched(t *testing.T) {
+	t.Parallel()
+
+	ext := entity.Extraction{
+		Brand: ptr("LG"),
+		Model: ptr("W1"),
+	}
+	repo := newFakeAssetRepo(
+		entity.Asset{ID: "E1", NormBrand: ptr("lg"), NormModel: ptr("w1")},
+		entity.Asset{ID: "E2", NormBrand: ptr("lg"), NormModel: ptr("w1"), DeletedAt: ptr(time.Now())},
+	)
+	m, err := Match(testCtx(), repo, ext, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Match returned error: %v", err)
+	}
+	if m.Kind != MatchMerge {
+		t.Fatalf("Kind = %v, want MatchMerge", m.Kind)
+	}
+	if m.AssetID == nil || *m.AssetID != "E1" {
+		t.Fatalf("AssetID = %v, want E1", m.AssetID)
+	}
+	if len(m.Candidates) != 1 || m.Candidates[0].ID != "E1" {
+		t.Fatalf("Candidates = %v, want [E1]", m.Candidates)
+	}
+}
+
+func TestMatch_DeletedOnlySurfaced(t *testing.T) {
+	t.Parallel()
+
+	ext := entity.Extraction{
+		Brand: ptr("LG"),
+		Model: ptr("W1"),
+	}
+	repo := newFakeAssetRepo(
+		entity.Asset{ID: "F1", NormBrand: ptr("lg"), NormModel: ptr("w1"), DeletedAt: ptr(time.Now())},
+	)
+	m, err := Match(testCtx(), repo, ext, nil, DefaultCandidateLimit)
+	if err != nil {
+		t.Fatalf("Match returned error: %v", err)
+	}
+	if m.Kind != MatchSoftDeleted {
+		t.Fatalf("Kind = %v, want MatchSoftDeleted", m.Kind)
+	}
+	if m.AssetID != nil {
+		t.Fatalf("AssetID = %v, want nil", *m.AssetID)
+	}
+	if len(m.Candidates) != 1 || m.Candidates[0].ID != "F1" {
+		t.Fatalf("Candidates = %v, want [F1]", m.Candidates)
+	}
 }

@@ -32,11 +32,14 @@ describe('MovementLink', () => {
     render(<MovementLink movementId="m1" />);
     fireEvent.click(screen.getByText('Link Document'));
 
-    const assetSelect = screen.getByLabelText('Asset');
-    fireEvent.change(assetSelect, { target: { value: 'a1' } });
+    // Asset — shared Radix Select: open the trigger (click), pick option by text.
+    fireEvent.click(screen.getByLabelText('Asset'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Brand Model' }));
 
-    const docSelect = await screen.findByLabelText('Document');
-    fireEvent.change(docSelect, { target: { value: 'd1' } });
+    // Document appears once an asset is selected; open and pick it.
+    const docTrigger = await screen.findByLabelText('Document');
+    fireEvent.click(docTrigger);
+    fireEvent.click(await screen.findByRole('option', { name: 'file.pdf (invoice)' }));
 
     fireEvent.click(screen.getByText('Link'));
 

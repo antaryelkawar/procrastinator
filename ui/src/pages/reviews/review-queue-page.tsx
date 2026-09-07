@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { createColumnHelper, type ColumnDef, type TableFeatures } from '@tanstack/react-table';
 import { Check, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useReviews, useApproveReview, useRejectReview } from '@/lib/api/hooks';
@@ -18,17 +19,99 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { DataTable, features } from '@/components/data-table';
 import type { IngestReview } from '@/lib/api/schema';
 
 type ReviewStatus = 'pending' | 'approved' | 'rejected';
+
+const columnHelper = createColumnHelper<typeof features, IngestReview>();
+
+/**
+ * Columns for the review queue, rendered through the shared DataTable
+ * (consolidated-primitives decision: no per-page hand-rolled tables).
+ */
+function buildColumns(
+  onApprove: (review: IngestReview) => void,
+  onReject: (review: IngestReview) => void,
+): ColumnDef<TableFeatures, IngestReview, unknown>[] {
+  return [
+    columnHelper.accessor('doc_type', {
+      header: 'Doc type',
+      cell: (context) => <span className="font-medium capitalize">{context.getValue()}</span>,
+    }),
+    columnHelper.accessor('confidence', {
+      header: 'Confidence',
+      cell: (context) => formatConfidence(context.getValue()) ?? '—',
+    }),
+    columnHelper.accessor('source_filename', {
+      header: 'Source',
+      cell: (context) => (
+        <span className="max-w-[200px] truncate" title={context.getValue()}>
+          {context.getValue()}
+        </span>
+      ),
+    }),
+    columnHelper.accessor('best_matched_asset_title', {
+      header: 'Best match',
+      cell: (context) =>
+        context.getValue() ? (
+          <span title={context.getValue() as string}>{context.getValue()}</span>
+        ) : (
+          <span className="text-muted-foreground italic">no match</span>
+        ),
+    }),
+    columnHelper.accessor('created_at', {
+      header: 'Created',
+      cell: (context) => formatTimestamp(context.getValue()),
+    }),
+    columnHelper.accessor('state', {
+      header: 'Status',
+      cell: (context) => (
+        <Badge
+          variant={
+            context.getValue() === 'approved'
+              ? 'default'
+              : context.getValue() === 'rejected'
+                ? 'destructive'
+                : 'secondary'
+          }
+        >
+          {context.getValue()}
+        </Badge>
+      ),
+    }),
+    {
+      id: 'actions',
+      header: <span className="float-right">Actions</span>,
+      cell: (context) => {
+        const review = context.row.original;
+        if (review.state !== 'pending') return null;
+        return (
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onApprove(review)}
+              aria-label={`Approve ${review.source_filename}`}
+            >
+              <Check className="mr-1 size-4" />
+              Approve
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onReject(review)}
+              aria-label={`Reject ${review.source_filename}`}
+            >
+              <X className="mr-1 size-4" />
+              Reject
+            </Button>
+          </div>
+        );
+      },
+    },
+  ] as ColumnDef<TableFeatures, IngestReview, unknown>[];
+}
 
 /**
  * P12.7: Ingest review queue at `/ingest/reviews` (design D8).
@@ -75,12 +158,12 @@ export function ReviewQueuePage() {
       closeConfirm();
       refetch();
     } catch (error) {
-      const status = (error as { status?: number })?.status;
-      if (status === 409) {
+      const errorStatus = (error as { status?: number })?.status;
+      if (errorStatus === 409) {
         toast.error('Review already processed', {
           description: 'This review is no longer pending',
         });
-      } else if (status === 404) {
+      } else if (errorStatus === 404) {
         toast.error('Review not found', {
           description: 'This review may have been removed',
         });
@@ -99,7 +182,7 @@ export function ReviewQueuePage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Ingest review queue</h1>
         <Select value={status} onValueChange={(v) => setStatus(v as ReviewStatus)}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-[180px]" aria-label="Filter by status">
             <SelectValue placeholder="Filter by status" />
           </SelectTrigger>
           <SelectContent>
@@ -125,29 +208,12 @@ export function ReviewQueuePage() {
         />
       ) : (
         <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Doc type</TableHead>
-                <TableHead>Confidence</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Best match</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {reviews.map((review) => (
-                <ReviewRow
-                  key={review.id}
-                  review={review}
-                  onApprove={() => openConfirm(review, 'approve')}
-                  onReject={() => openConfirm(review, 'reject')}
-                />
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            ariaLabel="Ingest reviews"
+            data={reviews as IngestReview[]}
+            getRowId={(review) => review.id}
+            columns={buildColumns((review) => openConfirm(review, 'approve'), (review) => openConfirm(review, 'reject'))}
+          />
         </div>
       )}
 
@@ -170,55 +236,5 @@ export function ReviewQueuePage() {
         />
       ) : null}
     </div>
-  );
-}
-
-interface ReviewRowProps {
-  review: IngestReview;
-  onApprove: () => void;
-  onReject: () => void;
-}
-
-function ReviewRow({ review, onApprove, onReject }: ReviewRowProps) {
-  const confidence = formatConfidence(review.confidence);
-  const isPending = review.state === 'pending';
-
-  return (
-    <TableRow>
-      <TableCell className="font-medium capitalize">{review.doc_type}</TableCell>
-      <TableCell>{confidence ?? '—'}</TableCell>
-      <TableCell className="max-w-[200px] truncate" title={review.source_filename}>
-        {review.source_filename}
-      </TableCell>
-      <TableCell>
-        {review.best_matched_asset_title ? (
-          <span title={review.best_matched_asset_title}>
-            {review.best_matched_asset_title}
-          </span>
-        ) : (
-          <span className="text-muted-foreground italic">no match</span>
-        )}
-      </TableCell>
-      <TableCell>{formatTimestamp(review.created_at)}</TableCell>
-      <TableCell>
-        <Badge variant={review.state === 'approved' ? 'default' : review.state === 'rejected' ? 'destructive' : 'secondary'}>
-          {review.state}
-        </Badge>
-      </TableCell>
-      <TableCell className="text-right">
-        {isPending ? (
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={onApprove} aria-label={`Approve ${review.source_filename}`}>
-              <Check className="mr-1 size-4" />
-              Approve
-            </Button>
-            <Button variant="outline" size="sm" onClick={onReject} aria-label={`Reject ${review.source_filename}`}>
-              <X className="mr-1 size-4" />
-              Reject
-            </Button>
-          </div>
-        ) : null}
-      </TableCell>
-    </TableRow>
   );
 }

@@ -9,8 +9,8 @@ import (
 	"procrastinator-backend/commons/user"
 	"procrastinator-backend/core/household"
 	"procrastinator-backend/core/identity"
-	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/core/processing"
 	"procrastinator-backend/core/statement"
 	"procrastinator-backend/infra/filestorage"
 )
@@ -29,14 +29,14 @@ func newAPIError(status int, msg string) error {
 	return &apiError{status: status, msg: msg}
 }
 
-// mapIngestError maps core/ingest and related sentinels to (status, msg).
+// mapIngestError maps core/processing and related sentinels to (status, msg).
 func mapIngestError(err error) (int, string) {
 	switch {
-	case errors.Is(err, ingest.ErrTooLarge):
+	case errors.Is(err, processing.ErrTooLarge):
 		return http.StatusRequestEntityTooLarge, "upload exceeds size limit"
 	case errors.Is(err, filestorage.ErrUnsupportedType):
 		return http.StatusUnsupportedMediaType, "unsupported file type"
-	case errors.Is(err, ingest.ErrExtraction):
+	case errors.Is(err, processing.ErrExtraction):
 		return http.StatusBadGateway, "extraction failed"
 	case errors.Is(err, identity.ErrNoIdentity):
 		return http.StatusUnprocessableEntity, "no usable identity in document"

@@ -12,6 +12,7 @@ vi.mock('../../context/active-user', async (importOriginal) => {
 import * as upload from './upload';
 import {
   useAccounts,
+  useAdd,
   useAsset,
   useAssetDocuments,
   useAssets,
@@ -20,19 +21,25 @@ import {
   useCommitBatch,
   useCreateAccount,
   useCreateMovement,
+  useDeleteAsset,
   useDeleteMovement,
   useDiscardBatch,
   useLinkMovement,
+  useMergeAsset,
   useMovements,
+  usePatchAsset,
   usePatchDescription,
+  useRestoreAsset,
+  useSearch,
   useUnlinkMovement,
   useUploadDocument,
   useUploadStatement,
 } from './hooks';
-import type { MovementFilterInput } from './hooks';
+import type { MovementFilterInput, SearchFilterInput } from './hooks';
 import { ApiError } from './errors';
 import type {
   Account,
+  AddItemOutcome,
   Asset,
   CommitSummary,
   CreateAccountRequest,
@@ -40,6 +47,7 @@ import type {
   Document,
   ImportBatch,
   Movement,
+  SearchResultsPage,
 } from './schema';
 
 vi.mock('./client', async (importOriginal) => {
@@ -67,6 +75,13 @@ vi.mock('./client', async (importOriginal) => {
     getHousehold: vi.fn(),
     createHousehold: vi.fn(),
     addHouseholdMember: vi.fn(),
+    deleteAsset: vi.fn(),
+    restoreAsset: vi.fn(),
+    mergeAsset: vi.fn(),
+    patchAsset: vi.fn(),
+    addItems: vi.fn(),
+    quickSearch: vi.fn(),
+    search: vi.fn(),
   };
 });
 
@@ -86,7 +101,6 @@ const assetFixture: Asset = {
   warranty_end: '2026-09-01T00:00:00Z',
   price: '39999.99',
   currency: 'INR',
-  doc_type: 'invoice',
   metadata: {},
   created_at: '2026-08-01T10:00:00Z',
   updated_at: '2026-08-01T10:00:00Z',
@@ -152,6 +166,21 @@ const discardedBatchFixture: ImportBatch = { ...batchFixture, state: 'discarded'
 const commitSummaryFixture: CommitSummary = { created: 8, skipped: 1 };
 const pdfFile = new File(['invoice'], 'invoice.pdf', { type: 'application/pdf' });
 const csvFile = new File(['date,amount'], 'statement.csv', { type: 'text/csv' });
+
+const restoredAssetFixture: Asset = { ...assetFixture };
+const patchedAssetFixture: Asset = { ...assetFixture, name: 'Microwave Oven' };
+
+const addOutcomesFixture: AddItemOutcome[] = [
+  { kind: 'asset_committed', asset_id: 'a1' },
+  { kind: 'statement_preview', import_batch_id: 'b1' },
+];
+
+const searchPageFixture: SearchResultsPage = {
+  results: [],
+  total: 0,
+  page: 1,
+  page_size: 20,
+};
 
 function makeQueryClient(): QueryClient {
   return new QueryClient({
@@ -497,5 +526,231 @@ describe('mutation hooks — each invalidates EXACTLY its D5 prefixes', () => {
       expect(result.current.isError).toBe(true);
     });
     expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('useDeleteAsset: DELETEs the asset, invalidates ["assets", uid] + ["asset", uid, id]', async () => {
+    vi.mocked(client.deleteAsset).mockResolvedValue(undefined);
+    const { result, queryClient } = renderWithUser(() => useDeleteAsset());
+    vi.spyOn(queryClient, 'invalidateQueries');
+    const returned = await act(async () => result.current.mutateAsync({ assetId: 'a1' }));
+    expect(client.deleteAsset).toHaveBeenCalledWith(ALICE, 'a1');
+    expect(returned).toBeUndefined();
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+    expectInvalidatedExactly(queryClient, [['assets', ALICE], ['asset', ALICE, 'a1']]);
+  });
+
+  it('useRestoreAsset: POSTs the restore, invalidates ["assets", uid] + ["asset", uid, id]', async () => {
+    vi.mocked(client.restoreAsset).mockResolvedValue(restoredAssetFixture);
+    const { result, queryClient } = renderWithUser(() => useRestoreAsset());
+    vi.spyOn(queryClient, 'invalidateQueries');
+    const returned = await act(async () => result.current.mutateAsync({ assetId: 'a1' }));
+    expect(client.restoreAsset).toHaveBeenCalledWith(ALICE, 'a1');
+    expect(returned).toEqual(restoredAssetFixture);
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+    expectInvalidatedExactly(queryClient, [['assets', ALICE], ['asset', ALICE, 'a1']]);
+  });
+
+  it('useMergeAsset: POSTs duplicate_asset_id, invalidates assets + survivor + duplicate', async () => {
+    vi.mocked(client.mergeAsset).mockResolvedValue(assetFixture);
+    const { result, queryClient } = renderWithUser(() => useMergeAsset());
+    vi.spyOn(queryClient, 'invalidateQueries');
+    const returned = await act(async () =>
+      result.current.mutateAsync({ assetId: 'a1', duplicateAssetId: 'a2' }),
+    );
+    expect(client.mergeAsset).toHaveBeenCalledWith(ALICE, 'a1', { duplicate_asset_id: 'a2' });
+    expect(returned).toEqual(assetFixture);
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+    expectInvalidatedExactly(queryClient, [
+      ['assets', ALICE],
+      ['asset', ALICE, 'a1'],
+      ['asset', ALICE, 'a2'],
+    ]);
+  });
+
+  it('usePatchAsset: PATCHes the asset, invalidates ["assets", uid] + ["asset", uid, id]', async () => {
+    vi.mocked(client.patchAsset).mockResolvedValue(patchedAssetFixture);
+    const body = { name: 'Microwave Oven', asset_category: 'appliance' as const };
+    const { result, queryClient } = renderWithUser(() => usePatchAsset());
+    vi.spyOn(queryClient, 'invalidateQueries');
+    const returned = await act(async () =>
+      result.current.mutateAsync({ assetId: 'a1', body }),
+    );
+    expect(client.patchAsset).toHaveBeenCalledWith(ALICE, 'a1', body);
+    expect(returned).toEqual(patchedAssetFixture);
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+    expectInvalidatedExactly(queryClient, [['assets', ALICE], ['asset', ALICE, 'a1']]);
+  });
+
+  it('useAdd: POSTs files/text/account, invalidates ["assets", uid] + ["batches", uid]', async () => {
+    vi.mocked(client.addItems).mockResolvedValue(addOutcomesFixture);
+    const { result, queryClient } = renderWithUser(() => useAdd());
+    vi.spyOn(queryClient, 'invalidateQueries');
+    const returned = await act(async () =>
+      result.current.mutateAsync({ files: [pdfFile], text: 'Microwave Oven', account_id: 'acc1' }),
+    );
+    expect(client.addItems).toHaveBeenCalledWith(ALICE, {
+      files: [pdfFile],
+      text: 'Microwave Oven',
+      account_id: 'acc1',
+    });
+    expect(returned).toEqual(addOutcomesFixture);
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+    expectInvalidatedExactly(queryClient, [['assets', ALICE], ['batches', ALICE]]);
+  });
+
+  it('useDeleteAsset: does not invalidate when the delete fails', async () => {
+    vi.mocked(client.deleteAsset).mockRejectedValue(
+      new ApiError(409, 'That request was invalid.', 'asset is outside the retention window'),
+    );
+    const { result, queryClient } = renderWithUser(() => useDeleteAsset());
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    await act(async () => {
+      await expect(result.current.mutateAsync({ assetId: 'a1' })).rejects.toBeInstanceOf(ApiError);
+    });
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('usePatchAsset: rejects without sending a request when no user is active', async () => {
+    const { result } = renderWithUser(() => usePatchAsset(), null);
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({
+          assetId: 'a1',
+          body: { asset_category: 'appliance' as const },
+        }),
+      ).rejects.toThrow('No active user selected');
+    });
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
+    expect(client.patchAsset).not.toHaveBeenCalled();
+  });
+});
+
+describe('useSearch — structured filters in the key, mapped to wire params', () => {
+  const FULL_FILTERS: SearchFilterInput = {
+    category: 'appliance',
+    brand: 'LG',
+    purchaseFrom: '2026-01-01',
+    purchaseTo: '2026-12-31',
+    warrantyStatus: 'expiring_within:90',
+    hasDocuments: true,
+    docClassification: 'invoice',
+  };
+
+  it('no filters: key ["search", uid, q, {}, 1, 20]; wire params carry undefined filter fields', async () => {
+    vi.mocked(client.search).mockResolvedValue(searchPageFixture);
+    const { queryClient } = renderWithUser(() => useSearch('microwave'));
+    await waitFor(() => {
+      expect(queryClient.getQueryData(['search', ALICE, 'microwave', {}, 1, 20])).toEqual(
+        searchPageFixture,
+      );
+    });
+    expect(queryKeys(queryClient)).toContainEqual(['search', ALICE, 'microwave', {}, 1, 20]);
+    expect(client.search).toHaveBeenCalledWith(ALICE, {
+      q: 'microwave',
+      page: 1,
+      page_size: 20,
+      category: undefined,
+      brand: undefined,
+      purchase_from: undefined,
+      purchase_to: undefined,
+      warranty_status: undefined,
+      has_documents: undefined,
+      doc_classification: undefined,
+    });
+  });
+
+  it('filters: normalized filters are in the key and mapped to wire params', async () => {
+    vi.mocked(client.search).mockResolvedValue(searchPageFixture);
+    const { queryClient } = renderWithUser(() => useSearch('microwave', FULL_FILTERS));
+    await waitFor(() => {
+      expect(queryClient.getQueryData(['search', ALICE, 'microwave', FULL_FILTERS, 1, 20])).toEqual(
+        searchPageFixture,
+      );
+    });
+    expect(queryKeys(queryClient)).toContainEqual(['search', ALICE, 'microwave', FULL_FILTERS, 1, 20]);
+    expect(client.search).toHaveBeenCalledWith(ALICE, {
+      q: 'microwave',
+      page: 1,
+      page_size: 20,
+      category: 'appliance',
+      brand: 'LG',
+      purchase_from: '2026-01-01',
+      purchase_to: '2026-12-31',
+      warranty_status: 'expiring_within:90',
+      has_documents: true,
+      doc_classification: 'invoice',
+    });
+  });
+
+  it('changing only the filters changes the key and triggers a new request', async () => {
+    vi.mocked(client.search).mockResolvedValue(searchPageFixture);
+    interface SearchProps {
+      filters?: SearchFilterInput;
+    }
+    const initialProps: SearchProps = { filters: { category: 'appliance' } };
+    const { queryClient, result, rerender } = renderWithUser(
+      (props: SearchProps) => useSearch('microwave', props.filters),
+      ALICE,
+      initialProps,
+    );
+    await waitFor(() => {
+      expect(result.current.data).toEqual(searchPageFixture);
+    });
+    expect(client.search).toHaveBeenCalledTimes(1);
+
+    rerender({ filters: { brand: 'LG' } });
+    await waitFor(() => {
+      expect(client.search).toHaveBeenCalledTimes(2);
+    });
+    // The new key carries the new normalized filters; the old key stays cached.
+    expect(queryKeys(queryClient)).toContainEqual(['search', ALICE, 'microwave', { brand: 'LG' }, 1, 20]);
+    expect(queryKeys(queryClient)).toContainEqual([
+      'search',
+      ALICE,
+      'microwave',
+      { category: 'appliance' },
+      1,
+      20,
+    ]);
+  });
+
+  it('back-compat: useSearch(q, page, pageSize) (number 2nd arg) keeps the old behavior', async () => {
+    vi.mocked(client.search).mockResolvedValue(searchPageFixture);
+    // `useSearch('laptop', 2, 50)` ≡ `useSearch('laptop', undefined, 2, 50)` —
+    // the exact call shape search-results-page.tsx uses today.
+    const { queryClient } = renderWithUser(() => useSearch('laptop', 2, 50));
+    await waitFor(() => {
+      expect(queryClient.getQueryData(['search', ALICE, 'laptop', {}, 2, 50])).toEqual(
+        searchPageFixture,
+      );
+    });
+    expect(queryKeys(queryClient)).toContainEqual(['search', ALICE, 'laptop', {}, 2, 50]);
+    expect(client.search).toHaveBeenCalledWith(ALICE, {
+      q: 'laptop',
+      page: 2,
+      page_size: 50,
+      category: undefined,
+      brand: undefined,
+      purchase_from: undefined,
+      purchase_to: undefined,
+      warranty_status: undefined,
+      has_documents: undefined,
+      doc_classification: undefined,
+    });
   });
 });

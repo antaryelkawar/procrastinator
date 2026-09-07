@@ -115,10 +115,10 @@ func TestWireParity(t *testing.T) {
 
 	factory := &repo.Factory{
 		Users:     wireUserReg{},
-		Assets:    wireAssetRepo{list: []entity.Asset{{ID: "asset-1", DocType: "invoice"}}},
+		Assets:    wireAssetRepo{list: []entity.Asset{{ID: "asset-1"}}},
 		Movements: wireMovementRepo{mv: entity.MoneyMovement{ID: "mv-1"}},
 	}
-	s := New(nil, factory, ledger.New(factory, wireBalancer{}), wireBalancer{}, defaultMaxBytes, nil, defaultMaxBytes, nil, nil, nil)
+	s := New(nil, factory, ledger.New(factory, wireBalancer{}), wireBalancer{}, defaultMaxBytes, nil, defaultMaxBytes, nil, nil, nil, nil)
 	handler := s.Routes()
 
 	do := func(method, path, body string, ct string) *httptest.ResponseRecorder {

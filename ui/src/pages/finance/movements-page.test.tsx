@@ -90,18 +90,20 @@ describe('MovementsPage', () => {
     vi.mocked(hooks.useMovements).mockReturnValue({ data: [], isLoading: false } as any);
     renderPage();
 
-    // account filter — native select (jsdom-friendly; the Radix Select
-    // portal does not position under jsdom)
-    fireEvent.change(screen.getByTestId('movements-page').querySelector('#movements-account-select') as HTMLSelectElement, { target: { value: 'acc1' } });
+    // account filter — shared Radix Select: open the trigger (click), then
+    // pick the option by its accessible text.
+    fireEvent.click(screen.getByLabelText('Account'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Main' }));
     await waitFor(() => {
       expect(hooks.useMovements).toHaveBeenCalledWith(
         expect.objectContaining({ accountId: 'acc1' }),
       );
     });
 
-    // date-range filters — type into the date inputs
-    const fromInput = screen.getByLabelText(/from/i);
-    const toInput = screen.getByLabelText(/to/i);
+    // date-range filters — type into the date inputs. The create-movement form
+    // above also has an "Occurred on" (→ "to") label, so scope by id.
+    const fromInput = document.getElementById('movements-date-from') as HTMLInputElement;
+    const toInput = document.getElementById('movements-date-to') as HTMLInputElement;
     fireEvent.change(fromInput, { target: { value: '2026-08-01' } });
     fireEvent.change(toInput, { target: { value: '2026-08-31' } });
     await waitFor(() => {

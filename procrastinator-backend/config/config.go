@@ -1,9 +1,11 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -24,6 +26,31 @@ type Config struct {
 	MaxStatementLines int
 	LLMTimeout        time.Duration
 	IngestReviewThreshold float64
+
+	// LLMWorkers are the configured extraction workers. When
+	// PROCRASTINATOR_LLM_WORKERS is unset the default is two workers on LLMModel
+	// with the extract/verify strategies (dual consensus, D2).
+	LLMWorkers []Worker
+	// AssetDeleteRetentionDays is the soft-delete retention window in days
+	// (restore is allowed within this window).
+	AssetDeleteRetentionDays int
+	// LookupCandidateLimit bounds the candidate set returned by each
+	// identity-lookup stage.
+	LookupCandidateLimit int
+	// ProcessTimeout is the end-to-end synchronous processing budget.
+	ProcessTimeout time.Duration
+	// BrandLexicon is the brand list loaded from the PROCRASTINATOR_BRAND_LEXICON
+	// JSON path (nil when unset: the embedded canonical list is used).
+	BrandLexicon []string
+}
+
+// Worker describes one configured extraction worker (a model at a base URL
+// with a prompting strategy). It is a config-native mirror of
+// core/processing.Worker so the config package does not import core.
+type Worker struct {
+	Model    string
+	BaseURL  string
+	Strategy string
 }
 
 // Load populates a Config from the provided source map.
@@ -112,6 +139,58 @@ func Load(src map[string]string) (*Config, error) {
 	}
 	cfg.IngestReviewThreshold = threshold
 
+	retentionStr := getOrDefault(src, "PROCRASTINATOR_ASSET_DELETE_RETENTION_DAYS", "30")
+	retentionDays, err := strconv.Atoi(retentionStr)
+	if err != nil {
+		return nil, fmt.Errorf("config: invalid PROCRASTINATOR_ASSET_DELETE_RETENTION_DAYS: %w", err)
+	}
+	if retentionDays <= 0 {
+		return nil, fmt.Errorf("config: PROCRASTINATOR_ASSET_DELETE_RETENTION_DAYS must be > 0, got %d", retentionDays)
+	}
+	cfg.AssetDeleteRetentionDays = retentionDays
+
+	candStr := getOrDefault(src, "PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT", "10")
+	candLimit, err := strconv.Atoi(candStr)
+	if err != nil {
+		return nil, fmt.Errorf("config: invalid PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT: %w", err)
+	}
+	if candLimit <= 0 {
+		return nil, fmt.Errorf("config: PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT must be > 0, got %d", candLimit)
+	}
+	cfg.LookupCandidateLimit = candLimit
+
+	procStr := getOrDefault(src, "PROCRASTINATOR_PROCESS_TIMEOUT", "30s")
+	procTimeout, err := time.ParseDuration(procStr)
+	if err != nil {
+		return nil, fmt.Errorf("config: invalid PROCRASTINATOR_PROCESS_TIMEOUT: %w", err)
+	}
+	cfg.ProcessTimeout = procTimeout
+
+	if path := src["PROCRASTINATOR_BRAND_LEXICON"]; path != "" {
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return nil, fmt.Errorf("config: reading PROCRASTINATOR_BRAND_LEXICON %q: %w", path, rerr)
+		}
+		var brands []string
+		if jerr := json.Unmarshal(data, &brands); jerr != nil {
+			return nil, fmt.Errorf("config: PROCRASTINATOR_BRAND_LEXICON %q must be a JSON array of strings: %w", path, jerr)
+		}
+		cfg.BrandLexicon = brands
+	}
+
+	if workersRaw := src["PROCRASTINATOR_LLM_WORKERS"]; workersRaw == "" {
+		cfg.LLMWorkers = []Worker{
+			{Model: cfg.LLMModel, BaseURL: cfg.LLMBaseURL, Strategy: "extract"},
+			{Model: cfg.LLMModel, BaseURL: cfg.LLMBaseURL, Strategy: "verify"},
+		}
+	} else {
+		workers, werr := parseLLMWorkers(workersRaw, cfg.LLMBaseURL)
+		if werr != nil {
+			return nil, werr
+		}
+		cfg.LLMWorkers = workers
+	}
+
 	return cfg, nil
 }
 
@@ -120,4 +199,27 @@ func getOrDefault(src map[string]string, name, def string) string {
 		return val
 	}
 	return def
+}
+
+// parseLLMWorkers parses the PROCRASTINATOR_LLM_WORKERS value: a comma list of
+// model[@baseURL] entries. Each entry becomes one worker with the extract
+// strategy; a missing base URL falls back to defaultBaseURL.
+func parseLLMWorkers(raw, defaultBaseURL string) ([]Worker, error) {
+	parts := strings.Split(raw, ",")
+	workers := make([]Worker, 0, len(parts))
+	for _, p := range parts {
+		entry := strings.TrimSpace(p)
+		if entry == "" {
+			return nil, fmt.Errorf("config: PROCRASTINATOR_LLM_WORKERS has an empty entry: %q", raw)
+		}
+		model, baseURL := entry, defaultBaseURL
+		if i := strings.Index(entry, "@"); i >= 0 {
+			model, baseURL = entry[:i], entry[i+1:]
+		}
+		if model == "" || baseURL == "" {
+			return nil, fmt.Errorf("config: invalid PROCRASTINATOR_LLM_WORKERS entry %q (want model[@baseURL])", entry)
+		}
+		workers = append(workers, Worker{Model: model, BaseURL: baseURL, Strategy: "extract"})
+	}
+	return workers, nil
 }

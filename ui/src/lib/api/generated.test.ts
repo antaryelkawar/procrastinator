@@ -73,7 +73,6 @@ describe('OpenAPI generated types integration', () => {
     // Optional fields (brand, model, etc.) can be undefined
     const _assetWithoutOptionalFields: Asset = {
       id: 'a1',
-      doc_type: 'invoice',
       metadata: {},
       created_at: '2024-01-15T10:00:00Z',
       updated_at: '2024-01-15T10:00:00Z',

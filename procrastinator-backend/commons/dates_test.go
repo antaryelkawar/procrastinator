@@ -51,3 +51,140 @@ func TestParseDate(t *testing.T) {
 		})
 	}
 }
+
+func TestAddWarrantyEnd(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		purchase    *time.Time
+		duration    string
+		explicitEnd *time.Time
+		want        *time.Time
+		ok          bool
+	}{
+		{
+			name:     "N years full form",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "2 years",
+			want:     &[]time.Time{time.Date(2028, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       true,
+		},
+		{
+			name:     "N months full form",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "24 months",
+			want:     &[]time.Time{time.Date(2028, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       true,
+		},
+		{
+			name:        "explicit end wins",
+			purchase:    &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration:    "2 years",
+			explicitEnd: &[]time.Time{time.Date(2027, time.June, 30, 0, 0, 0, 0, time.UTC)}[0],
+			want:        &[]time.Time{time.Date(2027, time.June, 30, 0, 0, 0, 0, time.UTC)}[0],
+			ok:           true,
+		},
+		{
+			name:     "non-matching duration",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "sometime",
+			ok:       false,
+		},
+		{
+			name:     "ISO 1 year",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "P1Y",
+			want:     &[]time.Time{time.Date(2027, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       true,
+		},
+		{
+			name:     "ISO years and months",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "P2Y6M",
+			want:     &[]time.Time{time.Date(2028, time.July, 15, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       true,
+		},
+		{
+			name:     "N days full form",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "30 days",
+			want:     &[]time.Time{time.Date(2026, time.February, 14, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       true,
+		},
+		{
+			name:     "abbreviated days",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "30d",
+			want:     &[]time.Time{time.Date(2026, time.February, 14, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       true,
+		},
+		{
+			name:     "abbreviated years",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "2 yr",
+			want:     &[]time.Time{time.Date(2028, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       true,
+		},
+		{
+			name:     "abbreviated months",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "2 mo",
+			want:     &[]time.Time{time.Date(2026, time.March, 15, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       true,
+		},
+		{
+			name:     "nil purchase",
+			duration: "2 years",
+			ok:       false,
+		},
+		{
+			name:     "empty duration",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       false,
+		},
+		{
+			name:     "ISO days",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "P30D",
+			want:     &[]time.Time{time.Date(2026, time.February, 14, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       true,
+		},
+		{
+			name:     "zero duration",
+			purchase: &[]time.Time{time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "P0Y",
+			ok:       false,
+		},
+		{
+			name:     "end-of-month clamping",
+			purchase: &[]time.Time{time.Date(2026, time.January, 31, 0, 0, 0, 0, time.UTC)}[0],
+			duration: "1 month",
+			want:     &[]time.Time{time.Date(2026, time.February, 28, 0, 0, 0, 0, time.UTC)}[0],
+			ok:       true,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := AddWarrantyEnd(tc.purchase, tc.duration, tc.explicitEnd)
+			if ok != tc.ok {
+				t.Fatalf("for duration %q: expected ok=%v, got ok=%v (got=%v)", tc.duration, tc.ok, ok, got)
+			}
+			if tc.ok {
+				if got == nil {
+					t.Fatalf("for duration %q: expected non-nil time, got nil", tc.duration)
+				}
+				if !got.Equal(*tc.want) {
+					t.Fatalf("for duration %q: expected %v, got %v", tc.duration, tc.want, got)
+				}
+			} else {
+				if got != nil {
+					t.Fatalf("for duration %q: expected nil time, got %v", tc.duration, got)
+				}
+			}
+		})
+	}
+}

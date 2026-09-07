@@ -1,4 +1,5 @@
 import { useParams } from 'react-router-dom';
+import { createColumnHelper, type ColumnDef, type TableFeatures } from '@tanstack/react-table';
 import { useAsset, useAssetDocuments } from '@/lib/api/hooks';
 import { formatDate } from '@/lib/format/date';
 import { formatMoney } from '@/lib/format/money';
@@ -6,7 +7,29 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loading } from '@/components/feedback/loading';
 import { ErrorState } from '@/components/feedback/error-state';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { DataTable, features } from '@/components/data-table';
+import type { Document } from '@/lib/api/schema';
+
+const columnHelper = createColumnHelper<typeof features, Document>();
+
+/**
+ * Documents table columns, rendered through the shared DataTable
+ * (consolidated-primitives decision: one table component).
+ */
+function buildDocumentColumns(): ColumnDef<TableFeatures, Document, unknown>[] {
+  return [
+    columnHelper.accessor('source_filename', {
+      header: 'Filename',
+    }),
+    columnHelper.accessor('doc_type', {
+      header: 'Type',
+    }),
+    columnHelper.accessor('source_uploaded_at', {
+      header: 'Uploaded',
+      cell: (context) => formatDate(context.getValue()),
+    }),
+  ] as ColumnDef<TableFeatures, Document, unknown>[];
+}
 
 export function AssetDetailPage() {
   const { assetId } = useParams<{ assetId: string }>();
@@ -14,13 +37,13 @@ export function AssetDetailPage() {
   const { data: docs, isLoading: docsLoading, error: docsError } = useAssetDocuments(assetId ?? '');
 
   if (assetLoading || docsLoading) return <Loading />;
-  
+
   if (assetError || docsError) {
     if ((assetError as any)?.status === 404) {
       return (
         <div className="space-y-6">
-          <ErrorState 
-            title="Asset not found" 
+          <ErrorState
+            title="Asset not found"
             message="The requested asset does not exist."
           />
         </div>
@@ -31,14 +54,13 @@ export function AssetDetailPage() {
 
   if (!asset) return null;
 
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-semibold">
           {asset.brand ?? 'Asset'} {asset.model ?? ''}
         </h1>
-        <Badge variant="outline">{asset.doc_type}</Badge>
+        <Badge variant="outline">{asset.asset_category ?? 'other'}</Badge>
       </div>
 
       <Card>
@@ -61,8 +83,8 @@ export function AssetDetailPage() {
           <div>
             <p className="text-sm text-muted-foreground">Price</p>
             <p className="font-medium">
-              {asset.price && asset.currency 
-                ? formatMoney(asset.price, asset.currency) 
+              {asset.price && asset.currency
+                ? formatMoney(asset.price, asset.currency)
                 : '-'}
             </p>
           </div>
@@ -77,24 +99,12 @@ export function AssetDetailPage() {
           {!docs || docs.length === 0 ? (
             <p className="text-muted-foreground">No documents attached.</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Filename</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Uploaded</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {docs.map((doc) => (
-                  <TableRow key={doc.id}>
-                    <TableCell>{doc.source_filename}</TableCell>
-                    <TableCell>{doc.doc_type}</TableCell>
-                    <TableCell>{formatDate(doc.source_uploaded_at)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <DataTable
+              ariaLabel="Documents"
+              data={docs}
+              getRowId={(doc) => doc.id}
+              columns={buildDocumentColumns()}
+            />
           )}
         </CardContent>
       </Card>

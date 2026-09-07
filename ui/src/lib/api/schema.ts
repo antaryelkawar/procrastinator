@@ -22,6 +22,7 @@ export type SearchQuickResponse = components['schemas']['search_quick_response']
 export type SearchResultsPage = components['schemas']['search_results_page'];
 export type IngestReview = components['schemas']['ingest_review'];
 export type ApproveReviewResponse = components['schemas']['approve_review_response'];
+export type AddItemOutcome = components['schemas']['add_item_outcome'];
 
 // Request types
 export type CreateAccountRequest = components['schemas']['create_account_request'];
@@ -32,3 +33,5 @@ export type CreateMovementInput = Omit<CreateMovementRequest, 'source_account_id
 };
 export type PatchMovementRequest = components['schemas']['patch_movement_request'];
 export type LinkMovementRequest = components['schemas']['link_movement_request'];
+export type MergeRequest = components['schemas']['merge_request'];
+export type PatchAssetRequest = components['schemas']['patch_asset_request'];

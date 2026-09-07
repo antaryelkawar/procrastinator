@@ -40,8 +40,9 @@ import (
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
 	"procrastinator-backend/core/household"
-	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/core/lifecycle"
+	"procrastinator-backend/core/processing"
 	"procrastinator-backend/core/review"
 	"procrastinator-backend/core/search"
 	"procrastinator-backend/core/statement"
@@ -58,7 +59,7 @@ const defaultMaxBytes int64 = 20 * 1024 * 1024
 
 // happyPayload is the extraction payload returned by the fake LLM for the
 // happy-path invoice upload.
-const happyPayload = `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"WM-2024-001","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"39999.99","currency":"INR","metadata":{"invoice_number":"INVNAG2302754","customer_name":"ACME CORP"}}`
+const happyPayload = `{"classification":"invoice","brand":"Samsung","model":"WF80A","serial_number":"WM-2024-001","purchase_date":"2024-01-12","warranty_end":"2027-01-12","price":"39999.99","currency":"INR","confidence":0.95,"metadata":{"invoice_number":"INVNAG2302754","customer_name":"ACME CORP"}}`
 
 // noIdentityPayload has no serial, brand, or model: identity resolution must
 // reject it.
@@ -116,6 +117,9 @@ type envOpts struct {
 	llmStatus int
 	// maxStatementLines caps statement import lines (default 100000); 0 means default.
 	maxStatementLines int
+	// singleWorker uses one extraction worker instead of two (single-worker
+	// consensus caps confidence at 0.6, below the 0.7 auto-commit threshold).
+	singleWorker bool
 }
 
 // llmState is the mutable fake-LLM behavior shared with the per-test fake
@@ -243,14 +247,36 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 	ledgerSvc := ledger.New(factory, movRepo)
 	reviewSvc := review.New(factory)
 	searchSvc := search.New(factory.Search)
-	svc := ingest.New(
+	client := llm.New(llmServer.URL, "test-key", "test-model", 10*time.Second)
+	chatter := llm.NewClientChatter(client)
+	workers := []processing.Worker{
+		{
+			Model:    "test-model-1",
+			BaseURL:  llmServer.URL,
+			Strategy: processing.Strategy{Name: "extract"},
+		},
+	}
+	if !opts.singleWorker {
+		workers = append(workers, processing.Worker{
+			Model:    "test-model-2",
+			BaseURL:  llmServer.URL,
+			Strategy: processing.Strategy{Name: "extract"},
+		})
+	}
+	extractor := processing.NewExtractor(chatter, workers, 10*time.Second, llm.SystemPrompt())
+	svc := processing.New(
 		factory,
-		llm.NewExtractor(llm.New(llmServer.URL, "test-key", "test-model", 10*time.Second)),
+		extractor,
 		filestorage.New(t.TempDir()),
 		maxBytes,
 		0.7, // default review threshold
 		reviewSvc,
+		30, // retentionDays
+		10, // candidateLimit
+		10*time.Second, // processTimeout
 	)
+	svc.SetTextStorage(filestorage.NewText(t.TempDir()))
+	lifecycleSvc := lifecycle.New(factory, 30)
 	stmtMaxLines := opts.maxStatementLines
 	if stmtMaxLines == 0 {
 		stmtMaxLines = 100000
@@ -264,7 +290,7 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 		maxBytes, // the statement size limit follows the env's upload limit (oversize tests use maxBytes: 64)
 		stmtMaxLines,
 	)
-	srv := New(svc, factory, ledgerSvc, movRepo, maxBytes, statementSvc, maxBytes, household.New(factory), searchSvc, reviewSvc)
+	srv := New(svc, factory, ledgerSvc, movRepo, maxBytes, statementSvc, maxBytes, household.New(factory), searchSvc, reviewSvc, lifecycleSvc)
 
 	t.Cleanup(func() {
 		llmServer.Close()
@@ -622,11 +648,12 @@ func TestUpload(t *testing.T) {
 func TestUploadDocument_LowConfidenceHolds(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, envOpts{})
+	e := newEnv(t, envOpts{singleWorker: true})
 	seedUser(t, e.pool, "alice")
 
-	// Low-confidence payload (0.3 < 0.7 threshold) with valid identity fields.
-	e.llm.setPayload(`{"classification":"invoice","brand":"Test","model":"M1","serial_number":"SN-LOW-1","confidence":0.3}`)
+	// Single-worker consensus caps confidence at 0.6 (< 0.7 threshold),
+	// so the upload is held for review regardless of the payload's confidence.
+	e.llm.setPayload(`{"classification":"invoice","brand":"Test","model":"M1","serial_number":"SN-LOW-1"}`)
 
 	body, ct := buildMultipart(t, "file", "low.pdf", "application/pdf", pdfBytes(16))
 	rec := do(t, e.handler, http.MethodPost, "/api/users/alice/documents", "", body, ct)
@@ -800,8 +827,8 @@ func TestGetAsset(t *testing.T) {
 		if v := strVal(got, "serial_number"); v != "WM-2024-001" {
 			t.Errorf("serial_number = %q, want %q", v, "WM-2024-001")
 		}
-		if v := strVal(got, "doc_type"); v != "invoice" {
-			t.Errorf("doc_type = %q, want %q", v, "invoice")
+		if v := strVal(got, "brand"); v != "Samsung" {
+			t.Errorf("brand = %q, want %q", v, "Samsung")
 		}
 	})
 
@@ -960,7 +987,6 @@ func TestScopeAccess(t *testing.T) {
 
 	// Household-scoped asset owned by the household.
 	hhAsset, err := e.factory.Assets.Create(ctx, entity.Asset{
-		DocType:          "invoice",
 		OwnerHouseholdID: &hh.ID,
 	}, repo.Owner("test-user"))
 	if err != nil {
@@ -1031,9 +1057,91 @@ func TestScopeAccess(t *testing.T) {
 	})
 }
 
+// TestListAssets_SoftDelete verifies that ListAssets omits soft-deleted assets
+// by default and includes them when include_deleted=true.
+func TestListAssets_SoftDelete(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	up, asset := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(16))
+	if up.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201 (body: %s)", up.Code, up.Body.String())
+	}
+	id := strVal(asset, "id")
+
+	// Delete the asset.
+	rec := do(t, e.handler, http.MethodDelete, "/api/users/test-user/assets/"+id, "", nil, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204 (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	// List without include_deleted: empty.
+	rec = do(t, e.handler, http.MethodGet, "/api/users/test-user/assets", "", nil, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
+		t.Fatalf("list body = %q, want %q (deleted asset should be omitted)", got, "[]")
+	}
+
+	// List with include_deleted=true: includes the deleted asset.
+	rec = do(t, e.handler, http.MethodGet, "/api/users/test-user/assets?include_deleted=true", "", nil, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var assets []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &assets); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("asset count = %d, want 1 (body: %s)", len(assets), rec.Body.String())
+	}
+	if strVal(assets[0], "id") != id {
+		t.Errorf("asset id = %q, want %q", strVal(assets[0], "id"), id)
+	}
+}
+
+// TestGetAsset_SoftDelete verifies that GetAsset returns 404 for soft-deleted
+// assets unless include_deleted=true.
+func TestGetAsset_SoftDelete(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	up, asset := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(16))
+	if up.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201 (body: %s)", up.Code, up.Body.String())
+	}
+	id := strVal(asset, "id")
+
+	// Delete the asset.
+	rec := do(t, e.handler, http.MethodDelete, "/api/users/test-user/assets/"+id, "", nil, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204 (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	// GET without include_deleted: 404.
+	rec = do(t, e.handler, http.MethodGet, "/api/users/test-user/assets/"+id, "", nil, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("get status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	// GET with include_deleted=true: 200 with deleted_at set.
+	rec = do(t, e.handler, http.MethodGet, "/api/users/test-user/assets/"+id+"?include_deleted=true", "", nil, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get with include_deleted status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["deleted_at"] == nil {
+		t.Errorf("deleted_at is nil, want non-nil (body: %s)", rec.Body.String())
+	}
+}
+
 // Compile-time guards: these references must resolve so the RED failure is a
 // clean "undefined: New" compile error, not a module-resolution error.
 var (
-	_ = ingest.ErrTooLarge
+	_ = processing.ErrTooLarge
 	_ = repo.ErrNotFound
 )

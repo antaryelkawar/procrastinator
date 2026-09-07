@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -67,6 +69,14 @@ func TestLoad(t *testing.T) {
 				MaxStatementLines:        2500,
 				LLMTimeout:               45 * time.Second,
 				IngestReviewThreshold:    0.92,
+				LLMWorkers: []Worker{
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "verify"},
+				},
+				AssetDeleteRetentionDays: 30,
+				LookupCandidateLimit:     10,
+				ProcessTimeout:           30 * time.Second,
+				BrandLexicon:             nil,
 			},
 		},
 		{
@@ -89,6 +99,14 @@ func TestLoad(t *testing.T) {
 				MaxStatementLines:     100000,
 				LLMTimeout:            60 * time.Second,
 				IngestReviewThreshold: 0.7,
+				LLMWorkers: []Worker{
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai/", Strategy: "extract"},
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai/", Strategy: "verify"},
+				},
+				AssetDeleteRetentionDays: 30,
+				LookupCandidateLimit:     10,
+				ProcessTimeout:           30 * time.Second,
+				BrandLexicon:             nil,
 			},
 		},
 		{
@@ -114,6 +132,14 @@ func TestLoad(t *testing.T) {
 				MaxStatementLines:     100000,
 				LLMTimeout:            45 * time.Second,
 				IngestReviewThreshold: 0.0,
+				LLMWorkers: []Worker{
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "verify"},
+				},
+				AssetDeleteRetentionDays: 30,
+				LookupCandidateLimit:     10,
+				ProcessTimeout:           30 * time.Second,
+				BrandLexicon:             nil,
 			},
 		},
 		{
@@ -139,6 +165,14 @@ func TestLoad(t *testing.T) {
 				MaxStatementLines:     100000,
 				LLMTimeout:            45 * time.Second,
 				IngestReviewThreshold: 1.0,
+				LLMWorkers: []Worker{
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "verify"},
+				},
+				AssetDeleteRetentionDays: 30,
+				LookupCandidateLimit:     10,
+				ProcessTimeout:           30 * time.Second,
+				BrandLexicon:             nil,
 			},
 		},
 		{
@@ -164,6 +198,14 @@ func TestLoad(t *testing.T) {
 				MaxStatementLines:     100000,
 				LLMTimeout:            45 * time.Second,
 				IngestReviewThreshold: 0.9,
+				LLMWorkers: []Worker{
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "verify"},
+				},
+				AssetDeleteRetentionDays: 30,
+				LookupCandidateLimit:     10,
+				ProcessTimeout:           30 * time.Second,
+				BrandLexicon:             nil,
 			},
 		},
 		{
@@ -332,6 +374,193 @@ func TestLoad(t *testing.T) {
 			}(),
 			wantErr:     true,
 			errContains: "PROCRASTINATOR_LLM_TIMEOUT",
+			want:        nil,
+		},
+		{
+			name: "explicit LLM workers",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_LLM_WORKERS"] = "model-a@https://a.invalid/v1, model-b"
+				return m
+			}(),
+			wantErr: false,
+			want: &Config{
+				DatabaseURL:              "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:                 ":9090",
+				LLMBaseURL:               "https://example.invalid/v1",
+				LLMAPIKey:                "api-key-123",
+				LLMModel:                 "gemma-4-26b-a4b-it",
+				StorageDir:               "/tmp/alt-storage",
+				MaxUploadBytes:           1024,
+				MaxStatementBytes:        52428800,
+				MaxStatementLines:        100000,
+				LLMTimeout:               45 * time.Second,
+				IngestReviewThreshold:    0.7,
+				LLMWorkers: []Worker{
+					{Model: "model-a", BaseURL: "https://a.invalid/v1", Strategy: "extract"},
+					{Model: "model-b", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
+				},
+				AssetDeleteRetentionDays: 30,
+				LookupCandidateLimit:     10,
+				ProcessTimeout:           30 * time.Second,
+			},
+		},
+		{
+			name: "explicit retention candidate timeout",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+3)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_ASSET_DELETE_RETENTION_DAYS"] = "45"
+				m["PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT"] = "25"
+				m["PROCRASTINATOR_PROCESS_TIMEOUT"] = "45s"
+				return m
+			}(),
+			wantErr: false,
+			want: &Config{
+				DatabaseURL:           "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:              ":9090",
+				LLMBaseURL:            "https://example.invalid/v1",
+				LLMAPIKey:             "api-key-123",
+				LLMModel:              "gemma-4-26b-a4b-it",
+				StorageDir:            "/tmp/alt-storage",
+				MaxUploadBytes:        1024,
+				MaxStatementBytes:     52428800,
+				MaxStatementLines:     100000,
+				LLMTimeout:            45 * time.Second,
+				IngestReviewThreshold: 0.7,
+				LLMWorkers: []Worker{
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "verify"},
+				},
+				AssetDeleteRetentionDays: 45,
+				LookupCandidateLimit:     25,
+				ProcessTimeout:           45 * time.Second,
+			},
+		},
+		{
+			name: "invalid PROCRASTINATOR_ASSET_DELETE_RETENTION_DAYS",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_ASSET_DELETE_RETENTION_DAYS"] = "abc"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_ASSET_DELETE_RETENTION_DAYS",
+			want:        nil,
+		},
+		{
+			name: "invalid PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT"] = "xyz"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT",
+			want:        nil,
+		},
+		{
+			name: "invalid PROCRASTINATOR_PROCESS_TIMEOUT",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_PROCESS_TIMEOUT"] = "nope"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_PROCESS_TIMEOUT",
+			want:        nil,
+		},
+		{
+			name: "invalid PROCRASTINATOR_LLM_WORKERS empty entry",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_LLM_WORKERS"] = "model-a,"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_LLM_WORKERS",
+			want:        nil,
+		},
+		{
+			name: "brand lexicon json path",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				p := filepath.Join(t.TempDir(), "brands.json")
+				if err := os.WriteFile(p, []byte(`["Alpha","Beta"]`), 0o644); err != nil {
+					t.Fatalf("write brands.json: %v", err)
+				}
+				m["PROCRASTINATOR_BRAND_LEXICON"] = p
+				return m
+			}(),
+			wantErr: false,
+			want: &Config{
+				DatabaseURL:              "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:                 ":9090",
+				LLMBaseURL:               "https://example.invalid/v1",
+				LLMAPIKey:                "api-key-123",
+				LLMModel:                 "gemma-4-26b-a4b-it",
+				StorageDir:               "/tmp/alt-storage",
+				MaxUploadBytes:           1024,
+				MaxStatementBytes:        52428800,
+				MaxStatementLines:        100000,
+				LLMTimeout:               45 * time.Second,
+				IngestReviewThreshold:    0.7,
+				LLMWorkers: []Worker{
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "verify"},
+				},
+				AssetDeleteRetentionDays: 30,
+				LookupCandidateLimit:     10,
+				ProcessTimeout:           30 * time.Second,
+				BrandLexicon:             []string{"Alpha", "Beta"},
+			},
+		},
+		{
+			name: "PROCRASTINATOR_ASSET_DELETE_RETENTION_DAYS must be positive",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_ASSET_DELETE_RETENTION_DAYS"] = "0"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_ASSET_DELETE_RETENTION_DAYS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT must be positive",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base)+1)
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT"] = "-3"
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT",
 			want:        nil,
 		},
 	}

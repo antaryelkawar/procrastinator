@@ -27,7 +27,7 @@ func TestScanReviewDecodesJSONB(t *testing.T) {
 
 	created := time.Date(2025, 6, 1, 12, 30, 45, 0, time.UTC)
 
-	// A fake rowScanner returning exactly 13 values in ingest_reviews column order.
+	// A fake rowScanner returning exactly 14 values in ingest_reviews column order.
 	fake := fakeRow{
 		values: []any{
 			"rev-id",
@@ -43,6 +43,7 @@ func TestScanReviewDecodesJSONB(t *testing.T) {
 			created,
 			(*time.Time)(nil),
 			(*string)(nil),
+			[]byte(`{"workers":[{"model":"gpt-4","result":"ok"}],"candidates":["a1","a2"]}`),
 		},
 	}
 
@@ -83,6 +84,16 @@ func TestScanReviewDecodesJSONB(t *testing.T) {
 	if got.BestMatchedAssetID == nil || *got.BestMatchedAssetID != "asset-id" {
 		t.Errorf("BestMatchedAssetID = %v, want asset-id", got.BestMatchedAssetID)
 	}
+	// Provenance JSONB decoded into a map.
+	if got.Provenance == nil {
+		t.Fatalf("Provenance = nil, want decoded map")
+	}
+	if w, ok := got.Provenance["workers"].([]any); !ok || len(w) == 0 {
+		t.Errorf("Provenance[workers] = %v, want non-empty slice", got.Provenance["workers"])
+	}
+	if c, ok := got.Provenance["candidates"].([]any); !ok || len(c) != 2 {
+		t.Errorf("Provenance[candidates] = %v, want 2-element slice", got.Provenance["candidates"])
+	}
 }
 
 // TestScanReviewNoRows verifies scanReview maps pgx.ErrNoRows to repo.ErrNotFound.
@@ -116,6 +127,7 @@ func TestReviewToMapNonZero(t *testing.T) {
 		BestMatchedAssetID: strPtr("asset-id"),
 		DecidedAt:          &created,
 		DecidedBy:          strPtr("decider"),
+		Provenance:         map[string]any{"workers": []any{"w1", "w2"}},
 	}
 
 	m := reviewToMap(r)
@@ -161,6 +173,11 @@ func TestReviewToMapNonZero(t *testing.T) {
 		t.Fatalf("raw_extraction = %T, want []byte", m["raw_extraction"])
 	} else if string(re) != `"raw"` {
 		t.Errorf("raw_extraction = %s, want encoded string", re)
+	}
+	if prov, ok := m["provenance"].([]byte); !ok {
+		t.Fatalf("provenance = %T, want []byte", m["provenance"])
+	} else if len(prov) == 0 {
+		t.Errorf("provenance is empty, want encoded map")
 	}
 }
 

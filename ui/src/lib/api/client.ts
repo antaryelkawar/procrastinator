@@ -26,6 +26,7 @@ import type {
   LinkMovementRequest,
   CreateHouseholdRequest,
   AddMemberRequest,
+  AddItemOutcome,
   // Success-shaped response types. The mutator (customFetch) throws ApiError on
   // every non-2xx response, so the error union member is unreachable at runtime
   // and the resolved value is always the success shape. The cast to the
@@ -33,6 +34,10 @@ import type {
   // exactly the payload this wrapper declares.
   listAssetsResponseSuccess,
   getAssetResponseSuccess,
+  patchAssetResponseSuccess,
+  restoreAssetResponseSuccess,
+  mergeAssetResponseSuccess,
+  addItemsResponseSuccess,
   listAssetDocumentsResponseSuccess,
   listAccountsResponseSuccess,
   getAccountResponseSuccess,
@@ -57,11 +62,17 @@ import type {
   rejectReviewResponseSuccess,
 } from './generated/orval/procrastinator';
 
-import type { CreateMovementInput } from './schema';
+import type { CreateMovementInput, MergeRequest, PatchAssetRequest } from './schema';
+import type { AddItemsBody } from './generated/orval/procrastinator';
 
 import {
   listAssets as _listAssets,
   getAsset as _getAsset,
+  deleteAsset as _deleteAsset,
+  patchAsset as _patchAsset,
+  restoreAsset as _restoreAsset,
+  mergeAsset as _mergeAsset,
+  addItems as _addItems,
   listAssetDocuments as _listAssetDocuments,
   listAccounts as _listAccounts,
   getAccount as _getAccount,
@@ -93,19 +104,72 @@ import {
 // Assets
 // ---------------------------------------------------------------------------
 
-export async function listAssets(userId: string): Promise<Asset[]> {
-  const res = await _listAssets(userId);
+export async function listAssets(
+  userId: string,
+  params?: { include_deleted?: boolean }
+): Promise<Asset[]> {
+  const res = await _listAssets(userId, params);
   return (res as listAssetsResponseSuccess).data;
 }
 
-export async function getAsset(userId: string, assetId: string): Promise<Asset> {
-  const res = await _getAsset(userId, assetId);
+export async function getAsset(
+  userId: string,
+  assetId: string,
+  params?: { include_deleted?: boolean }
+): Promise<Asset> {
+  const res = await _getAsset(userId, assetId, params);
   return (res as getAssetResponseSuccess).data;
 }
 
 export async function listAssetDocuments(userId: string, assetId: string): Promise<Document[]> {
   const res = await _listAssetDocuments(userId, assetId);
   return (res as listAssetDocumentsResponseSuccess).data;
+}
+
+export async function deleteAsset(userId: string, assetId: string): Promise<void> {
+  await _deleteAsset(userId, assetId);
+}
+
+export async function patchAsset(
+  userId: string,
+  assetId: string,
+  body: PatchAssetRequest
+): Promise<Asset> {
+  const res = await _patchAsset(userId, assetId, body);
+  return (res as patchAssetResponseSuccess).data;
+}
+
+export async function restoreAsset(userId: string, assetId: string): Promise<Asset> {
+  const res = await _restoreAsset(userId, assetId);
+  return (res as restoreAssetResponseSuccess).data;
+}
+
+export async function mergeAsset(
+  userId: string,
+  assetId: string,
+  body: MergeRequest
+): Promise<Asset> {
+  const res = await _mergeAsset(userId, assetId, body);
+  return (res as mergeAssetResponseSuccess).data;
+}
+
+/**
+ * Unified add: multipart file(s) and/or pasted text, optionally scoped to a
+ * finance account (required for statement items). Returns one uniform
+ * per-item outcome in the order the items were sent.
+ *
+ * The generated client types the multipart fields as `string[]` (OpenAPI
+ * can't express binary), so the wrapper accepts `File[]` and casts to the
+ * generated `AddItemsBody` — the generated FormData builder appends File
+ * values verbatim, which is exactly the multipart wire format the server
+ * expects.
+ */
+export async function addItems(
+  userId: string,
+  body: { files?: File[]; text?: string; account_id?: string }
+): Promise<AddItemOutcome[]> {
+  const res = await _addItems(userId, body as AddItemsBody);
+  return (res as addItemsResponseSuccess).data;
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +315,18 @@ export async function quickSearch(
 
 export async function search(
   userId: string,
-  params?: { q?: string; page?: number; page_size?: number },
+  params?: {
+    q?: string;
+    page?: number;
+    page_size?: number;
+    category?: string;
+    brand?: string;
+    purchase_from?: string;
+    purchase_to?: string;
+    warranty_status?: string;
+    has_documents?: boolean;
+    doc_classification?: 'invoice' | 'receipt' | 'warranty' | 'amc' | 'statement' | 'other';
+  },
 ): Promise<SearchResultsPage> {
   const res = await _search(userId, params);
   return (res as searchResponseSuccess).data;

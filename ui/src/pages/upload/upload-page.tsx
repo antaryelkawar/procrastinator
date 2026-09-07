@@ -1,8 +1,7 @@
 import React, { useCallback, useState, useRef, useEffect } from 'react';
-import { useDropzone } from 'react-dropzone';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Card } from '../../components/ui/card';
+import { Upload } from '../../components/upload';
 import { uploadDocument } from '../../lib/api/upload';
 import { ApiError } from '../../lib/api/errors';
 import { useActiveUser } from '../../context/active-user';
@@ -113,18 +112,15 @@ export const UploadPage: React.FC = () => {
     processQueue();
   }, [processQueue]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
-    onDrop, 
-    accept: { 'application/pdf': ['.pdf'], 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'] } 
-  });
-
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Upload Documents</h1>
-      <Card {...getRootProps()} className={`p-8 border-dashed border-2 cursor-pointer ${isDragActive ? 'border-primary' : 'border-muted'}`}>
-        <input {...getInputProps()} aria-label="file upload" />
-        <p className="text-center">Drag & drop files here, or click to select files</p>
-      </Card>
+      <Upload
+        onDrop={onDrop}
+        label="file upload"
+        hint="Drag & drop files here, or click to select files"
+        accept={{ 'application/pdf': ['.pdf'], 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'] }}
+      />
       <div className="mt-4">
         {files.map((file) => (
           <div key={file.id} className="p-2 border rounded mb-2 flex justify-between items-center">

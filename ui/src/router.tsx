@@ -2,7 +2,7 @@
  * Application route table (design D9 / module layout).
  *
  *   /                         → redirects to /assets
- *   /upload                    document upload            (task 4.1)
+ *   /add                       unified add (file/text/statement) (task 8.2)
  *   /assets                    asset list                 (task 4.2)
  *   /assets/:assetId           asset detail               (task 4.3)
  *   /finance/accounts          finance accounts           (task 4.4)
@@ -21,13 +21,13 @@ import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from '@/components/layout/app-shell';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { Button } from '@/components/ui/button';
+import { AddPage } from './pages/add/add-page';
 import { AssetListPage } from './pages/assets/asset-list-page';
 import { AssetDetailPage } from './pages/assets/asset-detail-page';
 import { AccountsPage } from './pages/finance/accounts-page';
 import { MovementsPage } from './pages/finance/movements-page';
 import { ImportPage } from './pages/finance/import-page';
 import { ImportHistoryPage } from './pages/finance/import-history-page';
-import { UploadPage } from './pages/upload/upload-page';
 import { SearchResultsPage } from './pages/search/search-results-page';
 import { ReviewQueuePage } from './pages/reviews/review-queue-page';
 
@@ -53,7 +53,7 @@ export function AppRoutes() {
     <Routes>
       <Route element={<AppShell />}>
         <Route path="/" element={<Navigate to="/assets" replace />} />
-        <Route path="/upload" element={<UploadPage />} />
+        <Route path="/add" element={<AddPage />} />
         <Route path="/assets" element={<AssetListPage />} />
         <Route path="/assets/:assetId" element={<AssetDetailPage />} />
         <Route path="/finance/accounts" element={<AccountsPage />} />

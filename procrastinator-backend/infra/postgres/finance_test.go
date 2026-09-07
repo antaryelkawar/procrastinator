@@ -93,8 +93,7 @@ func seedFinanceDocument(t *testing.T, OwnerID, filename, price, currency string
 		t.Fatalf("seed source: %v", err)
 	}
 	asset, err := finAssets.Create(ctx, entity.Asset{
-		Brand:   strPtr("Samsung"),
-		DocType: entity.DocTypeInvoice,
+		Brand: strPtr("Samsung"),
 	}, repo.Owner(OwnerID))
 	if err != nil {
 		t.Fatalf("seed asset: %v", err)

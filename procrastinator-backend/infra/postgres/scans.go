@@ -25,7 +25,10 @@ func toMetadataJSON(m map[string]any) ([]byte, error) {
 }
 
 // scanAsset scans a row into an entity.Asset, mapping pgx.ErrNoRows to repo.ErrNotFound.
-// Column order matches the assets table (migrations 00001 + 00005).
+// Column order matches the assets table (migrations 00002 + 00005 + 00006).
+// doc_type was dropped in 00006; name/norm_name/asset_category/
+// category_confidence/category_user_set/deleted_at/merged_into/merged_at
+// were added in 00006.
 func scanAsset(row rowScanner) (entity.Asset, error) {
 	var a entity.Asset
 	var id string
@@ -33,8 +36,10 @@ func scanAsset(row rowScanner) (entity.Asset, error) {
 	err := row.Scan(
 		&id, &a.OwnerID, &a.Brand, &a.Model, &a.SerialNumber, &a.NormSerial,
 		&a.NormBrand, &a.NormModel, &a.PurchaseDate, &a.WarrantyEnd, &a.Price,
-		&a.Currency, &a.DocType, &metadataJSON, &a.CreatedAt, &a.UpdatedAt,
+		&a.Currency, &metadataJSON, &a.CreatedAt, &a.UpdatedAt,
 		&a.OwnerHouseholdID, &a.Confidence,
+		&a.Name, &a.NormName, &a.AssetCategory, &a.CategoryConfidence,
+		&a.CategoryUserSet, &a.DeletedAt, &a.MergedInto, &a.MergedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

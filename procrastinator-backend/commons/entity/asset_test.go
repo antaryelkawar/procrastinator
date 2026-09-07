@@ -2,7 +2,7 @@ package entity
 
 import "testing"
 
-func TestValidDocType(t *testing.T) {
+func TestValidAssetCategory(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -10,29 +10,35 @@ func TestValidDocType(t *testing.T) {
 		in   string
 		want bool
 	}{
-		{"invoice", "invoice", true},
-		{"warranty", "warranty", true},
-		{"amc", "amc", true},
+		{"appliance", "appliance", true},
+		{"electronics", "electronics", true},
+		{"computing", "computing", true},
+		{"furniture", "furniture", true},
+		{"vehicle", "vehicle", true},
+		{"tool", "tool", true},
+		{"clothing", "clothing", true},
+		{"document_only", "document_only", true},
 		{"other", "other", true},
 		{"empty", "", false},
-		{"contract", "contract", false},
-		{"Invoice-capitalized", "Invoice", false},
-		{"INVOICE-uppercase", "INVOICE", false},
+		{"unknown", "unknown", false},
+		{"Appliance-capitalized", "Appliance", false},
+		{"APPLIANCE-uppercase", "APPLIANCE", false},
+		{"trailing-space", "appliance ", false},
 	}
 
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := ValidDocType(tc.in)
+			got := ValidAssetCategory(tc.in)
 			if got != tc.want {
-				t.Fatalf("ValidDocType(%q) = %v, want %v", tc.in, got, tc.want)
+				t.Fatalf("ValidAssetCategory(%q) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestDocTypeConstantValues(t *testing.T) {
+func TestAssetCategoryConstantValues(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -40,10 +46,15 @@ func TestDocTypeConstantValues(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"DocTypeInvoice", DocTypeInvoice, "invoice"},
-		{"DocTypeWarranty", DocTypeWarranty, "warranty"},
-		{"DocTypeAMC", DocTypeAMC, "amc"},
-		{"DocTypeOther", DocTypeOther, "other"},
+		{"AssetCategoryAppliance", AssetCategoryAppliance, "appliance"},
+		{"AssetCategoryElectronics", AssetCategoryElectronics, "electronics"},
+		{"AssetCategoryComputing", AssetCategoryComputing, "computing"},
+		{"AssetCategoryFurniture", AssetCategoryFurniture, "furniture"},
+		{"AssetCategoryVehicle", AssetCategoryVehicle, "vehicle"},
+		{"AssetCategoryTool", AssetCategoryTool, "tool"},
+		{"AssetCategoryClothing", AssetCategoryClothing, "clothing"},
+		{"AssetCategoryDocumentOnly", AssetCategoryDocumentOnly, "document_only"},
+		{"AssetCategoryOther", AssetCategoryOther, "other"},
 	}
 
 	for _, tc := range cases {

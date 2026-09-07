@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -12,8 +13,9 @@ import (
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
 	"procrastinator-backend/core/household"
-	"procrastinator-backend/core/ingest"
 	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/core/lifecycle"
+	"procrastinator-backend/core/processing"
 	"procrastinator-backend/core/review"
 	"procrastinator-backend/core/search"
 	"procrastinator-backend/core/statement"
@@ -23,10 +25,11 @@ import (
 // ServerInterface.
 var _ gen.StrictServerInterface = (*Server)(nil)
 
-// Server serves the HTTP API surface over the ingest service, the ledger
-// service, and the owner-scoped data repositories.
+// Server serves the HTTP API surface over the processing service, the
+// lifecycle service, the ledger service, and the owner-scoped data
+// repositories.
 type Server struct {
-	svc      *ingest.Service
+	svc      *processing.Service
 	factory  *repo.Factory
 	ledger   *ledger.Service
 	balancer ledger.BalanceQuerier
@@ -42,17 +45,20 @@ type Server struct {
 	search *search.Service
 	// review serves the ingest review endpoints (list, get, approve, reject).
 	review *review.Service
+	// lifecycle serves the asset lifecycle endpoints (delete, restore, merge, patch).
+	lifecycle *lifecycle.Service
 }
 
 // New constructs a Server. ledgerSvc and balancer serve the finance accounts
 // and movements endpoints; maxBytes is the maximum accepted upload size in
 // bytes, enforced both at the HTTP layer (MaxBytesReader) and inside the
-// ingest service. statementSvc and maxStatementBytes serve the statement
+// processing service. statementSvc and maxStatementBytes serve the statement
 // import endpoints (import-batches); the statement size limit is enforced
 // both at the HTTP layer (MaxBytesReader) and inside the statement service.
 // searchSvc serves the search endpoints; reviewSvc serves the ingest review
-// endpoints.
-func New(svc *ingest.Service, factory *repo.Factory, ledgerSvc *ledger.Service, balancer ledger.BalanceQuerier, maxBytes int64, statementSvc *statement.Service, maxStatementBytes int64, householdSvc *household.Service, searchSvc *search.Service, reviewSvc *review.Service) *Server {
+// endpoints; lifecycleSvc serves the asset lifecycle endpoints (delete,
+// restore, merge, patch).
+func New(svc *processing.Service, factory *repo.Factory, ledgerSvc *ledger.Service, balancer ledger.BalanceQuerier, maxBytes int64, statementSvc *statement.Service, maxStatementBytes int64, householdSvc *household.Service, searchSvc *search.Service, reviewSvc *review.Service, lifecycleSvc *lifecycle.Service) *Server {
 	return &Server{
 		svc:               svc,
 		factory:           factory,
@@ -64,6 +70,7 @@ func New(svc *ingest.Service, factory *repo.Factory, ledgerSvc *ledger.Service, 
 		household:         householdSvc,
 		search:            searchSvc,
 		review:            reviewSvc,
+		lifecycle:         lifecycleSvc,
 	}
 }
 
@@ -121,12 +128,16 @@ var requestErrorFunc = func(w http.ResponseWriter, _ *http.Request, err error) {
 // the 500 fallback message carries the underlying error for diagnosis.
 var responseErrorDebug = false
 
-func responseErrorFunc(w http.ResponseWriter, _ *http.Request, err error) {
+func responseErrorFunc(w http.ResponseWriter, r *http.Request, err error) {
 	var ae *apiError
 	if errors.As(err, &ae) {
+		if ae.status >= 500 {
+			log.Printf("api error: %s %s: %v", r.Method, r.URL.Path, err)
+		}
 		writeErrorEnvelope(w, ae.status, ae.msg)
 		return
 	}
+	log.Printf("internal error: %s %s: %v", r.Method, r.URL.Path, err)
 	if responseErrorDebug {
 		writeErrorEnvelope(w, http.StatusInternalServerError, "internal error: "+err.Error())
 		return

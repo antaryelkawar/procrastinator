@@ -106,6 +106,96 @@ describe('success unwrapping', () => {
   });
 });
 
+describe('asset lifecycle', () => {
+  const asset = { id: 'a1', brand: 'Dell', metadata: {}, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' };
+
+  it('deleteAsset resolves undefined for a 204 and targets the asset path', async () => {
+    const calls = stubFetch(new Response(null, { status: 204 }));
+    const result = await client.deleteAsset(ALICE, 'a1');
+    expect(result).toBeUndefined();
+    expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/assets/a1`);
+    expect(calls[0]?.init?.method).toBe('DELETE');
+  });
+
+  it('restoreAsset unwraps the asset body and posts to /restore', async () => {
+    const calls = stubFetch(jsonResponse(asset));
+    const restored = await client.restoreAsset(ALICE, 'a1');
+    expect(restored.id).toBe('a1');
+    expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/assets/a1/restore`);
+    expect(calls[0]?.init?.method).toBe('POST');
+  });
+
+  it('patchAsset sends the patch body and unwraps the asset', async () => {
+    const calls = stubFetch(jsonResponse({ ...asset, name: 'Microwave Oven' }));
+    const patched = await client.patchAsset(ALICE, 'a1', { name: 'Microwave Oven', asset_category: 'appliance' });
+    expect(patched.name).toBe('Microwave Oven');
+    expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/assets/a1`);
+    expect(calls[0]?.init?.method).toBe('PATCH');
+    expect(calls[0]?.init?.body).toBe(JSON.stringify({ name: 'Microwave Oven', asset_category: 'appliance' }));
+  });
+
+  it('mergeAsset sends the duplicate id and unwraps the survivor', async () => {
+    const calls = stubFetch(jsonResponse({ ...asset, id: 'survivor' }));
+    const survivor = await client.mergeAsset(ALICE, 'survivor', { duplicate_asset_id: 'dup1' });
+    expect(survivor.id).toBe('survivor');
+    expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/assets/survivor/merge`);
+    expect(calls[0]?.init?.method).toBe('POST');
+    expect(calls[0]?.init?.body).toBe(JSON.stringify({ duplicate_asset_id: 'dup1' }));
+  });
+
+  it('listAssets forwards include_deleted as a query param', async () => {
+    const calls = stubFetch(jsonResponse([]));
+    await client.listAssets(ALICE, { include_deleted: true });
+    expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/assets?include_deleted=true`);
+  });
+
+  it('getAsset forwards include_deleted as a query param', async () => {
+    const calls = stubFetch(jsonResponse(asset));
+    await client.getAsset(ALICE, 'a1', { include_deleted: true });
+    expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/assets/a1?include_deleted=true`);
+  });
+
+  it('addItems posts a multipart body and unwraps the per-item outcomes', async () => {
+    const calls = stubFetch(jsonResponse([{ kind: 'asset_committed', asset_id: 'a1' }]));
+    const file = new File(['receipt-bytes'], 'receipt.jpg', { type: 'image/jpeg' });
+    const outcomes = await client.addItems(ALICE, { files: [file], text: 'note', account_id: 'acc1' });
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]?.kind).toBe('asset_committed');
+    expect(outcomes[0]?.asset_id).toBe('a1');
+    expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/add`);
+    expect(calls[0]?.init?.method).toBe('POST');
+    // Multipart body — the generated client sets no Content-Type (FormData does).
+    const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+    expect(headers['Content-Type']).toBeUndefined();
+    expect(calls[0]?.init?.body).toBeInstanceOf(FormData);
+    expect((calls[0]?.init?.body as FormData).get('text')).toBe('note');
+    expect((calls[0]?.init?.body as FormData).get('account_id')).toBe('acc1');
+  });
+
+  it('search forwards typed filter params as query params', async () => {
+    const calls = stubFetch(jsonResponse({ hits: [], page: 1, page_size: 20, total: 0, total_pages: 0 }));
+    await client.search(ALICE, {
+      q: 'microwave',
+      category: 'appliance',
+      brand: 'LG',
+      purchase_from: '2026-01-01',
+      purchase_to: '2026-06-30',
+      warranty_status: 'expiring_within:90',
+      has_documents: true,
+      doc_classification: 'amc',
+    });
+    const url = calls[0]?.url ?? '';
+    expect(url).toContain('q=microwave');
+    expect(url).toContain('category=appliance');
+    expect(url).toContain('brand=LG');
+    expect(url).toContain('purchase_from=2026-01-01');
+    expect(url).toContain('purchase_to=2026-06-30');
+    expect(url).toContain('warranty_status=expiring_within%3A90');
+    expect(url).toContain('has_documents=true');
+    expect(url).toContain('doc_classification=amc');
+  });
+});
+
 describe('error envelope → ApiError', () => {
   it('throws ApiError with status and the verbatim backend detail', async () => {
     stubFetch(errorResponse(404, JSON.stringify({ error: 'unknown user' })));

@@ -23,8 +23,8 @@ type searchBackend struct {
 // Compile-time guard: the adapter satisfies the search backend interface.
 var _ repo.SearchBackend = (*searchBackend)(nil)
 
-func (s *searchBackend) SearchAssets(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.Asset, error) {
-	return s.assets.SearchAssets(ctx, pattern, opts...)
+func (s *searchBackend) SearchAssets(ctx context.Context, pattern string, filters repo.Filters, opts ...repo.Option) ([]entity.Asset, error) {
+	return s.assets.SearchAssets(ctx, pattern, filters, opts...)
 }
 
 func (s *searchBackend) SearchAccounts(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.FinancialAccount, error) {
@@ -35,8 +35,8 @@ func (s *searchBackend) SearchMovements(ctx context.Context, pattern string, opt
 	return s.movements.SearchMovements(ctx, pattern, opts...)
 }
 
-func (s *searchBackend) SearchDocuments(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.Document, error) {
-	return s.documents.SearchDocuments(ctx, pattern, opts...)
+func (s *searchBackend) SearchDocuments(ctx context.Context, pattern string, filters repo.Filters, opts ...repo.Option) ([]entity.Document, error) {
+	return s.documents.SearchDocuments(ctx, pattern, filters, opts...)
 }
 
 func (s *searchBackend) SearchImportBatches(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.ImportBatch, error) {

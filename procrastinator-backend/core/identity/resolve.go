@@ -14,44 +14,105 @@ import (
 // identity fields (no serial, brand, or model).
 var ErrNoIdentity = errors.New("no usable identity fields in extraction")
 
-// Resolve matches an extraction against existing assets using the identity
-// hierarchy (serial first, then brand+model), merging into a match or
-// creating a new asset. The boolean result reports whether a new asset was
-// created. The owner is extracted from ctx and applied to every repository
-// call via repo.Owner(tid). The ownerHouseholdID parameter fences resolution
-// to a scope: a non-nil value restricts matches to the given household, a nil
-// value restricts them to personal (non-household) assets, so a household
-// upload never merges into a personal asset (and vice versa). A newly-created
-// asset is stamped with the same scope.
-func Resolve(ctx context.Context, assets repo.Repository[entity.Asset], ext entity.Extraction, ownerHouseholdID *string) (entity.Asset, bool, error) {
+// DefaultCandidateLimit is the per-stage candidate bound used when a caller
+// passes 0/negative.
+const DefaultCandidateLimit = 10
+
+// Sentinel errors returned by Resolve for non-commit outcomes. The real
+// callers use Match to inspect the candidate set and hold/surface; these
+// guard the direct Resolve write path.
+var (
+	// ErrAmbiguous signals multiple active candidates held for review.
+	ErrAmbiguous = errors.New("ambiguous match: multiple candidates, held for review")
+	// ErrSoftDeleted signals the only match is a soft-deleted asset; not
+	// created (offer restore).
+	ErrSoftDeleted = errors.New("match is a soft-deleted asset; not created (offer restore)")
+)
+
+// matchKind is the unexported outcome kind of the 3-stage lookup.
+type matchKind int
+
+// Exported outcome kinds.
+const (
+	// MatchUnresolved means no candidate at any stage.
+	MatchUnresolved matchKind = iota
+	// MatchMerge means exactly 1 active candidate (any stage).
+	MatchMerge
+	// MatchAmbiguous means >1 active candidate at a non-serial stage.
+	MatchAmbiguous
+	// MatchSoftDeleted means no active candidate, but >=1 soft-deleted match.
+	MatchSoftDeleted
+)
+
+// MatchResult describes the outcome of the 3-stage indexed lookup.
+type MatchResult struct {
+	Kind       matchKind
+	AssetID    *string        // non-nil when Kind == MatchMerge
+	Candidates []entity.Asset // active set for Merge/Ambiguous; deleted set for SoftDeleted
+}
+
+// Resolve matches an extraction against existing assets via a deterministic
+// 3-stage indexed lookup (norm_serial, then norm_brand+norm_model, then
+// norm_name+norm_model) and applies the write. The boolean result reports
+// whether a new asset was created.
+//
+// The owner is extracted from ctx and applied to every repository call via
+// repo.Owner(tid). The ownerHouseholdID param fences resolution to a scope: a
+// non-nil value restricts matches to the given household, a nil value
+// restricts them to personal (non-household) assets, so a household upload
+// never merges into a personal asset (and vice versa). A newly-created asset
+// is stamped with the same scope.
+//
+// Soft-deleted assets never match: a stage with only soft-deleted candidates
+// yields MatchSoftDeleted rather than creating. candidateLimit bounds the
+// candidate set per stage; values <= 0 use DefaultCandidateLimit.
+func Resolve(ctx context.Context, assets repo.Repository[entity.Asset], ext entity.Extraction, ownerHouseholdID *string, candidateLimit int) (entity.Asset, bool, error) {
 	tid, err := user.UserFrom(ctx)
 	if err != nil {
 		return entity.Asset{}, false, err
 	}
 
-	fence := scopeFence(ownerHouseholdID)
-
-	var normSerial, normBrand, normModel string
-	if ext.SerialNumber != nil {
-		normSerial = commons.NormalizeSerial(*ext.SerialNumber)
-	}
-	if ext.Brand != nil {
-		normBrand = commons.NormalizeName(*ext.Brand)
-	}
-	if ext.Model != nil {
-		normModel = commons.NormalizeName(*ext.Model)
+	res, err := matchExtraction(ctx, assets, ext, tid, ownerHouseholdID, candidateLimit)
+	if err != nil {
+		return entity.Asset{}, false, err
 	}
 
-	switch {
-	case normSerial != "":
-		return resolveBySerial(ctx, assets, tid, ext, normSerial, normBrand, normModel, fence)
-	case normBrand != "" && normModel != "":
-		return resolveByBrandModel(ctx, assets, tid, ext, normBrand, normModel, fence)
-	case normBrand != "" || normModel != "":
-		return createNew(ctx, assets, tid, ext, normSerial, normBrand, normModel, fence)
-	default:
-		return entity.Asset{}, false, ErrNoIdentity
+	switch res.Kind {
+	case MatchMerge:
+		// Load the matched asset fresh, scoped by owner+fence; fall back to
+		// createNew when it is no longer visible.
+		fence := scopeFence(ownerHouseholdID)
+		getOpts := append([]repo.Option{repo.Owner(tid)}, fence...)
+		existing, err := assets.Get(ctx, *res.AssetID, getOpts...)
+		if err == nil {
+			merged, _, err := mergeInto(ctx, assets, tid, ext, existing)
+			return merged, false, err
+		}
+		if !errors.Is(err, repo.ErrNotFound) {
+			return entity.Asset{}, false, err
+		}
+		return createNew(ctx, assets, tid, ext, fence)
+	case MatchAmbiguous:
+		return entity.Asset{}, false, ErrAmbiguous
+	case MatchSoftDeleted:
+		return entity.Asset{}, false, ErrSoftDeleted
+	default: // MatchUnresolved
+		created, _, err := createNew(ctx, assets, tid, ext, scopeFence(ownerHouseholdID))
+		return created, true, err
 	}
+}
+
+// Match runs the 3-stage indexed lookup read-only and returns a MatchResult.
+// It applies the same identity hierarchy and scope fence as Resolve without
+// writing. candidateLimit bounds each stage's candidate set; values <= 0 use
+// DefaultCandidateLimit. It returns ErrNoIdentity when no stage is eligible
+// (no serial, and not brand+model, and not name+model).
+func Match(ctx context.Context, assets repo.Repository[entity.Asset], ext entity.Extraction, ownerHouseholdID *string, candidateLimit int) (MatchResult, error) {
+	tid, err := user.UserFrom(ctx)
+	if err != nil {
+		return MatchResult{}, err
+	}
+	return matchExtraction(ctx, assets, ext, tid, ownerHouseholdID, candidateLimit)
 }
 
 // scopeFence builds the scope-filtering options for ownerHouseholdID: a
@@ -62,168 +123,6 @@ func scopeFence(ownerHouseholdID *string) []repo.Option {
 		return []repo.Option{repo.Where("owner_household_id", "=", *ownerHouseholdID)}
 	}
 	return []repo.Option{repo.Where("owner_household_id", "IS NULL", nil)}
-}
-
-// Match finds the best-matching existing asset for the given extraction
-// without committing (no writes). It applies the same identity hierarchy as
-// Resolve (serial first, then brand+model) within the scope fence. Returns
-// ErrNoIdentity when no usable identity fields are present. The boolean
-// reports whether a match was found; when false the returned asset is zero
-// (a new asset would be created).
-func Match(ctx context.Context, assets repo.Repository[entity.Asset], ext entity.Extraction, ownerHouseholdID *string) (entity.Asset, bool, error) {
-	tid, err := user.UserFrom(ctx)
-	if err != nil {
-		return entity.Asset{}, false, err
-	}
-
-	fence := scopeFence(ownerHouseholdID)
-
-	var normSerial, normBrand, normModel string
-	if ext.SerialNumber != nil {
-		normSerial = commons.NormalizeSerial(*ext.SerialNumber)
-	}
-	if ext.Brand != nil {
-		normBrand = commons.NormalizeName(*ext.Brand)
-	}
-	if ext.Model != nil {
-		normModel = commons.NormalizeName(*ext.Model)
-	}
-
-	switch {
-	case normSerial != "":
-		return lookup(ctx, assets, tid, "norm_serial", normSerial, fence...)
-	case normBrand != "" && normModel != "":
-		return lookup(ctx, assets, tid, "norm_brand", normBrand, append(fence, repo.Where("norm_model", "=", normModel))...)
-	default:
-		return entity.Asset{}, false, ErrNoIdentity
-	}
-}
-
-// lookup performs a single Limit(1) match query on the given field. When a
-// match is found it is returned with found=true; otherwise a zero asset with
-// found=false.
-func lookup(ctx context.Context, assets repo.Repository[entity.Asset], tid, field, value string, extra ...repo.Option) (entity.Asset, bool, error) {
-	opts := append([]repo.Option{repo.Owner(tid), repo.Where(field, "=", value), repo.Limit(1)}, extra...)
-	results, err := assets.List(ctx, opts...)
-	if err != nil {
-		return entity.Asset{}, false, err
-	}
-	if len(results) > 0 {
-		return results[0], true, nil
-	}
-	return entity.Asset{}, false, nil
-}
-
-// CommitCandidate commits a stored candidate: if matchedAssetID is non-nil it
-// loads the target asset and merges the extraction into it (falling back to
-// createNew when the asset no longer exists); if nil it creates a new asset.
-// Reuses the existing mergeInto / createNew / newAsset / scopeFence logic.
-func CommitCandidate(ctx context.Context, assets repo.Repository[entity.Asset], ext entity.Extraction, matchedAssetID *string, ownerHouseholdID *string) (entity.Asset, error) {
-	tid, err := user.UserFrom(ctx)
-	if err != nil {
-		return entity.Asset{}, err
-	}
-
-	fence := scopeFence(ownerHouseholdID)
-
-	var normSerial, normBrand, normModel string
-	if ext.SerialNumber != nil {
-		normSerial = commons.NormalizeSerial(*ext.SerialNumber)
-	}
-	if ext.Brand != nil {
-		normBrand = commons.NormalizeName(*ext.Brand)
-	}
-	if ext.Model != nil {
-		normModel = commons.NormalizeName(*ext.Model)
-	}
-
-	if matchedAssetID != nil {
-		getOpts := append([]repo.Option{repo.Owner(tid)}, fence...)
-		existing, err := assets.Get(ctx, *matchedAssetID, getOpts...)
-		if err == nil {
-			merged, _, err := mergeInto(ctx, assets, tid, ext, existing)
-			return merged, err
-		}
-		if !errors.Is(err, repo.ErrNotFound) {
-			return entity.Asset{}, err
-		}
-		// Asset was deleted or is no longer visible: fall through to createNew.
-	}
-
-	created, err := assets.Create(ctx, newAsset(ext, normSerial, normBrand, normModel, fence), repo.Owner(tid))
-	return created, err
-}
-
-// resolveBySerial matches on the normalized serial; on a miss it creates a
-// new asset.
-func resolveBySerial(ctx context.Context, assets repo.Repository[entity.Asset], tid string, ext entity.Extraction, normSerial, normBrand, normModel string, fence []repo.Option) (entity.Asset, bool, error) {
-	opts := append([]repo.Option{repo.Owner(tid), repo.Where("norm_serial", "=", normSerial)}, fence...)
-	opts = append(opts, repo.Limit(1))
-	results, err := assets.List(ctx, opts...)
-	if err != nil {
-		return entity.Asset{}, false, err
-	}
-	if len(results) > 0 {
-		return mergeInto(ctx, assets, tid, ext, results[0])
-	}
-	return createNew(ctx, assets, tid, ext, normSerial, normBrand, normModel, fence)
-}
-
-// resolveByBrandModel matches on the normalized brand+model pair; on a miss
-// it creates a new asset.
-func resolveByBrandModel(ctx context.Context, assets repo.Repository[entity.Asset], tid string, ext entity.Extraction, normBrand, normModel string, fence []repo.Option) (entity.Asset, bool, error) {
-	opts := append([]repo.Option{repo.Owner(tid), repo.Where("norm_brand", "=", normBrand), repo.Where("norm_model", "=", normModel)}, fence...)
-	opts = append(opts, repo.Limit(1))
-	results, err := assets.List(ctx, opts...)
-	if err != nil {
-		return entity.Asset{}, false, err
-	}
-	if len(results) > 0 {
-		return mergeInto(ctx, assets, tid, ext, results[0])
-	}
-	return createNew(ctx, assets, tid, ext, "", normBrand, normModel, fence)
-}
-
-// createNew builds a fresh asset from the extraction and stores it.
-func createNew(ctx context.Context, assets repo.Repository[entity.Asset], tid string, ext entity.Extraction, normSerial, normBrand, normModel string, fence []repo.Option) (entity.Asset, bool, error) {
-	created, err := assets.Create(ctx, newAsset(ext, normSerial, normBrand, normModel, fence), repo.Owner(tid))
-	if err != nil {
-		return entity.Asset{}, false, err
-	}
-	return created, true, nil
-}
-
-// newAsset builds a entity.Asset for creation from the extraction. Norm
-// columns are nil when the corresponding normalized value is empty. The
-// owner_household_id scope is stamped from the fence (nil for a personal
-// asset).
-func newAsset(ext entity.Extraction, normSerial, normBrand, normModel string, fence []repo.Option) entity.Asset {
-	var normSerialP, normBrandP, normModelP *string
-	if normSerial != "" {
-		normSerialP = &normSerial
-	}
-	if normBrand != "" {
-		normBrandP = &normBrand
-	}
-	if normModel != "" {
-		normModelP = &normModel
-	}
-	return entity.Asset{
-		Brand:            ext.Brand,
-		Model:            ext.Model,
-		SerialNumber:     ext.SerialNumber,
-		NormSerial:       normSerialP,
-		NormBrand:        normBrandP,
-		NormModel:        normModelP,
-		PurchaseDate:     ext.PurchaseDate,
-		WarrantyEnd:      ext.WarrantyEnd,
-		Price:            ext.Price,
-		Currency:         ext.Currency,
-		DocType:          ext.Classification,
-		Metadata:         ext.Metadata,
-		OwnerHouseholdID: scopeFromFence(fence),
-		Confidence:       ext.Confidence,
-	}
 }
 
 // scopeFromFence recovers the owner_household_id scope from the fence options.
@@ -249,6 +148,187 @@ func scopeFromFence(fence []repo.Option) *string {
 	return nil
 }
 
+// stage is one eligible lookup stage: a set of identity filters plus a flag
+// indicating whether it is the serial stage (which always short-circuits to a
+// single merge when it has ≥1 active candidate).
+type stage struct {
+	filters []repo.Option
+	serial  bool
+}
+
+// normIdentity normalizes the extraction identity fields. Each returned value
+// is empty (not a pointer) when its source field is nil/blank. ns, nb, nm, nn
+// are the normalized serial, brand, model, and name respectively.
+func normIdentity(ext entity.Extraction) (ns, nb, nm, nn string) {
+	if ext.SerialNumber != nil {
+		ns = commons.NormalizeSerial(*ext.SerialNumber)
+	}
+	if ext.Brand != nil {
+		nb = commons.NormalizeName(*ext.Brand)
+	}
+	if ext.Model != nil {
+		nm = commons.NormalizeName(*ext.Model)
+	}
+	if ext.Name != nil && *ext.Name != "" {
+		nn = commons.NormalizeName(*ext.Name)
+	}
+	return ns, nb, nm, nn
+}
+
+// matchExtraction runs the ordered 3-stage indexed lookup and returns the
+// first short-circuiting outcome. Stages run in order (serial, brand+model,
+// name+model); the first stage returning ≥1 active candidate short-circuits
+// the rest. Soft-deleted candidates never match but are surfaced when they are
+// the only candidates at a stage.
+func matchExtraction(
+	ctx context.Context,
+	assets repo.Repository[entity.Asset],
+	ext entity.Extraction,
+	tid string,
+	ownerHouseholdID *string,
+	candidateLimit int,
+) (MatchResult, error) {
+	ns, nb, nm, nn := normIdentity(ext)
+
+	limit := candidateLimit
+	if limit <= 0 {
+		limit = DefaultCandidateLimit
+	}
+
+	var stages []stage
+	if ns != "" {
+		stages = append(stages, stage{filters: []repo.Option{repo.Where("norm_serial", "=", ns)}, serial: true})
+	}
+	if nb != "" && nm != "" {
+		stages = append(stages, stage{filters: []repo.Option{repo.Where("norm_brand", "=", nb), repo.Where("norm_model", "=", nm)}})
+	}
+	if nn != "" && nm != "" {
+		stages = append(stages, stage{filters: []repo.Option{repo.Where("norm_name", "=", nn), repo.Where("norm_model", "=", nm)}})
+	}
+	if len(stages) == 0 {
+		return MatchResult{}, ErrNoIdentity
+	}
+
+	fence := scopeFence(ownerHouseholdID)
+
+	for _, st := range stages {
+		opts := append(
+			[]repo.Option{repo.Owner(tid), repo.Limit(limit), repo.OrderBy("id")},
+			st.filters...,
+		)
+		opts = append(opts, fence...)
+
+		results, err := assets.List(ctx, opts...)
+		if err != nil {
+			return MatchResult{}, err
+		}
+
+		active := make([]entity.Asset, 0, len(results))
+		deleted := make([]entity.Asset, 0, len(results))
+		for _, a := range results {
+			if a.DeletedAt == nil {
+				active = append(active, a)
+			} else {
+				deleted = append(deleted, a)
+			}
+		}
+
+		if len(active) > 0 {
+			if st.serial || len(active) == 1 {
+				id := active[0].ID
+				return MatchResult{Kind: MatchMerge, AssetID: &id, Candidates: active}, nil
+			}
+			return MatchResult{Kind: MatchAmbiguous, Candidates: active}, nil
+		}
+		if len(deleted) > 0 {
+			return MatchResult{Kind: MatchSoftDeleted, Candidates: deleted}, nil
+		}
+		// No candidate at this stage; continue to the next stage.
+	}
+
+	return MatchResult{Kind: MatchUnresolved}, nil
+}
+
+// CommitCandidate commits a stored candidate: if matchedAssetID is non-nil it
+// loads the target asset and merges the extraction into it (falling back to
+// createNew when the asset no longer exists); if nil it creates a new asset.
+// Reuses the existing mergeInto / createNew / newAsset / scopeFence logic.
+func CommitCandidate(ctx context.Context, assets repo.Repository[entity.Asset], ext entity.Extraction, matchedAssetID *string, ownerHouseholdID *string) (entity.Asset, error) {
+	tid, err := user.UserFrom(ctx)
+	if err != nil {
+		return entity.Asset{}, err
+	}
+
+	fence := scopeFence(ownerHouseholdID)
+
+	if matchedAssetID != nil {
+		getOpts := append([]repo.Option{repo.Owner(tid)}, fence...)
+		existing, err := assets.Get(ctx, *matchedAssetID, getOpts...)
+		if err == nil {
+			merged, _, err := mergeInto(ctx, assets, tid, ext, existing)
+			return merged, err
+		}
+		if !errors.Is(err, repo.ErrNotFound) {
+			return entity.Asset{}, err
+		}
+		// Asset was deleted or is no longer visible: fall through to createNew.
+	}
+
+	created, err := assets.Create(ctx, newAsset(ext, fence), repo.Owner(tid))
+	return created, err
+}
+
+// createNew builds a fresh asset from the extraction and stores it.
+func createNew(ctx context.Context, assets repo.Repository[entity.Asset], tid string, ext entity.Extraction, fence []repo.Option) (entity.Asset, bool, error) {
+	created, err := assets.Create(ctx, newAsset(ext, fence), repo.Owner(tid))
+	if err != nil {
+		return entity.Asset{}, false, err
+	}
+	return created, true, nil
+}
+
+// newAsset builds an entity.Asset for creation from the extraction. Norm
+// columns are nil when the corresponding normalized value is empty. Name and
+// its normalized form are always stamped (when Name is present) so the
+// name+model stage can match this asset later. The owner_household_id scope is
+// stamped from the fence (nil for a personal asset).
+func newAsset(ext entity.Extraction, fence []repo.Option) entity.Asset {
+	ns, nb, nm, nn := normIdentity(ext)
+
+	var normSerialP, normBrandP, normModelP, normNameP *string
+	if ns != "" {
+		normSerialP = &ns
+	}
+	if nb != "" {
+		normBrandP = &nb
+	}
+	if nm != "" {
+		normModelP = &nm
+	}
+	if nn != "" {
+		normNameP = &nn
+	}
+	return entity.Asset{
+		Brand:              ext.Brand,
+		Model:              ext.Model,
+		Name:               ext.Name,
+		SerialNumber:       ext.SerialNumber,
+		NormSerial:         normSerialP,
+		NormBrand:          normBrandP,
+		NormModel:          normModelP,
+		NormName:           normNameP,
+		AssetCategory:      ext.AssetCategory,
+		CategoryConfidence: ext.CategoryConfidence,
+		PurchaseDate:       ext.PurchaseDate,
+		WarrantyEnd:        ext.WarrantyEnd,
+		Price:              ext.Price,
+		Currency:           ext.Currency,
+		Metadata:           ext.Metadata,
+		OwnerHouseholdID:   scopeFromFence(fence),
+		Confidence:         ext.Confidence,
+	}
+}
+
 // mergeInto applies the non-nil extraction fields onto a copy of the existing
 // asset and persists the full entity.
 func mergeInto(ctx context.Context, assets repo.Repository[entity.Asset], tid string, ext entity.Extraction, existing entity.Asset) (entity.Asset, bool, error) {
@@ -258,6 +338,9 @@ func mergeInto(ctx context.Context, assets repo.Repository[entity.Asset], tid st
 	}
 	if ext.Model != nil {
 		updated.Model = ext.Model
+	}
+	if ext.Name != nil {
+		updated.Name = ext.Name
 	}
 	if ext.SerialNumber != nil {
 		updated.SerialNumber = ext.SerialNumber
@@ -274,14 +357,22 @@ func mergeInto(ctx context.Context, assets repo.Repository[entity.Asset], tid st
 	if ext.Currency != nil {
 		updated.Currency = ext.Currency
 	}
-	if ext.Classification != "" {
-		updated.DocType = ext.Classification
-	}
 	if ext.Metadata != nil {
 		updated.Metadata = mergeMetadata(existing.Metadata, ext.Metadata)
 	}
 	if ext.Confidence != nil {
 		updated.Confidence = ext.Confidence
+	}
+
+	// Category merge: user-set categories are sticky; inferred categories
+	// only move to a strictly higher-confidence inference.
+	if ext.AssetCategory != nil {
+		if categoryShouldReplace(existing, ext.CategoryConfidence) {
+			updated.AssetCategory = ext.AssetCategory
+			if ext.CategoryConfidence != nil {
+				updated.CategoryConfidence = ext.CategoryConfidence
+			}
+		}
 	}
 
 	merged, err := assets.Update(ctx, updated, repo.Owner(tid))
@@ -305,4 +396,28 @@ func mergeMetadata(existing, incoming map[string]any) map[string]any {
 		merged[k] = v
 	}
 	return merged
+}
+
+// categoryShouldReplace decides whether an incoming asset category (with its
+// confidence) should overwrite an existing asset's category during a merge.
+// A user-corrected category (CategoryUserSet) is sticky and never replaced.
+// When the asset has no category yet, the incoming category is always adopted.
+// Otherwise the incoming category replaces the existing one only when its
+// confidence is strictly higher; nil confidences are treated as 0.0.
+func categoryShouldReplace(existing entity.Asset, incomingConf *float64) bool {
+	if existing.CategoryUserSet {
+		return false
+	}
+	if existing.AssetCategory == nil {
+		return true
+	}
+	oldConf := 0.0
+	if existing.CategoryConfidence != nil {
+		oldConf = *existing.CategoryConfidence
+	}
+	newConf := 0.0
+	if incomingConf != nil {
+		newConf = *incomingConf
+	}
+	return newConf > oldConf
 }

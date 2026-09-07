@@ -30,6 +30,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/{userId}/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unified add (files and/or text)
+         * @description Accepts one or more files (multipart) and/or a text body. Each item is
+         *     auto-detected: statement files are routed to the ledger import pipeline
+         *     (requiring `account_id`); all other items go through the document
+         *     processing pipeline. Returns a uniform per-item outcome array.
+         */
+        post: operations["addItems"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users/{userId}/assets": {
         parameters: {
             query?: never;
@@ -71,6 +97,73 @@ export interface paths {
         get: operations["getAsset"];
         put?: never;
         post?: never;
+        /**
+         * Soft-delete an asset
+         * @description Soft-deletes an asset by setting its `deleted_at` timestamp. The asset is
+         *     excluded from list, search, and get responses (404 on direct get) until
+         *     restored or purged. Owner-scoped; unknown or another user's ids yield 404.
+         */
+        delete: operations["deleteAsset"];
+        options?: never;
+        head?: never;
+        /**
+         * Patch an asset (user corrections)
+         * @description Applies user corrections to an asset. At minimum supports `asset_category`
+         *     (setting it marks the category as user-set and sticky against future
+         *     inference). Owner-scoped; unknown or another user's ids yield 404.
+         */
+        patch: operations["patchAsset"];
+        trace?: never;
+    };
+    "/api/users/{userId}/assets/{assetId}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                assetId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a soft-deleted asset
+         * @description Restores a soft-deleted asset within the retention window, clearing
+         *     `deleted_at`. The asset reappears in list/search with all prior fields
+         *     and document links intact. Restoring beyond the retention window yields
+         *     409. Owner-scoped; unknown or another user's ids yield 404.
+         */
+        post: operations["restoreAsset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{userId}/assets/{assetId}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                assetId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge a duplicate asset into this asset
+         * @description Merges the duplicate asset (identified by `duplicate_asset_id`) into this
+         *     asset (the survivor). The survivor retains its identity; non-null fields
+         *     from the duplicate fill null survivor fields; documents are re-pointed
+         *     to the survivor; the duplicate is soft-deleted with `merged_into` set to
+         *     the survivor. Returns the updated survivor.
+         */
+        post: operations["mergeAsset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -585,16 +678,27 @@ export interface components {
         /** @description A user asset derived from an ingested document. */
         asset: {
             id: string;
+            /** @description Canonical product name (e.g. "Microwave Oven") */
+            name?: string | null;
             brand?: string | null;
             model?: string | null;
             serial_number?: string | null;
+            /**
+             * @description Intrinsic category of the asset
+             * @enum {string|null}
+             */
+            asset_category?: "appliance" | "electronics" | "computing" | "furniture" | "vehicle" | "tool" | "clothing" | "document_only" | "other" | null;
+            /**
+             * Format: float
+             * @description Confidence in the category assignment [0.0, 1.0]
+             */
+            category_confidence?: number | null;
             /** Format: date-time */
             purchase_date?: string | null;
             /** Format: date-time */
             warranty_end?: string | null;
             price?: string | null;
             currency?: string | null;
-            doc_type: string;
             metadata: {
                 [key: string]: unknown;
             };
@@ -605,11 +709,30 @@ export interface components {
             owner_household_id?: string | null;
             /** Format: float */
             confidence?: number | null;
+            /**
+             * Format: date-time
+             * @description Set when the asset is soft-deleted
+             */
+            deleted_at?: string | null;
+            /** @description Id of the survivor asset if this asset was merged */
+            merged_into?: string | null;
+            /**
+             * Format: date-time
+             * @description Timestamp of the merge
+             */
+            merged_at?: string | null;
+            /** @description Assets that were merged into this asset (survivor view) */
+            merged_assets?: {
+                asset_id: string;
+                /** Format: date-time */
+                merged_at: string;
+            }[] | null;
         };
         /** @description A document attached to an asset, with its source metadata. */
         document: {
             id: string;
-            doc_type: string;
+            /** @enum {string} */
+            doc_type: "invoice" | "receipt" | "warranty" | "amc" | "statement" | "other";
             source_filename: string;
             /** Format: date-time */
             source_uploaded_at: string;
@@ -816,6 +939,44 @@ export interface components {
             asset: components["schemas"]["asset"];
             review: components["schemas"]["ingest_review"];
         };
+        /** @description The uniform per-item outcome of a unified add request. */
+        add_item_outcome: {
+            /** @enum {string} */
+            kind: "asset_committed" | "held_for_review" | "duplicate" | "statement_preview" | "failed";
+            /** @description Set when kind is asset_committed */
+            asset_id?: string | null;
+            /** @description Set when kind is held_for_review */
+            review_id?: string | null;
+            /** @description Set when kind is duplicate (the existing asset) */
+            duplicate_asset_id?: string | null;
+            /** @description Set when kind is duplicate (the existing document) */
+            duplicate_document_id?: string | null;
+            /** @description Set when kind is duplicate and the existing asset is soft-deleted */
+            asset_deleted?: boolean | null;
+            /** @description Set when kind is statement_preview */
+            import_batch_id?: string | null;
+            /** @description Set when kind is failed */
+            reason?: string | null;
+        };
+        /** @description Request body to merge a duplicate asset into the target. */
+        merge_request: {
+            duplicate_asset_id: string;
+        };
+        /**
+         * @description Request body to patch an asset with user corrections. All fields are
+         *     optional; only provided fields are applied. Setting `asset_category`
+         *     marks it as user-set (sticky against future inference).
+         */
+        patch_asset_request: {
+            name?: string;
+            /** @enum {string} */
+            asset_category?: "appliance" | "electronics" | "computing" | "furniture" | "vehicle" | "tool" | "clothing" | "document_only" | "other";
+            brand?: string;
+            model?: string;
+            serial_number?: string;
+            price?: string;
+            currency?: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -919,9 +1080,89 @@ export interface operations {
             };
         };
     };
-    listAssets: {
+    addItems: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    files?: string[];
+                    text?: string | null;
+                    /** @description Required for statement items; scopes the import to a finance account. */
+                    account_id?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Per-item outcomes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["add_item_outcome"][];
+                };
+            };
+            /** @description Invalid request (e.g. statement without account_id) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Missing or invalid user identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Upload exceeds size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Unsupported file type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    listAssets: {
+        parameters: {
+            query?: {
+                /** @description Include soft-deleted assets in the result */
+                include_deleted?: boolean;
+            };
             header?: never;
             path: {
                 /** @description The user the resource belongs to (path tenancy). */
@@ -953,7 +1194,10 @@ export interface operations {
     };
     getAsset: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Include soft-deleted assets in the result */
+                include_deleted?: boolean;
+            };
             header?: never;
             path: {
                 /** @description The user the resource belongs to (path tenancy). */
@@ -975,6 +1219,216 @@ export interface operations {
             };
             /** @description Asset not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    deleteAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                assetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Asset not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    patchAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                assetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["patch_asset_request"];
+            };
+        };
+        responses: {
+            /** @description The updated asset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["asset"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Asset not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    restoreAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                assetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The restored asset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["asset"];
+                };
+            };
+            /** @description Asset not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Asset is beyond the retention window */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    mergeAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                assetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["merge_request"];
+            };
+        };
+        responses: {
+            /** @description The updated survivor asset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["asset"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Asset not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Conflicting state (e.g. self-merge, already merged) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2159,6 +2613,20 @@ export interface operations {
                 q?: string;
                 /** @description Maximum number of hits to return */
                 limit?: number;
+                /** @description Filter by asset category */
+                category?: string;
+                /** @description Filter by brand */
+                brand?: string;
+                /** @description Filter by purchase date (from, inclusive) */
+                purchase_from?: string;
+                /** @description Filter by purchase date (to, inclusive) */
+                purchase_to?: string;
+                /** @description Filter by warranty status (e.g. active, expiring_within:90, expired) */
+                warranty_status?: string;
+                /** @description Filter to assets that have (true) or lack (false) linked documents */
+                has_documents?: boolean;
+                /** @description Filter by document classification */
+                doc_classification?: "invoice" | "receipt" | "warranty" | "amc" | "statement" | "other";
             };
             header?: never;
             path: {
@@ -2216,6 +2684,20 @@ export interface operations {
                 page?: number;
                 /** @description Number of results per page */
                 page_size?: number;
+                /** @description Filter by asset category */
+                category?: string;
+                /** @description Filter by brand */
+                brand?: string;
+                /** @description Filter by purchase date (from, inclusive) */
+                purchase_from?: string;
+                /** @description Filter by purchase date (to, inclusive) */
+                purchase_to?: string;
+                /** @description Filter by warranty status (e.g. active, expiring_within:90, expired) */
+                warranty_status?: string;
+                /** @description Filter to assets that have (true) or lack (false) linked documents */
+                has_documents?: boolean;
+                /** @description Filter by document classification */
+                doc_classification?: "invoice" | "receipt" | "warranty" | "amc" | "statement" | "other";
             };
             header?: never;
             path: {

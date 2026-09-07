@@ -21,8 +21,8 @@ import {
   Landmark,
   Menu,
   Package,
+  PlusCircle,
   Search,
-  Upload,
   Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -50,7 +50,7 @@ interface NavItem {
 
 /** Primary navigation — the eight screens of the route table. */
 const NAV_ITEMS: readonly NavItem[] = [
-  { to: '/upload', label: 'Upload', icon: Upload },
+  { to: '/add', label: 'Add', icon: PlusCircle },
   { to: '/assets', label: 'Assets', icon: Package },
   { to: '/search', label: 'Search', icon: Search },
   { to: '/ingest/reviews', label: 'Review queue', icon: ClipboardList },

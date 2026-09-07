@@ -11,6 +11,13 @@ import {
 } from '@/components/ui/dialog';
 import { useAssets, useAssetDocuments } from '../../lib/api/hooks';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface MovementLinkProps {
   movementId: string;
@@ -53,39 +60,43 @@ export function MovementLink({ movementId }: MovementLinkProps) {
         <div className="space-y-4">
           <div>
             <Label htmlFor="asset-select">Asset</Label>
-            <select
-              id="asset-select"
+            <Select
               value={selectedAssetId}
-              onChange={(e) => {
-                setSelectedAssetId(e.target.value);
+              onValueChange={(value) => {
+                setSelectedAssetId(value);
                 setSelectedDocumentId('');
               }}
-              className="w-full border rounded p-2"
             >
-              <option value="">Select an asset</option>
-              {assets?.map((asset) => (
-                <option key={asset.id} value={asset.id}>
-                  {asset.brand} {asset.model}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full" aria-label="Asset">
+                <SelectValue placeholder="Select an asset" />
+              </SelectTrigger>
+              <SelectContent>
+                {assets?.map((asset) => (
+                  <SelectItem key={asset.id} value={asset.id}>
+                    {asset.brand} {asset.model}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           {selectedAssetId && (
             <div>
               <Label htmlFor="document-select">Document</Label>
-              <select
-                id="document-select"
+              <Select
                 value={selectedDocumentId}
-                onChange={(e) => setSelectedDocumentId(e.target.value)}
-                className="w-full border rounded p-2"
+                onValueChange={setSelectedDocumentId}
               >
-                <option value="">Select a document</option>
-                {documents?.map((doc) => (
-                  <option key={doc.id} value={doc.id}>
-                    {doc.source_filename} ({doc.doc_type})
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="document-select" className="w-full" aria-label="Document">
+                  <SelectValue placeholder="Select a document" />
+                </SelectTrigger>
+                <SelectContent>
+                  {documents?.map((doc) => (
+                    <SelectItem key={doc.id} value={doc.id}>
+                      {doc.source_filename} ({doc.doc_type})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
           {errorMessage && <p className="text-red-500">{errorMessage}</p>}

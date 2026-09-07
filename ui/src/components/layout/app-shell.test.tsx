@@ -38,6 +38,8 @@ vi.mock('@/lib/api/hooks', () => ({
   useReviews: vi.fn(),
   useApproveReview: vi.fn(),
   useRejectReview: vi.fn(),
+  useAdd: vi.fn(),
+  useRestoreAsset: vi.fn(),
 }));
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/feedback/empty-state';
@@ -106,6 +108,10 @@ describe('app shell + router', () => {
     vi.mocked(hooks.useReviews).mockReturnValue({ data: [], isLoading: false, error: null } as any);
     vi.mocked(hooks.useApproveReview).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
     vi.mocked(hooks.useRejectReview).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
+    // AddPage (task 8.2) consumes useAdd + useRestoreAsset; keep the nav
+    // "reaches every primary screen" render from throwing when no user is active.
+    vi.mocked(hooks.useAdd).mockReturnValue({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, isSuccess: false, data: undefined } as any);
+    vi.mocked(hooks.useRestoreAsset).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
   });
   it('redirects "/" to the asset list without a reload', () => {
     renderApp('/');
@@ -115,7 +121,7 @@ describe('app shell + router', () => {
   it('reaches every primary screen from the nav without a reload', () => {
     renderApp('/assets');
     const steps: ReadonlyArray<readonly [link: string, heading: string]> = [
-      ['Upload', 'Upload Documents'],
+      ['Add', 'Add'],
       ['Accounts', 'Accounts'],
       ['Movements', 'Money movements'],
       ['Import', 'Import Statement'],

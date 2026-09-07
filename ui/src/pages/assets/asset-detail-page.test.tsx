@@ -24,7 +24,6 @@ const mockAsset: Asset = {
   warranty_end: '2024-01-01T00:00:00Z',
   price: '39999.99',
   currency: 'INR',
-  doc_type: 'other',
   metadata: {},
   created_at: '2023-01-01T00:00:00Z',
   updated_at: '2023-01-01T00:00:00Z',

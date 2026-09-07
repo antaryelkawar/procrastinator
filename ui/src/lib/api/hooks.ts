@@ -19,6 +19,13 @@
  *   | useUploadStatement  | ["batches", uid], ["batch", uid, id]                              |
  *   | useCommitBatch      | ["batches", uid], ["batch", uid, id], ["movements", uid], ["accounts", uid] |
  *   | useDiscardBatch     | ["batches", uid], ["batch", uid, id]                              |
+ *   | useDeleteAsset      | ["assets", uid], ["asset", uid, id]                               |
+ *   | useRestoreAsset     | ["assets", uid], ["asset", uid, id]                               |
+ *   | useMergeAsset       | ["assets", uid], ["asset", uid, survivorId], ["asset", uid, duplicateId] |
+ *   | usePatchAsset       | ["assets", uid], ["asset", uid, id]                               |
+ *   | useAdd              | ["assets", uid], ["batches", uid]                                 |
+ *   | useApproveReview    | ["reviews", uid], ["review", uid, id], ["assets", uid]            |
+ *   | useRejectReview     | ["reviews", uid], ["review", uid, id]                             |
  *
  * The `["movements", uid]` prefix deliberately carries NO filter element, so
  * it matches every filter variant of the movements key.
@@ -35,13 +42,17 @@ import { ApiError } from './errors';
 import { useActiveUser } from '../../context/active-user';
 import type {
   Account,
+  AddItemOutcome,
   Asset,
   CommitSummary,
   CreateAccountRequest,
   CreateMovementInput,
   Document,
   ImportBatch,
+  MergeRequest,
   Movement,
+  PatchAssetRequest,
+  SearchResultsPage,
 } from './schema';
 
 // ---------------------------------------------------------------------------
@@ -470,6 +481,132 @@ export function useDiscardBatch(): UseMutationResult<ImportBatch, ApiError, Batc
   });
 }
 
+/** Variables identifying one asset (delete/restore/patch). */
+export interface AssetIdVariables {
+  readonly assetId: string;
+}
+
+/**
+ * D5: asset soft-delete → `["assets", uid]` + `["asset", uid, id]`.
+ */
+export function useDeleteAsset(): UseMutationResult<void, ApiError, AssetIdVariables> {
+  const { activeUser } = useActiveUser();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, AssetIdVariables>({
+    mutationFn: ({ assetId }: AssetIdVariables) =>
+      requireUser(activeUser, (user) => client.deleteAsset(user, assetId)),
+    onSuccess: (_data, variables) => {
+      if (activeUser === null) {
+        return;
+      }
+      invalidatePrefixes(queryClient, [assetsKey(activeUser), assetKey(activeUser, variables.assetId)]);
+    },
+  });
+}
+
+/**
+ * D5: asset restore → `["assets", uid]` + `["asset", uid, id]` (the restored
+ * asset reappears in the list and its detail changes).
+ */
+export function useRestoreAsset(): UseMutationResult<Asset, ApiError, AssetIdVariables> {
+  const { activeUser } = useActiveUser();
+  const queryClient = useQueryClient();
+  return useMutation<Asset, ApiError, AssetIdVariables>({
+    mutationFn: ({ assetId }: AssetIdVariables) =>
+      requireUser(activeUser, (user) => client.restoreAsset(user, assetId)),
+    onSuccess: (_asset, variables) => {
+      if (activeUser === null) {
+        return;
+      }
+      invalidatePrefixes(queryClient, [assetsKey(activeUser), assetKey(activeUser, variables.assetId)]);
+    },
+  });
+}
+
+/** Variables for merging a duplicate asset into a survivor. */
+export interface MergeAssetVariables {
+  readonly assetId: string;
+  readonly duplicateAssetId: string;
+}
+
+/**
+ * D5: asset merge → `["assets", uid]` + `["asset", uid, survivorId]` AND
+ * `["asset", uid, duplicateId]` (the duplicate's row changes to merged-into,
+ * so its detail must refetch too).
+ */
+export function useMergeAsset(): UseMutationResult<Asset, ApiError, MergeAssetVariables> {
+  const { activeUser } = useActiveUser();
+  const queryClient = useQueryClient();
+  return useMutation<Asset, ApiError, MergeAssetVariables>({
+    mutationFn: ({ assetId, duplicateAssetId }: MergeAssetVariables) => {
+      const body: MergeRequest = { duplicate_asset_id: duplicateAssetId };
+      return requireUser(activeUser, (user) => client.mergeAsset(user, assetId, body));
+    },
+    onSuccess: (_asset, variables) => {
+      if (activeUser === null) {
+        return;
+      }
+      invalidatePrefixes(queryClient, [
+        assetsKey(activeUser),
+        assetKey(activeUser, variables.assetId),
+        assetKey(activeUser, variables.duplicateAssetId),
+      ]);
+    },
+  });
+}
+
+/** Variables for the asset correction PATCH. */
+export interface PatchAssetVariables {
+  readonly assetId: string;
+  readonly body: PatchAssetRequest;
+}
+
+/**
+ * D5: asset patch (user corrections incl. `asset_category`) →
+ * `["assets", uid]` + `["asset", uid, id]`.
+ */
+export function usePatchAsset(): UseMutationResult<Asset, ApiError, PatchAssetVariables> {
+  const { activeUser } = useActiveUser();
+  const queryClient = useQueryClient();
+  return useMutation<Asset, ApiError, PatchAssetVariables>({
+    mutationFn: ({ assetId, body }: PatchAssetVariables) =>
+      requireUser(activeUser, (user) => client.patchAsset(user, assetId, body)),
+    onSuccess: (_asset, variables) => {
+      if (activeUser === null) {
+        return;
+      }
+      invalidatePrefixes(queryClient, [assetsKey(activeUser), assetKey(activeUser, variables.assetId)]);
+    },
+  });
+}
+
+/** Variables for the unified add (files and/or text, optional account scope). */
+export interface AddVariables {
+  readonly files?: File[];
+  readonly text?: string;
+  readonly account_id?: string;
+}
+
+/**
+ * D5: unified add → `["assets", uid]` (committed assets appear) AND
+ * `["batches", uid]` (a `statement_preview` outcome creates an import batch).
+ * Exactly these two prefixes — nothing else changes.
+ */
+export function useAdd(): UseMutationResult<AddItemOutcome[], ApiError, AddVariables> {
+  const { activeUser } = useActiveUser();
+  const queryClient = useQueryClient();
+  return useMutation<AddItemOutcome[], ApiError, AddVariables>({
+    mutationFn: (body: AddVariables) =>
+      requireUser(activeUser, (user) => client.addItems(user, body)),
+    onSuccess: () => {
+      if (activeUser === null) {
+        return;
+      }
+      invalidatePrefixes(queryClient, [assetsKey(activeUser), batchesKey(activeUser)]);
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Search queries (read-only, no invalidation)
 // ---------------------------------------------------------------------------
@@ -483,14 +620,43 @@ export function searchQuickKey(
   return ['search-quick', userId, q, limit];
 }
 
-/** `["search", uid, q, page, pageSize]` — paged search results. */
+/**
+ * Paged-search filters in UI shape. The wire names (`purchase_from`,
+ * `purchase_to`, `has_documents`, `doc_classification`) are mapped in the
+ * query function; the key keeps the UI shape (mirrors `MovementFilterInput`).
+ */
+export interface SearchFilterInput {
+  readonly category?: string;
+  readonly brand?: string;
+  readonly purchaseFrom?: string;
+  readonly purchaseTo?: string;
+  readonly warrantyStatus?: string;
+  readonly hasDocuments?: boolean;
+  readonly docClassification?: 'invoice' | 'receipt' | 'warranty' | 'amc' | 'statement' | 'other';
+}
+
+/** Always all seven keys present (undefined when unset) — stable key shape. */
+function normalizeSearchFilters(filters: SearchFilterInput | undefined): SearchFilterInput {
+  return {
+    category: filters?.category,
+    brand: filters?.brand,
+    purchaseFrom: filters?.purchaseFrom,
+    purchaseTo: filters?.purchaseTo,
+    warrantyStatus: filters?.warrantyStatus,
+    hasDocuments: filters?.hasDocuments,
+    docClassification: filters?.docClassification,
+  };
+}
+
+/** `["search", uid, q, {filters}, page, pageSize]` — paged search results. */
 export function searchKey(
   userId: string | null,
   q: string,
   page: number,
   pageSize: number,
-): readonly ['search', string | null, string, number, number] {
-  return ['search', userId, q, page, pageSize];
+  filters?: SearchFilterInput,
+): readonly ['search', string | null, string, SearchFilterInput, number, number] {
+  return ['search', userId, q, normalizeSearchFilters(filters), page, pageSize];
 }
 
 /** `["reviews", uid, status]` — ingest review list. */
@@ -524,22 +690,51 @@ export function useQuickSearch(q: string, limit = 10): UseQueryResult<{ results:
 }
 
 /**
- * Paged search. Disabled while no user is active or when the query is blank.
- * `placeholderData: keepPreviousData` keeps the previous page on screen
- * during pagination changes (matches `useMovements`).
+ * Paged search with structured filters. Disabled while no user is active or
+ * when the query is blank. `placeholderData: keepPreviousData` keeps the
+ * previous results on screen during filter/page changes (matches
+ * `useMovements`).
+ *
+ * Signature: `useSearch(q, filters?, page?, pageSize?)`. The second argument
+ * accepts EITHER the structured filters (`SearchFilterInput`) OR a page number
+ * (back-compat with the pre-filters `useSearch(q, page, pageSize)` call shape
+ * used by `search-results-page.tsx`): `useSearch('q', 2, 20)` ≡
+ * `useSearch('q', undefined, 2, 20)`. Filters are normalized into the query
+ * key (D5) so any filter change re-queries; only supplied fields are mapped to
+ * wire params (`category`, `purchase_from`, …) in the query function.
  */
 export function useSearch(
   q: string,
-  page = 1,
+  filtersOrPage?: SearchFilterInput | number,
+  pageOrPageSize = 1,
   pageSize = 20,
-): UseQueryResult<import('./schema').SearchResultsPage, Error> {
+): UseQueryResult<SearchResultsPage, Error> {
   const { activeUser } = useActiveUser();
   const trimmed = q.trim();
+  const isLegacy = typeof filtersOrPage === 'number';
+  const filters = isLegacy ? undefined : filtersOrPage;
+  const page = isLegacy ? filtersOrPage : pageOrPageSize;
+  // In legacy mode `pageOrPageSize` is the pageSize (old 3rd arg); in
+  // structured mode `pageSize` is the 4th arg.
+  const resolvedPageSize = isLegacy ? pageOrPageSize : pageSize;
+  const normalized = normalizeSearchFilters(filters);
+  const params = {
+    q: trimmed,
+    page,
+    page_size: resolvedPageSize,
+    category: normalized.category,
+    brand: normalized.brand,
+    purchase_from: normalized.purchaseFrom,
+    purchase_to: normalized.purchaseTo,
+    warranty_status: normalized.warrantyStatus,
+    has_documents: normalized.hasDocuments,
+    doc_classification: normalized.docClassification,
+  };
   return useQuery({
-    queryKey: searchKey(activeUser, trimmed, page, pageSize),
+    queryKey: searchKey(activeUser, trimmed, page, resolvedPageSize, filters),
     enabled: activeUser !== null && trimmed.length > 0,
     placeholderData: keepPreviousData,
-    queryFn: () => requireUser(activeUser, (user) => client.search(user, { q: trimmed, page, page_size: pageSize })),
+    queryFn: () => requireUser(activeUser, (user) => client.search(user, params)),
   });
 }
 

@@ -17,14 +17,15 @@ var _ repo.SearchBackend = (*fakeBackend)(nil)
 // records whether it was called and the last pattern it received, and
 // returns pre-configured slices per method (or an error if err is set).
 type fakeBackend struct {
-	called    bool
-	pattern   string
-	assets    []entity.Asset
-	accounts  []entity.FinancialAccount
-	movements []entity.MoneyMovement
-	documents []entity.Document
-	batches   []entity.ImportBatch
-	err       error
+	called      bool
+	pattern     string
+	lastFilters repo.Filters
+	assets      []entity.Asset
+	accounts    []entity.FinancialAccount
+	movements   []entity.MoneyMovement
+	documents   []entity.Document
+	batches     []entity.ImportBatch
+	err         error
 }
 
 func (b *fakeBackend) mark(pattern string) {
@@ -32,8 +33,10 @@ func (b *fakeBackend) mark(pattern string) {
 	b.pattern = pattern
 }
 
-func (b *fakeBackend) SearchAssets(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.Asset, error) {
-	b.mark(pattern)
+func (b *fakeBackend) SearchAssets(ctx context.Context, pattern string, filters repo.Filters, opts ...repo.Option) ([]entity.Asset, error) {
+	b.called = true
+	b.pattern = pattern
+	b.lastFilters = filters
 	if b.err != nil {
 		return nil, b.err
 	}
@@ -56,8 +59,10 @@ func (b *fakeBackend) SearchMovements(ctx context.Context, pattern string, opts 
 	return b.movements, nil
 }
 
-func (b *fakeBackend) SearchDocuments(ctx context.Context, pattern string, opts ...repo.Option) ([]entity.Document, error) {
-	b.mark(pattern)
+func (b *fakeBackend) SearchDocuments(ctx context.Context, pattern string, filters repo.Filters, opts ...repo.Option) ([]entity.Document, error) {
+	b.called = true
+	b.pattern = pattern
+	b.lastFilters = filters
 	if b.err != nil {
 		return nil, b.err
 	}
@@ -112,7 +117,7 @@ func TestQuick_BlankQuery(t *testing.T) {
 		t.Run(strings.TrimSpace(q)+"/case"+itoa(i), func(t *testing.T) {
 			b := &fakeBackend{}
 			s := New(b)
-			got, err := s.Quick(context.Background(), q, 10)
+			got, err := s.Quick(context.Background(), q, 10, repo.Filters{})
 			if err != nil {
 				t.Fatalf("Quick() error = %v, want nil", err)
 			}
@@ -137,7 +142,7 @@ func TestQuick_QueryTooLong(t *testing.T) {
 	b := &fakeBackend{}
 	s := New(b)
 	q := strings.Repeat("a", 201)
-	_, err := s.Quick(context.Background(), q, 10)
+	_, err := s.Quick(context.Background(), q, 10, repo.Filters{})
 	if !errors.Is(err, ErrQueryTooLong) {
 		t.Errorf("Quick() error = %v, want ErrQueryTooLong", err)
 	}
@@ -154,7 +159,7 @@ func TestQuick_BoundaryLength(t *testing.T) {
 	b := &fakeBackend{}
 	s := New(b)
 	q := strings.Repeat("a", 200)
-	got, err := s.Quick(context.Background(), q, 10)
+	got, err := s.Quick(context.Background(), q, 10, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Quick() error = %v, want nil", err)
 	}
@@ -185,7 +190,7 @@ func TestQuick_LimitValidation(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			b := &fakeBackend{}
 			s := New(b)
-			_, err := s.Quick(context.Background(), "hello", c.limit)
+			_, err := s.Quick(context.Background(), "hello", c.limit, repo.Filters{})
 			if c.wantErr != nil {
 				if !errors.Is(err, c.wantErr) {
 					t.Errorf("Quick() error = %v, want %v", err, c.wantErr)
@@ -209,7 +214,7 @@ func TestQuick_RespectsLimit(t *testing.T) {
 		b.assets[i] = entity.Asset{ID: "asset-" + itoa(i)}
 	}
 	s := New(b)
-	got, err := s.Quick(context.Background(), "query", 5)
+	got, err := s.Quick(context.Background(), "query", 5, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Quick() error = %v, want nil", err)
 	}
@@ -246,7 +251,7 @@ func TestPaged_Validation(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			b := &fakeBackend{}
 			s := New(b)
-			_, err := s.Paged(context.Background(), "hello", c.page, c.pageSize)
+			_, err := s.Paged(context.Background(), "hello", c.page, c.pageSize, repo.Filters{})
 			if c.wantErr != nil {
 				if !errors.Is(err, c.wantErr) {
 					t.Errorf("Paged() error = %v, want %v", err, c.wantErr)
@@ -265,7 +270,7 @@ func TestPaged_Validation(t *testing.T) {
 func TestPaged_BlankQuery(t *testing.T) {
 	b := &fakeBackend{}
 	s := New(b)
-	got, err := s.Paged(context.Background(), "   ", 1, 20)
+	got, err := s.Paged(context.Background(), "   ", 1, 20, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Paged() error = %v, want nil", err)
 	}
@@ -296,7 +301,7 @@ func TestPaged_BeyondLastPage(t *testing.T) {
 		b.assets[i] = entity.Asset{ID: "asset-" + itoa(i)}
 	}
 	s := New(b)
-	got, err := s.Paged(context.Background(), "query", 99, 20)
+	got, err := s.Paged(context.Background(), "query", 99, 20, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Paged() error = %v, want nil", err)
 	}
@@ -325,7 +330,7 @@ func TestPaged_ReturnsCorrectPage(t *testing.T) {
 	s := New(b)
 
 	// Page 1: 20 results.
-	p1, err := s.Paged(context.Background(), "query", 1, 20)
+	p1, err := s.Paged(context.Background(), "query", 1, 20, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Paged(1) error = %v, want nil", err)
 	}
@@ -337,7 +342,7 @@ func TestPaged_ReturnsCorrectPage(t *testing.T) {
 	}
 
 	// Page 2: 5 results.
-	p2, err := s.Paged(context.Background(), "query", 2, 20)
+	p2, err := s.Paged(context.Background(), "query", 2, 20, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Paged(2) error = %v, want nil", err)
 	}
@@ -378,7 +383,7 @@ func TestCombinedOrder_TypePriority(t *testing.T) {
 		},
 	}
 	s := New(b)
-	got, err := s.Quick(context.Background(), "query", 50)
+	got, err := s.Quick(context.Background(), "query", 50, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Quick() error = %v, want nil", err)
 	}
@@ -412,11 +417,11 @@ func TestQuick_PrefixOfPaged(t *testing.T) {
 	}
 	s := New(b)
 
-	q, err := s.Quick(context.Background(), "query", 5)
+	q, err := s.Quick(context.Background(), "query", 5, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Quick() error = %v, want nil", err)
 	}
-	p, err := s.Paged(context.Background(), "query", 1, 5)
+	p, err := s.Paged(context.Background(), "query", 1, 5, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Paged() error = %v, want nil", err)
 	}
@@ -653,7 +658,7 @@ func TestNoMatch_EmptyResults(t *testing.T) {
 	b := &fakeBackend{}
 	s := New(b)
 
-	q, err := s.Quick(context.Background(), "nomatch", 10)
+	q, err := s.Quick(context.Background(), "nomatch", 10, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Quick() error = %v, want nil", err)
 	}
@@ -664,7 +669,7 @@ func TestNoMatch_EmptyResults(t *testing.T) {
 		t.Errorf("Quick() len = %d, want 0", len(q))
 	}
 
-	p, err := s.Paged(context.Background(), "nomatch", 1, 20)
+	p, err := s.Paged(context.Background(), "nomatch", 1, 20, repo.Filters{})
 	if err != nil {
 		t.Fatalf("Paged() error = %v, want nil", err)
 	}
@@ -673,6 +678,72 @@ func TestNoMatch_EmptyResults(t *testing.T) {
 	}
 	if p.Total != 0 {
 		t.Errorf("Paged().Total = %d, want 0", p.Total)
+	}
+}
+
+// TestQuick_FilterPassthrough verifies the Filters struct is forwarded to
+// the backend's SearchAssets call unchanged.
+func TestQuick_FilterPassthrough(t *testing.T) {
+	cat := "appliance"
+	ws := "expiring_within:90"
+	b := &fakeBackend{
+		assets: []entity.Asset{{ID: "a1"}},
+	}
+	s := New(b)
+	_, err := s.Quick(context.Background(), "q", 10, repo.Filters{Category: &cat, WarrantyStatus: &ws})
+	if err != nil {
+		t.Fatalf("Quick() error = %v, want nil", err)
+	}
+	if b.lastFilters.Category == nil || *b.lastFilters.Category != "appliance" {
+		t.Errorf("Category = %v, want ptr(appliance)", b.lastFilters.Category)
+	}
+	if b.lastFilters.WarrantyStatus == nil || *b.lastFilters.WarrantyStatus != "expiring_within:90" {
+		t.Errorf("WarrantyStatus = %v, want ptr(expiring_within:90)", b.lastFilters.WarrantyStatus)
+	}
+}
+
+// TestPaged_FilterBlankQ verifies blank q returns empty results even when
+// filters are set, without calling the backend (preserves existing invariant).
+func TestPaged_FilterBlankQ(t *testing.T) {
+	cat := "appliance"
+	b := &fakeBackend{}
+	s := New(b)
+	got, err := s.Paged(context.Background(), "", 1, 20, repo.Filters{Category: &cat})
+	if err != nil {
+		t.Fatalf("Paged() error = %v, want nil", err)
+	}
+	if len(got.Results) != 0 {
+		t.Errorf("Paged() results = %d, want 0 (blank q → empty)", len(got.Results))
+	}
+	if b.called {
+		t.Error("backend was called for blank q; expected no call")
+	}
+}
+
+// TestQuick_FilterTypePriority verifies type-priority concatenation order is
+// preserved when filters are set.
+func TestQuick_FilterTypePriority(t *testing.T) {
+	cat := "appliance"
+	b := &fakeBackend{
+		assets:    []entity.Asset{{ID: "asset-0"}},
+		accounts:  []entity.FinancialAccount{{ID: "account-0"}},
+		movements: []entity.MoneyMovement{{ID: "movement-0"}},
+		documents: []entity.Document{{ID: "document-0"}},
+		batches:   []entity.ImportBatch{{ID: "batch-0"}},
+	}
+	s := New(b)
+	got, err := s.Quick(context.Background(), "query", 50, repo.Filters{Category: &cat})
+	if err != nil {
+		t.Fatalf("Quick() error = %v, want nil", err)
+	}
+	wantIDs := []string{"asset-0", "account-0", "movement-0", "document-0", "batch-0"}
+	if len(got) != len(wantIDs) {
+		t.Fatalf("Quick() len = %d, want %d", len(got), len(wantIDs))
+	}
+	for i, wantID := range wantIDs {
+		if got[i].ID != wantID {
+			t.Errorf("Quick()[%d].ID = %q, want %q", i, got[i].ID, wantID)
+		}
 	}
 }
 

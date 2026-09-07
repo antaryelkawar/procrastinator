@@ -7,6 +7,7 @@ package search
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 
 	"procrastinator-backend/commons/entity"
@@ -15,10 +16,11 @@ import (
 
 // Sentinel errors.
 var (
-	ErrQueryTooLong = errors.New("query exceeds 200 characters")
-	ErrInvalidLimit = errors.New("limit must be between 1 and 50")
-	ErrInvalidPage  = errors.New("page must be at least 1")
-	ErrInvalidPageSize = errors.New("page_size must be between 1 and 100")
+	ErrQueryTooLong          = errors.New("query exceeds 200 characters")
+	ErrInvalidLimit          = errors.New("limit must be between 1 and 50")
+	ErrInvalidPage           = errors.New("page must be at least 1")
+	ErrInvalidPageSize       = errors.New("page_size must be between 1 and 100")
+	ErrInvalidWarrantyStatus = errors.New("invalid warranty_status value")
 )
 
 // Hit is one search result row, type-tagged.
@@ -48,14 +50,17 @@ func New(backend repo.SearchBackend) *Service {
 	return &Service{backend: backend}
 }
 
-// Quick returns the top-limit combined hits for q. Validation of limit
-// happens before any backend call. Blank q returns an empty (non-nil) slice
-// without touching the backend.
-func (s *Service) Quick(ctx context.Context, q string, limit int) ([]Hit, error) {
+// Quick returns the top-limit combined hits for q. Validation of limit and
+// warranty_status happens before any backend call. Blank q returns an empty
+// (non-nil) slice without touching the backend.
+func (s *Service) Quick(ctx context.Context, q string, limit int, filters repo.Filters) ([]Hit, error) {
 	if limit < 1 || limit > 50 {
 		return nil, ErrInvalidLimit
 	}
-	hits, err := s.allHits(ctx, q)
+	if err := validateWarrantyStatus(filters.WarrantyStatus); err != nil {
+		return nil, err
+	}
+	hits, err := s.allHits(ctx, q, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -65,17 +70,20 @@ func (s *Service) Quick(ctx context.Context, q string, limit int) ([]Hit, error)
 	return hits, nil
 }
 
-// Paged returns one page of combined hits for q. Validation of page and
-// pageSize happens before any backend call. Blank q returns an empty page
-// without touching the backend.
-func (s *Service) Paged(ctx context.Context, q string, page, pageSize int) (Page, error) {
+// Paged returns one page of combined hits for q. Validation of page, pageSize,
+// and warranty_status happens before any backend call. Blank q returns an empty
+// page without touching the backend.
+func (s *Service) Paged(ctx context.Context, q string, page, pageSize int, filters repo.Filters) (Page, error) {
 	if page < 1 {
 		return Page{}, ErrInvalidPage
 	}
 	if pageSize < 1 || pageSize > 100 {
 		return Page{}, ErrInvalidPageSize
 	}
-	hits, err := s.allHits(ctx, q)
+	if err := validateWarrantyStatus(filters.WarrantyStatus); err != nil {
+		return Page{}, err
+	}
+	hits, err := s.allHits(ctx, q, filters)
 	if err != nil {
 		return Page{}, err
 	}
@@ -95,7 +103,7 @@ func (s *Service) Paged(ctx context.Context, q string, page, pageSize int) (Page
 // builds the ILIKE pattern, invokes all five backend methods, and returns
 // hits concatenated in type-priority order: assets, accounts, movements,
 // documents, import_batches.
-func (s *Service) allHits(ctx context.Context, q string) ([]Hit, error) {
+func (s *Service) allHits(ctx context.Context, q string, filters repo.Filters) ([]Hit, error) {
 	trimmed := strings.TrimSpace(q)
 	if trimmed == "" {
 		return []Hit{}, nil
@@ -105,7 +113,7 @@ func (s *Service) allHits(ctx context.Context, q string) ([]Hit, error) {
 	}
 	pattern := buildPattern(trimmed)
 
-	assets, err := s.backend.SearchAssets(ctx, pattern)
+	assets, err := s.backend.SearchAssets(ctx, pattern, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +125,7 @@ func (s *Service) allHits(ctx context.Context, q string) ([]Hit, error) {
 	if err != nil {
 		return nil, err
 	}
-	documents, err := s.backend.SearchDocuments(ctx, pattern)
+	documents, err := s.backend.SearchDocuments(ctx, pattern, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -259,5 +267,26 @@ func importBatchHit(b entity.ImportBatch) Hit {
 		Type:   "import_batch",
 		ID:     b.ID,
 		Title:  title,
+	}
+}
+
+// validateWarrantyStatus checks that a non-nil warranty_status filter value is
+// syntactically valid. Accepted forms: "active", "expired", "expiring_within:N"
+// where N is a positive integer. Returns ErrInvalidWarrantyStatus otherwise.
+func validateWarrantyStatus(ws *string) error {
+	if ws == nil {
+		return nil
+	}
+	switch {
+	case *ws == "active" || *ws == "expired":
+		return nil
+	case strings.HasPrefix(*ws, "expiring_within:"):
+		days, err := strconv.Atoi(strings.TrimPrefix(*ws, "expiring_within:"))
+		if err != nil || days < 1 {
+			return ErrInvalidWarrantyStatus
+		}
+		return nil
+	default:
+		return ErrInvalidWarrantyStatus
 	}
 }

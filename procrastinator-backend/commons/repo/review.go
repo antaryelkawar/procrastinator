@@ -16,6 +16,10 @@ type HoldInput struct {
 	// OwnerHouseholdID fences the identity match and scopes the review row
 	// to a household; nil means personal (no household).
 	OwnerHouseholdID *string
+	// Provenance carries the per-worker extraction results and/or candidate
+	// set that produced this hold; persisted to ingest_reviews.provenance
+	// (jsonb). Nil means absent.
+	Provenance map[string]any
 }
 
 // Reviewer holds a low-confidence extraction for human review, creating a

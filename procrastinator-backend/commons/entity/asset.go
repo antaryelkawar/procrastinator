@@ -2,24 +2,33 @@ package entity
 
 import "time"
 
-// DocTypeInvoice represents an invoice document type.
-const DocTypeInvoice = "invoice"
+// Asset category vocabulary (intrinsic to the asset, not the document).
+const (
+	AssetCategoryAppliance    = "appliance"
+	AssetCategoryElectronics  = "electronics"
+	AssetCategoryComputing    = "computing"
+	AssetCategoryFurniture    = "furniture"
+	AssetCategoryVehicle      = "vehicle"
+	AssetCategoryTool         = "tool"
+	AssetCategoryClothing     = "clothing"
+	AssetCategoryDocumentOnly = "document_only"
+	AssetCategoryOther        = "other"
+)
 
-// DocTypeWarranty represents a warranty document type.
-const DocTypeWarranty = "warranty"
-
-// DocTypeAMC represents an AMC (Annual Maintenance Contract) document type.
-const DocTypeAMC = "amc"
-
-// DocTypeOther represents other document types.
-const DocTypeOther = "other"
-
-// ValidDocType returns true if s is exactly one of the four document type constants.
-func ValidDocType(s string) bool {
-	return s == DocTypeInvoice || s == DocTypeWarranty || s == DocTypeAMC || s == DocTypeOther
+// ValidAssetCategory returns true if s is exactly one of the asset category
+// vocabulary constants (case-sensitive).
+func ValidAssetCategory(s string) bool {
+	switch s {
+	case AssetCategoryAppliance, AssetCategoryElectronics, AssetCategoryComputing,
+		AssetCategoryFurniture, AssetCategoryVehicle, AssetCategoryTool,
+		AssetCategoryClothing, AssetCategoryDocumentOnly, AssetCategoryOther:
+		return true
+	}
+	return false
 }
 
-// Asset represents an owner-scoped device record with structured core fields and open metadata.
+// Asset represents an owner-scoped device record with structured core fields
+// and open metadata.
 type Asset struct {
 	ID               string
 	OwnerID          string
@@ -33,7 +42,6 @@ type Asset struct {
 	WarrantyEnd      *time.Time
 	Price            *string
 	Currency         *string
-	DocType          string
 	Metadata         map[string]any
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -43,4 +51,23 @@ type Asset struct {
 	// OwnerHouseholdID is the owner_household_id column; nil means NULL
 	// (a personal row has no household owner).
 	OwnerHouseholdID *string
+	// Name is the canonical product name (e.g. "Microwave Oven"); nil means absent.
+	Name *string
+	// NormName is the normalized form of Name (lowercase, trimmed); nil means absent.
+	NormName *string
+	// AssetCategory is the intrinsic asset category (one of the AssetCategory*
+	// constants); nil means unclassified.
+	AssetCategory *string
+	// CategoryConfidence is the inference confidence (0.0–1.0) for
+	// AssetCategory; nil means absent.
+	CategoryConfidence *float64
+	// CategoryUserSet is true when the user has explicitly set the category;
+	// the extractor must not overwrite a user-set category.
+	CategoryUserSet bool
+	// DeletedAt is the soft-delete timestamp; nil means the asset is active.
+	DeletedAt *time.Time
+	// MergedInto is the ID of the surviving asset after a merge; nil means not merged.
+	MergedInto *string
+	// MergedAt is when the merge occurred; nil means not merged.
+	MergedAt *time.Time
 }

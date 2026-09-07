@@ -6,7 +6,7 @@ import (
 )
 
 // MaxBodyMiddleware returns a chi middleware that wraps the request body with
-// http.MaxBytesReader for the two upload routes. It must be applied at the chi
+// http.MaxBytesReader for the upload routes. It must be applied at the chi
 // level (not as a strict middleware) because the strict handler creates the
 // multipart reader before any strict middleware runs, so the body size limit
 // must be installed where w/r are available and the concrete path is present.
@@ -16,6 +16,7 @@ import (
 //
 //   - POST /api/users/{userId}/documents             -> documentLimit
 //   - POST /api/users/{userId}/finance/import-batches -> statementLimit
+//   - POST /api/users/{userId}/add                    -> statementLimit
 //
 // Any other method or path is passed through unchanged.
 func MaxBodyMiddleware(
@@ -29,6 +30,12 @@ func MaxBodyMiddleware(
 				case isDocumentUpload(r.URL.Path):
 					r.Body = http.MaxBytesReader(w, r.Body, documentLimit)
 				case isStatementUpload(r.URL.Path):
+					r.Body = http.MaxBytesReader(w, r.Body, statementLimit)
+				case isAddUpload(r.URL.Path):
+					// The unified add endpoint can carry statement CSVs (the
+					// largest item type), so the whole request is capped at the
+					// statement limit; per-file document limits are still
+					// enforced inside the processing pipeline.
 					r.Body = http.MaxBytesReader(w, r.Body, statementLimit)
 				}
 			}
@@ -58,4 +65,14 @@ func isStatementUpload(path string) bool {
 		segments[1] == "users" &&
 		segments[3] == "finance" &&
 		segments[4] == "import-batches"
+}
+
+// isAddUpload reports whether the path matches /api/users/{userId}/add.
+func isAddUpload(path string) bool {
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	// Expected: ["api", "users", "{userId}", "add"]
+	return len(segments) == 4 &&
+		segments[0] == "api" &&
+		segments[1] == "users" &&
+		segments[3] == "add"
 }

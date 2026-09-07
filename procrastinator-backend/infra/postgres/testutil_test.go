@@ -110,7 +110,6 @@ func testAsset(overrides ...func(*entity.Asset)) entity.Asset {
 		Brand:        strPtr("Samsung"),
 		Model:        strPtr("WF80A"),
 		SerialNumber: strPtr("WM-2024-001"),
-		DocType:      entity.DocTypeInvoice,
 	}
 	for _, fn := range overrides {
 		fn(&a)
@@ -175,9 +174,6 @@ func assertAssetEqual(t *testing.T, name string, got, want entity.Asset) {
 	assertTimePtrEqual(t, name+".WarrantyEnd", got.WarrantyEnd, want.WarrantyEnd)
 	assertPtrEqual(t, name+".Price", got.Price, want.Price)
 	assertPtrEqual(t, name+".Currency", got.Currency, want.Currency)
-	if got.DocType != want.DocType {
-		t.Errorf("%s: DocType = %q, want %q", name, got.DocType, want.DocType)
-	}
 	assertMetadataEqual(t, name+".Metadata", got.Metadata, want.Metadata)
 }
 

@@ -13,6 +13,7 @@ import (
 	"procrastinator-backend/api/gen"
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
+	"procrastinator-backend/core/processing"
 )
 
 // findAssetScoped returns the single asset with id visible to the user under
@@ -81,19 +82,45 @@ func (s *Server) UploadDocument(ctx context.Context, request gen.UploadDocumentR
 		}
 	}
 
-	result, err := s.svc.Process(ctx, filename, payload, contentType, ownerHH)
+	outcome, err := s.svc.Process(ctx, processing.Input{
+		Filename:         filename,
+		Payload:          payload,
+		ContentType:      contentType,
+		OwnerHouseholdID: ownerHH,
+	})
 	if err != nil {
 		status, msg := mapIngestError(err)
 		return nil, newAPIError(status, msg)
 	}
-	if result.Review != nil {
-		dto, err := s.toReview(ctx, request.UserId, *result.Review)
+	switch outcome.Kind {
+	case processing.OutcomeCommitted:
+		return gen.UploadDocument201JSONResponse(toAsset(*outcome.Asset)), nil
+	case processing.OutcomeHeldForReview:
+		dto, err := s.toReview(ctx, request.UserId, *outcome.Review)
 		if err != nil {
 			return nil, newAPIError(http.StatusInternalServerError, "internal error")
 		}
 		return gen.UploadDocument202JSONResponse(dto), nil
+	case processing.OutcomeDuplicate:
+		// The document was already uploaded; return the linked asset as 201.
+		// Fetch the asset by ID (the Duplicate struct only carries the ID).
+		asset, err := s.findAssetScoped(ctx, request.UserId, outcome.Duplicate.AssetID)
+		if err != nil {
+			return nil, newAPIError(http.StatusInternalServerError, "internal error")
+		}
+		if asset == nil {
+			// Asset may have been purged; fall back to 500.
+			return nil, newAPIError(http.StatusInternalServerError, "duplicate asset not found")
+		}
+		return gen.UploadDocument201JSONResponse(toAsset(*asset)), nil
+	case processing.OutcomeFailed:
+		return nil, newAPIError(http.StatusBadGateway, "extraction failed")
+	case processing.OutcomeStatement:
+		// Statement routing is not yet supported in the upload endpoint contract.
+		return nil, newAPIError(http.StatusInternalServerError, "statement routing not yet supported")
+	default:
+		return nil, newAPIError(http.StatusInternalServerError, "unknown outcome")
 	}
-	return gen.UploadDocument201JSONResponse(toAsset(*result.Committed)), nil
 }
 
 // isHouseholdMember reports whether userID is a member of householdID.
@@ -113,7 +140,12 @@ func (s *Server) isHouseholdMember(ctx context.Context, userID, householdID stri
 // ListAssets returns all assets visible to the requesting user under the
 // scope access rule.
 func (s *Server) ListAssets(ctx context.Context, request gen.ListAssetsRequestObject) (gen.ListAssetsResponseObject, error) {
-	assets, err := s.factory.Assets.List(ctx, repo.Owner(request.UserId))
+	opts := []repo.Option{repo.Owner(request.UserId)}
+	includeDeleted := request.Params.IncludeDeleted != nil && *request.Params.IncludeDeleted
+	if !includeDeleted {
+		opts = append(opts, repo.Where("deleted_at", "IS NULL", nil))
+	}
+	assets, err := s.factory.Assets.List(ctx, opts...)
 	if err != nil {
 		return nil, newAPIError(http.StatusInternalServerError, "asset list: internal error")
 	}
@@ -133,6 +165,10 @@ func (s *Server) GetAsset(ctx context.Context, request gen.GetAssetRequestObject
 		return nil, newAPIError(http.StatusInternalServerError, "asset: internal error")
 	}
 	if asset == nil {
+		return nil, newAPIError(http.StatusNotFound, "asset not found")
+	}
+	// Soft-deleted assets are hidden unless include_deleted=true.
+	if asset.DeletedAt != nil && !(request.Params.IncludeDeleted != nil && *request.Params.IncludeDeleted) {
 		return nil, newAPIError(http.StatusNotFound, "asset not found")
 	}
 	return gen.GetAsset200JSONResponse(toAsset(*asset)), nil

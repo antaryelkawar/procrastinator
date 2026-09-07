@@ -299,7 +299,7 @@ func (r *pgRepository[T]) Update(ctx context.Context, ent T, opts ...repo.Option
 	}
 	delete(m, "id")
 
-	if len(m) == 0 {
+	if len(m) == 0 && len(o.UpdateSets) == 0 {
 		return r.Get(ctx, idVal.(string), opts...)
 	}
 
@@ -308,6 +308,21 @@ func (r *pgRepository[T]) Update(ctx context.Context, ent T, opts ...repo.Option
 	for col, val := range m {
 		args = append(args, val)
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", col, len(args)))
+	}
+	// Apply explicit column assignments from the Set option. A nil value
+	// forces the column to SQL NULL; non-nil values are bound. Field names
+	// are validated against the entity's column whitelist before SQL assembly.
+	for field, val := range o.UpdateSets {
+		col, ok := r.filters.fieldCols[field]
+		if !ok {
+			return zero, fmt.Errorf("postgres: unknown update field %q", field)
+		}
+		if val == nil {
+			setClauses = append(setClauses, col+" = NULL")
+		} else {
+			args = append(args, val)
+			setClauses = append(setClauses, fmt.Sprintf("%s = $%d", col, len(args)))
+		}
 	}
 	whereArgs := append([]any(nil), args...)
 	whereArgs = append(whereArgs, idVal)

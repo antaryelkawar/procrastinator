@@ -1,43 +1,56 @@
-import { ImportBatch } from '../../lib/api/schema';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { createColumnHelper, type ColumnDef, type TableFeatures } from '@tanstack/react-table';
+import { ImportBatch, ImportLine } from '../../lib/api/schema';
 import { Badge } from '../../components/ui/badge';
+import { DataTable, features } from '../../components/data-table';
 
 interface Props {
   batch: ImportBatch;
+}
+
+const columnHelper = createColumnHelper<typeof features, ImportLine>();
+
+function buildColumns(): ColumnDef<TableFeatures, ImportLine, unknown>[] {
+  return [
+    columnHelper.accessor('occurred_on', {
+      header: 'Date',
+      cell: (context) => context.getValue() || '-',
+    }),
+    columnHelper.accessor('amount', {
+      header: 'Amount',
+      cell: (context) =>
+        context.getValue()
+          ? `${context.row.original.direction === 'out' ? '\u2212' : context.row.original.direction === 'in' ? '+' : ''}${context.getValue()}`
+          : '-',
+    }),
+    columnHelper.accessor('description', {
+      header: 'Description',
+      cell: (context) => context.getValue() || '-',
+    }),
+    columnHelper.accessor('status', {
+      header: 'Status',
+      cell: (context) => (
+        <>
+          <Badge variant={context.getValue() === 'valid' ? 'default' : 'destructive'}>
+            {context.getValue()}
+          </Badge>
+          {context.row.original.error_reason && (
+            <p className="text-xs text-destructive mt-1">{context.row.original.error_reason}</p>
+          )}
+        </>
+      ),
+    }),
+  ] as ColumnDef<TableFeatures, ImportLine, unknown>[];
 }
 
 export function ImportLinesTable({ batch }: Props) {
   if (!batch.lines) return null;
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Date</TableHead>
-          <TableHead>Amount</TableHead>
-          <TableHead>Description</TableHead>
-          <TableHead>Status</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {batch.lines.map((line) => (
-          <TableRow key={line.line_ref}>
-            <TableCell>{line.occurred_on || '-'}</TableCell>
-            <TableCell>
-              {line.amount
-                ? `${line.direction === 'out' ? '\u2212' : line.direction === 'in' ? '+' : ''}${line.amount}`
-                : '-'}
-            </TableCell>
-            <TableCell>{line.description || '-'}</TableCell>
-            <TableCell>
-              <Badge variant={line.status === 'valid' ? 'default' : 'destructive'}>
-                {line.status}
-              </Badge>
-              {line.error_reason && <p className="text-xs text-destructive mt-1">{line.error_reason}</p>}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <DataTable
+      ariaLabel="Import lines"
+      data={batch.lines}
+      getRowId={(line) => String(line.line_ref)}
+      columns={buildColumns()}
+    />
   );
 }

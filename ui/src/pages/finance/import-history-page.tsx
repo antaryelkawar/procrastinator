@@ -1,14 +1,46 @@
 import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
+import { createColumnHelper, type ColumnDef, type TableFeatures } from '@tanstack/react-table';
 import { Card, CardContent } from '../../components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Badge } from '../../components/ui/badge';
 import { EmptyState } from '../../components/feedback/empty-state';
 import { ErrorState } from '../../components/feedback/error-state';
 import { ConfirmDialog } from '../../components/confirm-dialog';
+import { DataTable, features } from '../../components/data-table';
 import { useBatches, useBatch, useCommitBatch, useDiscardBatch } from '../../lib/api/hooks';
 import { ImportLinesTable } from './import-lines-table';
 import { Button } from '../../components/ui/button';
+import type { ImportBatch } from '../../lib/api/schema';
+
+const columnHelper = createColumnHelper<typeof features, ImportBatch>();
+
+function buildHistoryColumns(): ColumnDef<TableFeatures, ImportBatch, unknown>[] {
+  return [
+    columnHelper.accessor('filename', {
+      header: 'Filename',
+    }),
+    columnHelper.accessor('account_id', {
+      header: 'Account',
+    }),
+    columnHelper.accessor('state', {
+      header: 'Status',
+      cell: (context) => (
+        <Badge variant={context.getValue() === 'preview' ? 'secondary' : 'default'}>
+          {context.getValue()}
+        </Badge>
+      ),
+    }),
+    columnHelper.accessor('line_count_valid', {
+      header: 'Counts',
+      cell: (context) =>
+        `V:${context.getValue()} E:${context.row.original.line_count_error} D:${context.row.original.line_count_duplicate}`,
+    }),
+    columnHelper.accessor('created_at', {
+      header: 'Created',
+      cell: (context) => new Date(context.getValue()).toLocaleString(),
+    }),
+  ] as ColumnDef<TableFeatures, ImportBatch, unknown>[];
+}
 
 export function ImportHistoryPage() {
   const { batchId } = useParams<{ batchId: string }>();
@@ -38,39 +70,13 @@ export function ImportHistoryPage() {
       <div className="p-8 space-y-4">
         <h1 className="text-2xl font-bold">Import History</h1>
         <Card>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead id="filename-col">Filename</TableHead>
-                <TableHead id="account-col">Account</TableHead>
-                <TableHead id="status-col">Status</TableHead>
-                <TableHead id="counts-col">Counts</TableHead>
-                <TableHead id="created-col">Created</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {batches.map((batch) => (
-                <TableRow 
-                  key={batch.id} 
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => navigate(`/finance/import/${batch.id}`)}
-                  role="button"
-                >
-                  <TableCell>{batch.filename}</TableCell>
-                  <TableCell>{batch.account_id}</TableCell>
-                  <TableCell>
-                    <Badge variant={batch.state === 'preview' ? 'secondary' : 'default'}>
-                      {batch.state}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    V:{batch.line_count_valid} E:{batch.line_count_error} D:{batch.line_count_duplicate}
-                  </TableCell>
-                  <TableCell>{new Date(batch.created_at).toLocaleString()}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            ariaLabel="Import history"
+            data={batches}
+            getRowId={(batch) => batch.id}
+            columns={buildHistoryColumns()}
+            onRowClick={(batch) => navigate(`/finance/import/${batch.id}`)}
+          />
         </Card>
       </div>
     );

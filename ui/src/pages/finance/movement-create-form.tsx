@@ -20,8 +20,8 @@
  * movements list and account balances refresh. Server rejections surface as
  * form-level error text WITHOUT clearing the values the user entered (D7).
  *
- * Native `<select>` elements are used deliberately: the Radix Select portal
- * does not position under jsdom (lesson from task 4.5).
+ * Account/kind selection uses the shared `@/components/ui/select` primitive
+ * (the single select pattern).
  */
 import { useState } from 'react';
 import type { FormEvent } from 'react';
@@ -33,6 +33,13 @@ import { todayLocalISO } from '../../lib/format/date';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Loading } from '@/components/feedback/loading';
 
 /** The form's own field values (before kind-specific wiring into a request). */
@@ -163,11 +170,6 @@ export function buildMovementRequest(
   };
 }
 
-/** Native-select styling matching the movements page's filter selects. */
-const NATIVE_SELECT_CLASS =
-  'h-9 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm shadow-xs outline-none ' +
-  'focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
-
 /**
  * The movement creation form. Renders the four-state loading contract via
  * `<Loading />` while the account list is in flight, then the controlled form.
@@ -225,17 +227,19 @@ export function MovementCreateForm() {
 
       <div className="space-y-1.5">
         <Label htmlFor="movement-kind">Kind</Label>
-        <select
-          id="movement-kind"
-          name="kind"
+        <Select
           value={values.kind}
-          onChange={(event) => setValue('kind', event.target.value as MovementKind)}
-          className={NATIVE_SELECT_CLASS}
+          onValueChange={(value) => setValue('kind', value as MovementKind)}
         >
-          <option value="expense">Expense</option>
-          <option value="income">Income</option>
-          <option value="transfer">Transfer</option>
-        </select>
+          <SelectTrigger id="movement-kind" className="w-full" aria-label="Kind">
+            <SelectValue placeholder="Kind" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="expense">Expense</SelectItem>
+            <SelectItem value="income">Income</SelectItem>
+            <SelectItem value="transfer">Transfer</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-1.5">
@@ -274,40 +278,42 @@ export function MovementCreateForm() {
       {showsSource && (
         <div className="space-y-1.5">
           <Label htmlFor="movement-source-account">Source account</Label>
-          <select
-            id="movement-source-account"
-            name="source_account_id"
+          <Select
             value={values.sourceAccountId}
-            onChange={(event) => setValue('sourceAccountId', event.target.value)}
-            className={NATIVE_SELECT_CLASS}
+            onValueChange={(value) => setValue('sourceAccountId', value)}
           >
-            <option value="">Select an account</option>
-            {accountOptions.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name} ({account.currency})
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="movement-source-account" className="w-full" aria-label="Source account">
+              <SelectValue placeholder="Select an account" />
+            </SelectTrigger>
+            <SelectContent>
+              {accountOptions.map((account) => (
+                <SelectItem key={account.id} value={account.id}>
+                  {account.name} ({account.currency})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
 
       {showsDestination && (
         <div className="space-y-1.5">
           <Label htmlFor="movement-destination-account">Destination account</Label>
-          <select
-            id="movement-destination-account"
-            name="destination_account_id"
+          <Select
             value={values.destinationAccountId}
-            onChange={(event) => setValue('destinationAccountId', event.target.value)}
-            className={NATIVE_SELECT_CLASS}
+            onValueChange={(value) => setValue('destinationAccountId', value)}
           >
-            <option value="">Select an account</option>
-            {accountOptions.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name} ({account.currency})
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="movement-destination-account" className="w-full" aria-label="Destination account">
+              <SelectValue placeholder="Select an account" />
+            </SelectTrigger>
+            <SelectContent>
+              {accountOptions.map((account) => (
+                <SelectItem key={account.id} value={account.id}>
+                  {account.name} ({account.currency})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
 

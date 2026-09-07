@@ -30,16 +30,19 @@ const metadataMaxSize = 8192
 // numbers are preserved via json.Number (UseNumber) before being validated
 // into the Extraction struct.
 type rawExtraction struct {
-	Classification any `json:"classification"`
-	Brand          any `json:"brand"`
-	Model          any `json:"model"`
-	SerialNumber   any `json:"serial_number"`
-	PurchaseDate   any `json:"purchase_date"`
-	WarrantyEnd    any `json:"warranty_end"`
-	Price          any `json:"price"`
-	Currency       any `json:"currency"`
-	Metadata       any `json:"metadata"`
-	Confidence     any `json:"confidence"`
+	Classification   any `json:"classification"`
+	Brand            any `json:"brand"`
+	Model            any `json:"model"`
+	SerialNumber     any `json:"serial_number"`
+	PurchaseDate     any `json:"purchase_date"`
+	WarrantyEnd      any `json:"warranty_end"`
+	Price            any `json:"price"`
+	Currency         any `json:"currency"`
+	Metadata         any `json:"metadata"`
+	Confidence       any `json:"confidence"`
+	Name             any `json:"name"`
+	WarrantyDuration any `json:"warranty_duration"`
+	AssetCategory    any `json:"asset_category"`
 }
 
 // ParseExtraction extracts a validated Extraction from an LLM response payload.
@@ -103,6 +106,9 @@ func ParseExtraction(raw string) (entity.Extraction, error) {
 	ext.Price = pricePtr(r.Price)
 	ext.Currency = currencyPtr(r.Currency)
 	ext.Confidence = confidencePtr(r.Confidence)
+	ext.Name = strPtr(r.Name)
+	ext.WarrantyDuration = warrantyDurationStr(r.WarrantyDuration)
+	ext.AssetCategory = assetCategoryPtr(r.AssetCategory)
 
 	if m, ok := r.Metadata.(map[string]any); ok {
 		ext.Metadata = m
@@ -238,4 +244,26 @@ func confidencePtr(v any) *float64 {
 		return nil
 	}
 	return &f
+}
+
+// warrantyDurationStr returns the string value if v is a non-empty string,
+// else empty string (absent).
+func warrantyDurationStr(v any) string {
+	if s, ok := v.(string); ok && s != "" {
+		return s
+	}
+	return ""
+}
+
+// assetCategoryPtr returns a pointer to s only if s is a non-empty string in
+// the valid asset category vocabulary, else nil (absent, never an error).
+func assetCategoryPtr(v any) *string {
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return nil
+	}
+	if !entity.ValidAssetCategory(s) {
+		return nil
+	}
+	return &s
 }

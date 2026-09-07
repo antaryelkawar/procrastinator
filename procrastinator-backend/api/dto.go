@@ -30,13 +30,36 @@ func toAsset(a entity.Asset) gen.Asset {
 		WarrantyEnd:      a.WarrantyEnd,
 		Price:            a.Price,
 		Currency:         a.Currency,
-		DocType:          a.DocType,
 		Metadata:         metadata,
 		CreatedAt:        a.CreatedAt,
 		UpdatedAt:        a.UpdatedAt,
 		OwnerHouseholdId: a.OwnerHouseholdID,
 		Confidence:       confidence,
+		AssetCategory:      assetCategoryPtr(a.AssetCategory),
+		CategoryConfidence: catConfPtr(a.CategoryConfidence),
+		DeletedAt:          a.DeletedAt,
+		MergedInto:         a.MergedInto,
+		MergedAt:           a.MergedAt,
+		Name:               a.Name,
 	}
+}
+
+// assetCategoryPtr converts *string to *gen.AssetAssetCategory (nil-safe).
+func assetCategoryPtr(s *string) *gen.AssetAssetCategory {
+	if s == nil {
+		return nil
+	}
+	c := gen.AssetAssetCategory(*s)
+	return &c
+}
+
+// catConfPtr converts *float64 to *float32 (nil-safe).
+func catConfPtr(p *float64) *float32 {
+	if p == nil {
+		return nil
+	}
+	c := float32(*p)
+	return &c
 }
 
 // toDocument converts a entity.DocumentWithSource into the generated gen.Document DTO.
@@ -48,7 +71,7 @@ func toDocument(d entity.DocumentWithSource) gen.Document {
 	}
 	return gen.Document{
 		Id:               d.ID,
-		DocType:          d.DocType,
+		DocType:          gen.DocumentDocType(d.DocType),
 		SourceFilename:   d.SourceFilename,
 		SourceUploadedAt: d.SourceUploadedAt,
 		CreatedAt:        d.CreatedAt,

@@ -138,7 +138,7 @@ func TestParseExtraction_Classification(t *testing.T) {
 		{"warranty kept", `{"classification":"warranty"}`, "warranty"},
 		{"amc kept", `{"classification":"amc"}`, "amc"},
 		{"other kept", `{"classification":"other"}`, "other"},
-		{"unknown degrades to other", `{"classification":"receipt"}`, "other"},
+		{"unknown degrades to other", `{"classification":"totally_invalid_value_xyz"}`, "other"},
 		{"empty string degrades to other", `{"classification":""}`, "other"},
 		{"missing degrades to other", `{}`, "other"},
 	}
@@ -556,6 +556,195 @@ func TestParseExtraction_Errors(t *testing.T) {
 			_, err := ParseExtraction(tt.raw)
 			if err == nil {
 				t.Errorf("expected error for input %q, got nil", tt.raw)
+			}
+		})
+	}
+}
+
+func TestParseExtraction_NewFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		json         string
+		wantName     string // "" means nil
+		wantWarranty string
+		wantCategory string // "" means nil
+		wantBrand    string
+	}{
+		// Valid values
+		{
+			name:         "name valid",
+			json:         `{"name":"Microwave Oven","brand":"LG"}`,
+			wantName:     "Microwave Oven",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "warranty_duration valid",
+			json:         `{"warranty_duration":"2 years","brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "2 years",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "asset_category valid appliance",
+			json:         `{"asset_category":"appliance","brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "appliance",
+			wantBrand:    "LG",
+		},
+
+		// Missing
+		{
+			name:         "all missing",
+			json:         `{"brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+
+		// Malformed type (number/null/empty string)
+		{
+			name:         "name number → nil",
+			json:         `{"name":123,"brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "name null → nil",
+			json:         `{"name":null,"brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "name empty string → nil",
+			json:         `{"name":"","brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "warranty_duration number → absent",
+			json:         `{"warranty_duration":123,"brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "warranty_duration null → absent",
+			json:         `{"warranty_duration":null,"brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "warranty_duration empty string → absent",
+			json:         `{"warranty_duration":"","brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "asset_category number → nil",
+			json:         `{"asset_category":123,"brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "asset_category null → nil",
+			json:         `{"asset_category":null,"brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "asset_category valid furniture",
+			json:         `{"asset_category":"furniture","brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "furniture",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "asset_category unknown → nil",
+			json:         `{"asset_category":"unknown_cat","brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+		{
+			name:         "asset_category case-sensitive → nil",
+			json:         `{"asset_category":"APPLIANCE","brand":"LG"}`,
+			wantName:     "",
+			wantWarranty: "",
+			wantCategory: "",
+			wantBrand:    "LG",
+		},
+
+		// All three present with other fields
+		{
+			name:         "all three present with other fields",
+			json:         `{"name":"Cabinet","warranty_duration":"24 months","asset_category":"furniture","brand":"Cooler Master","model":"CD600"}`,
+			wantName:     "Cabinet",
+			wantWarranty: "24 months",
+			wantCategory: "furniture",
+			wantBrand:    "Cooler Master",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ext, err := ParseExtraction(tt.json)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.wantName == "" {
+				if ext.Name != nil {
+					t.Errorf("Name = %q, want nil", *ext.Name)
+				}
+			} else {
+				if ext.Name == nil || *ext.Name != tt.wantName {
+					t.Errorf("Name = %v, want %q", ext.Name, tt.wantName)
+				}
+			}
+
+			if ext.WarrantyDuration != tt.wantWarranty {
+				t.Errorf("WarrantyDuration = %q, want %q", ext.WarrantyDuration, tt.wantWarranty)
+			}
+
+			if tt.wantCategory == "" {
+				if ext.AssetCategory != nil {
+					t.Errorf("AssetCategory = %q, want nil", *ext.AssetCategory)
+				}
+			} else {
+				if ext.AssetCategory == nil || *ext.AssetCategory != tt.wantCategory {
+					t.Errorf("AssetCategory = %v, want %q", ext.AssetCategory, tt.wantCategory)
+				}
+			}
+
+			if tt.wantBrand != "" {
+				if ext.Brand == nil || *ext.Brand != tt.wantBrand {
+					t.Errorf("Brand = %v, want %q", ext.Brand, tt.wantBrand)
+				}
 			}
 		})
 	}

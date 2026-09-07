@@ -399,7 +399,7 @@ func TestSearchCrossOwnerIsolation(t *testing.T) {
 	s := f.Search
 
 	t.Run("assets", func(t *testing.T) {
-		got, err := s.SearchAssets(ctx, likePattern("Corp"), repo.Owner(searchUserA))
+		got, err := s.SearchAssets(ctx, likePattern("Corp"), repo.Filters{}, repo.Owner(searchUserA))
 		if err != nil {
 			t.Fatalf("SearchAssets: %v", err)
 		}
@@ -452,7 +452,7 @@ func TestSearchCrossOwnerIsolation(t *testing.T) {
 
 	t.Run("documents", func(t *testing.T) {
 		// "alpha" matches only search-a's source filename.
-		got, err := s.SearchDocuments(ctx, likePattern("alpha"), repo.Owner(searchUserA))
+		got, err := s.SearchDocuments(ctx, likePattern("alpha"), repo.Filters{}, repo.Owner(searchUserA))
 		if err != nil {
 			t.Fatalf("SearchDocuments: %v", err)
 		}
@@ -494,7 +494,7 @@ func TestSearchHouseholdMember(t *testing.T) {
 	s := f.Search
 
 	t.Run("member sees household asset, not personal", func(t *testing.T) {
-		got, err := s.SearchAssets(ctx, likePattern("AlphaCorp"), repo.Owner(searchUserMember))
+		got, err := s.SearchAssets(ctx, likePattern("AlphaCorp"), repo.Filters{}, repo.Owner(searchUserMember))
 		if err != nil {
 			t.Fatalf("SearchAssets(member): %v", err)
 		}
@@ -513,7 +513,7 @@ func TestSearchHouseholdMember(t *testing.T) {
 	})
 
 	t.Run("non-member sees nothing", func(t *testing.T) {
-		got, err := s.SearchAssets(ctx, likePattern("AlphaCorp"), repo.Owner(searchUserOutsider))
+		got, err := s.SearchAssets(ctx, likePattern("AlphaCorp"), repo.Filters{}, repo.Owner(searchUserOutsider))
 		if err != nil {
 			t.Fatalf("SearchAssets(outsider): %v", err)
 		}
@@ -575,7 +575,7 @@ func TestSearchDocumentJoin(t *testing.T) {
 		// NEITHER source filename. If search matched a document column, this
 		// would return rows; because it matches only the joined source filename,
 		// it must return nothing for search-a.
-		got, err := s.SearchDocuments(ctx, likePattern("invoice"), repo.Owner(searchUserA))
+		got, err := s.SearchDocuments(ctx, likePattern("invoice"), repo.Filters{}, repo.Owner(searchUserA))
 		if err != nil {
 			t.Fatalf("SearchDocuments('invoice'): %v", err)
 		}
@@ -585,7 +585,7 @@ func TestSearchDocumentJoin(t *testing.T) {
 	})
 
 	t.Run("search-a sees alpha-scan via source filename", func(t *testing.T) {
-		got, err := s.SearchDocuments(ctx, likePattern("alpha-scan"), repo.Owner(searchUserA))
+		got, err := s.SearchDocuments(ctx, likePattern("alpha-scan"), repo.Filters{}, repo.Owner(searchUserA))
 		if err != nil {
 			t.Fatalf("SearchDocuments('alpha-scan'): %v", err)
 		}
@@ -599,7 +599,7 @@ func TestSearchDocumentJoin(t *testing.T) {
 	})
 
 	t.Run("search-a does not see beta-receipt", func(t *testing.T) {
-		got, err := s.SearchDocuments(ctx, likePattern("beta-receipt"), repo.Owner(searchUserA))
+		got, err := s.SearchDocuments(ctx, likePattern("beta-receipt"), repo.Filters{}, repo.Owner(searchUserA))
 		if err != nil {
 			t.Fatalf("SearchDocuments('beta-receipt'): %v", err)
 		}
@@ -609,7 +609,7 @@ func TestSearchDocumentJoin(t *testing.T) {
 	})
 
 	t.Run("search-b sees beta-receipt", func(t *testing.T) {
-		got, err := s.SearchDocuments(ctx, likePattern("beta-receipt"), repo.Owner(searchUserB))
+		got, err := s.SearchDocuments(ctx, likePattern("beta-receipt"), repo.Filters{}, repo.Owner(searchUserB))
 		if err != nil {
 			t.Fatalf("SearchDocuments('beta-receipt') as search-b: %v", err)
 		}

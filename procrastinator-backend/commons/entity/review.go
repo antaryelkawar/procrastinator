@@ -39,4 +39,7 @@ type IngestReview struct {
 	DecidedAt *time.Time
 	// DecidedBy is the user who decided the review; nil while pending.
 	DecidedBy *string
+	// Provenance stores the per-worker extraction results and/or candidate set
+	// that produced this review row. Maps to ingest_reviews.provenance (jsonb).
+	Provenance map[string]any
 }

@@ -322,7 +322,7 @@ func TestIN_NonSlice(t *testing.T) {
 			t.Parallel()
 			r := assetRepo(&panicQuerier{})
 			_, err := r.List(context.Background(),
-				repo.Owner("acme"), repo.Where("doc_type", "IN", tc.value))
+				repo.Owner("acme"), repo.Where("brand", "IN", tc.value))
 			if err == nil {
 				t.Fatal("err = nil, want non-slice IN error")
 			}
@@ -343,7 +343,7 @@ func TestIN_Slice(t *testing.T) {
 	r := assetRepo(q)
 
 	_, err := r.List(context.Background(),
-		repo.Owner("acme"), repo.Where("doc_type", "IN", []string{"invoice", "warranty"}))
+		repo.Owner("acme"), repo.Where("brand", "IN", []string{"invoice", "warranty"}))
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -351,8 +351,8 @@ func TestIN_Slice(t *testing.T) {
 	if !strings.Contains(q.sql, "owner_id = $1") {
 		t.Fatalf("sql = %q, want owner_id = $1", q.sql)
 	}
-	if !strings.Contains(q.sql, "doc_type IN ($2, $3)") {
-		t.Fatalf("sql = %q, want doc_type IN ($2, $3)", q.sql)
+	if !strings.Contains(q.sql, "brand IN ($2, $3)") {
+		t.Fatalf("sql = %q, want brand IN ($2, $3)", q.sql)
 	}
 	got := []any{}
 	for _, a := range q.args {
@@ -378,7 +378,7 @@ func TestIN_EmptySlice(t *testing.T) {
 	r := assetRepo(q)
 
 	_, err := r.List(context.Background(),
-		repo.Owner("acme"), repo.Where("doc_type", "IN", []string{}))
+		repo.Owner("acme"), repo.Where("brand", "IN", []string{}))
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

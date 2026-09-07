@@ -5,6 +5,13 @@ import { Button } from '../../components/ui/button';
 import { ConfirmDialog } from '../../components/confirm-dialog';
 import { Progress } from '../../components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
 import { AlertCircle } from 'lucide-react';
 
 export function ImportPage() {
@@ -53,17 +60,19 @@ export function ImportPage() {
       <div className="space-y-4">
         <div>
           <label htmlFor="account-select" className="block text-sm font-medium">Account</label>
-          <select
-            id="account-select"
-            className="w-full p-2 border rounded"
+          <Select
             value={selectedAccountId}
-            onChange={(e) => setSelectedAccountId(e.target.value)}
+            onValueChange={setSelectedAccountId}
           >
-            <option value="">Select an account</option>
-            {accounts?.map((acc) => (
-              <option key={acc.id} value={acc.id}>{acc.name}</option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full" aria-label="Account">
+              <SelectValue placeholder="Select an account" />
+            </SelectTrigger>
+            <SelectContent>
+              {accounts?.map((acc) => (
+                <SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div>
