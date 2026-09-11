@@ -1,46 +1,70 @@
 /**
  * Task 3.2 — app shell, router, and shared feedback (design D7/D9).
+ * Task 13.2 — chrome rewrite: no top bar; sole chrome is a fixed top-left
+ * floating ☰ on every view.
  *
  * Verifies (per the task):
  *  - nav to all six screens without a reload (client-side routing)
- *  - deep-link render of `/assets/:id` (and `/finance/import/:batchId`)
+ *  - deep-link render of `/assets/:id`
  *  - mobile nav reachable via the Sheet
  *  - ConfirmDialog confirm/cancel
+ *  - no top bar (header/banner) and the fixed top-left ☰ chrome (task 13.2)
  * plus: active-user switcher applies, not-found route, feedback components,
  * and axe-clean rendering of the shell, the open sheet, and the open dialog.
  */
 import { useState } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axe from 'axe-core';
 import { AppRoutes } from '@/router';
 import { ActiveUserProvider } from '@/context/active-user';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@/features/docs/confirm-dialog';
 import * as hooks from '@/lib/api/hooks';
+import * as docsHooks from '@/features/docs/hooks';
+import * as assetsHooks from '@/features/assets/use-asset';
+import * as financeHooks from '@/features/finance/hooks';
+import * as reviewsHooks from '@/features/reviews/hooks';
 
 vi.mock('@/lib/api/hooks', () => ({
-  useAssets: vi.fn(),
-  useAsset: vi.fn(),
-  useAssetDocuments: vi.fn(),
-  useMovements: vi.fn(),
-  useCreateMovement: vi.fn(),
-  useBatches: vi.fn(),
-  useBatch: vi.fn(),
-  useCommitBatch: vi.fn(),
-  useUploadStatement: vi.fn(),
-  useDiscardBatch: vi.fn(),
-  useAccounts: vi.fn(),
-  useCreateAccount: vi.fn(),
   useQuickSearch: vi.fn(),
+}));
+
+vi.mock('@/features/docs/hooks', () => ({
+  useAssets: vi.fn(),
+  useAssetDocuments: vi.fn(),
+  useAccounts: vi.fn(),
+}));
+
+vi.mock('@/features/assets/use-asset', () => ({
+  useAsset: vi.fn(),
+}));
+
+vi.mock('@/features/finance/hooks', () => ({
+  useCreateAccount: vi.fn(),
+}));
+
+vi.mock('@/features/search/use-search', () => ({
   useSearch: vi.fn(),
+}));
+
+vi.mock('@/features/reviews/hooks', () => ({
   useReviews: vi.fn(),
   useApproveReview: vi.fn(),
   useRejectReview: vi.fn(),
-  useAdd: vi.fn(),
-  useRestoreAsset: vi.fn(),
 }));
+
+vi.mock('@/features/docs/composer/hooks', () => ({
+  useIngestFile: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, error: null })),
+  useIngestText: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, error: null })),
+  useReprocessDocument: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, error: null })),
+  useKeepDocument: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, error: null })),
+}));
+
+// The app shell mounts the sonner Toaster (task 7.3); mock it so no real
+// portal/timers run in jsdom.
+vi.mock('sonner', () => ({ Toaster: () => null, toast: vi.fn() }));
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { ErrorState } from '@/components/feedback/error-state';
@@ -59,6 +83,26 @@ function renderApp(initialPath = '/'): ReturnType<typeof render> {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+/**
+ * Task 13.2 chrome assertions for the fixed top-left floating ☰. jsdom does
+ * not resolve Tailwind utility classes to computed styles or layout (boxes are
+ * 0×0), so the positioning/sizing contract is asserted via the class list
+ * (`fixed left-4 top-4` for placement, `size-12` = 48px for the ≥44px hit
+ * target) — same convention as `theme-toggle.test.tsx`.
+ */
+function expectChromeButton(trigger: HTMLElement): void {
+  const classes = trigger.className ?? '';
+  expect(classes).toContain('fixed');
+  // Top-left placement (fixed at top-4/left-4 = 16px inset).
+  expect(classes).toContain('left-4');
+  expect(classes).toContain('top-4');
+  // z-40: above content (z-0) and the landing chat pill (z-30), below the
+  // nav sheet scrim/panel (z-50).
+  expect(classes).toContain('z-40');
+  // Hit target ≥ 44×44: size-12 = 48px.
+  expect(classes).toContain('size-12');
 }
 
 /** Caller-side harness: a trigger button that opens the shared dialog. */
@@ -87,63 +131,83 @@ function ConfirmHarness() {
 
 describe('app shell + router', () => {
   beforeEach(() => {
-    vi.mocked(hooks.useAssets).mockReturnValue({ data: [], isLoading: false, error: null } as any);
-    vi.mocked(hooks.useAsset).mockReturnValue({ data: { id: 'inv-42', doc_type: 'invoice' }, isLoading: false, error: null } as any);
-    vi.mocked(hooks.useAssetDocuments).mockReturnValue({ data: [], isLoading: false, error: null } as any);
-    vi.mocked(hooks.useAccounts).mockReturnValue({ data: [], isLoading: false, error: null } as any);
-    vi.mocked(hooks.useCreateAccount).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
-    // MovementsPage (task 4.5) consumes useMovements; keep the nav-reachability
-    // render from throwing when no user is active.
-    vi.mocked(hooks.useMovements).mockReturnValue({ data: [], isLoading: false } as any);
-    vi.mocked(hooks.useCreateMovement).mockReturnValue({ isPending: false } as any);
-    vi.mocked(hooks.useBatches).mockReturnValue({ data: [], isLoading: false, isError: false } as any);
-    vi.mocked(hooks.useBatch).mockImplementation((batchId: string) => {
-      if (!batchId) return { data: null, isLoading: false, isError: false } as any;
-      return { data: { id: 'batch-7' }, isLoading: false, isError: false } as any;
-    });
-    vi.mocked(hooks.useUploadStatement).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
-    vi.mocked(hooks.useDiscardBatch).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
-    vi.mocked(hooks.useCommitBatch).mockReturnValue({ mutate: vi.fn(), isPending: false, isSuccess: false, data: undefined } as any);
+    vi.mocked(docsHooks.useAssets).mockReturnValue({ data: [], isLoading: false, error: null } as any);
+    vi.mocked(assetsHooks.useAsset).mockReturnValue({ data: { id: 'inv-42', data: { doc_type: 'invoice', metadata: {} }, created_at: '', updated_at: '' }, isLoading: false, error: null } as any);
+    vi.mocked(docsHooks.useAssetDocuments).mockReturnValue({ data: [], isLoading: false, error: null } as any);
+    vi.mocked(docsHooks.useAccounts).mockReturnValue({ data: [], isLoading: false, error: null } as any);
+    vi.mocked(financeHooks.useCreateAccount).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
     vi.mocked(hooks.useQuickSearch).mockReturnValue({ data: { results: [] }, isLoading: false } as any);
-    vi.mocked(hooks.useReviews).mockReturnValue({ data: [], isLoading: false, error: null } as any);
-    vi.mocked(hooks.useApproveReview).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
-    vi.mocked(hooks.useRejectReview).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
-    // AddPage (task 8.2) consumes useAdd + useRestoreAsset; keep the nav
-    // "reaches every primary screen" render from throwing when no user is active.
-    vi.mocked(hooks.useAdd).mockReturnValue({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, isSuccess: false, data: undefined } as any);
-    vi.mocked(hooks.useRestoreAsset).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
-  });
-  it('redirects "/" to the asset list without a reload', () => {
-    renderApp('/');
-    expect(screen.getByRole('heading', { level: 1, name: 'Assets' })).toBeInTheDocument();
+    vi.mocked(reviewsHooks.useReviews).mockReturnValue({ data: [], isLoading: false, error: null } as any);
+    vi.mocked(reviewsHooks.useApproveReview).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
+    vi.mocked(reviewsHooks.useRejectReview).mockReturnValue({ mutate: vi.fn(), isPending: false } as any);
   });
 
-  it('reaches every primary screen from the nav without a reload', () => {
+  it('renders the landing page at "/" without redirecting to Assets', () => {
+    renderApp('/');
+    // The landing page renders directly at / (task 7.2) — no redirect to /assets.
+    expect(screen.getByRole('heading', { name: 'Insights' })).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: /search/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add something' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Assets' })).not.toBeInTheDocument();
+  });
+
+  it('shows the hamburger trigger on the landing page at /', () => {
+    renderApp('/');
+    // The hamburger is mounted by AppShell (not the landing page itself) and is
+    // present on every route, including the landing page.
+    expect(screen.getByRole('button', { name: 'Open navigation' })).toBeInTheDocument();
+    // …and the landing page's regions render alongside it.
+    expect(screen.getByRole('heading', { name: 'Insights' })).toBeInTheDocument();
+  });
+
+  it('has no top bar on / or /assets', () => {
     renderApp('/assets');
-    const steps: ReadonlyArray<readonly [link: string, heading: string]> = [
-      ['Add', 'Add'],
-      ['Accounts', 'Accounts'],
-      ['Movements', 'Money movements'],
-      ['Import', 'Import Statement'],
-      ['Import history', 'No import history'],
-    ];
-    for (const [link, heading] of steps) {
-      fireEvent.click(screen.getByRole('link', { name: link }));
-      expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
-    }
-    // and back to the asset list
-    fireEvent.click(screen.getByRole('link', { name: 'Assets' }));
-    expect(screen.getByRole('heading', { level: 1, name: 'Assets' })).toBeInTheDocument();
+    // The old sticky <header> top bar is gone (task 13.2).
+    expect(document.querySelector('header')).toBeNull();
+    // A top-level <header> maps to the banner landmark.
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+
+    renderApp('/');
+    expect(document.querySelector('header')).toBeNull();
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+  });
+
+  it('☰ is a fixed top-left floating button (≥44px) on /', () => {
+    renderApp('/');
+    const trigger = screen.getByRole('button', { name: 'Open navigation' });
+    expectChromeButton(trigger);
+  });
+
+  it('☰ is a fixed top-left floating button (≥44px) on /assets', () => {
+    renderApp('/assets');
+    const trigger = screen.getByRole('button', { name: 'Open navigation' });
+    expectChromeButton(trigger);
+  });
+
+  it('reaches every primary screen from the nav sheet without a reload', async () => {
+    renderApp('/assets');
+    await screen.findByRole('heading', { level: 1, name: 'Assets' });
+
+    // Open sheet, click Accounts
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    let sheet = await screen.findByRole('dialog', { name: 'Menu' });
+    fireEvent.click(within(sheet).getByRole('link', { name: 'Accounts' }));
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Accounts' })).toBeInTheDocument(),
+    );
+
+    // Open sheet again, click Assets to go back
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    sheet = await screen.findByRole('dialog', { name: 'Menu' });
+    fireEvent.click(within(sheet).getByRole('link', { name: 'Assets' }));
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Assets' })).toBeInTheDocument(),
+    );
   });
 
   it('deep-links /assets/:id to the asset detail screen', () => {
     renderApp('/assets/inv-42');
     expect(screen.getByRole('heading', { level: 1, name: /Asset/i })).toBeInTheDocument();
-  });
-
-  it('deep-links /finance/import/:batchId to the batch detail screen', () => {
-    renderApp('/finance/import/batch-7');
-    expect(screen.getByRole('heading', { level: 1, name: 'Batch detail' })).toBeInTheDocument();
   });
 
   it('renders a not-found state for unknown routes with a way back', () => {
@@ -153,18 +217,27 @@ describe('app shell + router', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Assets' })).toBeInTheDocument();
   });
 
-  it('navigates via the mobile sheet and closes the sheet on navigation', async () => {
+  it('navigates via the nav sheet and closes the sheet on navigation', async () => {
     renderApp('/assets');
-    fireEvent.click(screen.getByRole('button', { name: 'Open navigation menu' }));
-    const sheet = await screen.findByRole('dialog', { name: 'Navigation' });
-    fireEvent.click(within(sheet).getByRole('link', { name: 'Movements' }));
-    expect(screen.getByRole('heading', { level: 1, name: 'Money movements' })).toBeInTheDocument();
-    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument();
+    await screen.findByRole('heading', { level: 1, name: 'Assets' });
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Menu' });
+    fireEvent.click(within(sheet).getByRole('link', { name: 'Accounts' }));
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Accounts' })).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
   });
 
-  it('shows the active user switcher and applies a user switch', async () => {
+  it('shows the active user switcher in the nav sheet and applies a user switch', async () => {
     renderApp('/assets');
-    const input = screen.getByLabelText('Active user', { selector: '#user-switcher-sidebar' });
+    await screen.findByRole('heading', { level: 1, name: 'Assets' });
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Menu' });
+    // Open the profile panel (tapping the profile row)
+    const profileBtn = within(sheet).getByRole('button', { name: /Choose a user/ });
+    fireEvent.click(profileBtn);
+    const input = await screen.findByLabelText('Active user', { selector: '#user-switcher-profile' });
     fireEvent.change(input, { target: { value: 'bob' } });
     const form = input.closest('form');
     expect(form).not.toBeNull();
@@ -179,10 +252,11 @@ describe('app shell + router', () => {
     expect(results).toHaveNoViolations();
   });
 
-  it('is axe-clean with the mobile sheet open', async () => {
+  it('is axe-clean with the nav sheet open', async () => {
     renderApp('/assets');
-    fireEvent.click(screen.getByRole('button', { name: 'Open navigation menu' }));
-    const sheet = await screen.findByRole('dialog', { name: 'Navigation' });
+    await screen.findByRole('heading', { level: 1, name: 'Assets' });
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Menu' });
     const results = await axe.run(sheet);
     expect(results).toHaveNoViolations();
   });
@@ -255,17 +329,3 @@ describe('shared feedback components', () => {
     expect(results).toHaveNoViolations();
   });
 });
-
-// The `vitest-axe` package registers `toHaveNoViolations` at runtime via
-// `expect.extend` in the test setup, but its bundled type augmentation targets
-// a namespace vitest v3 does not use. Declare the matcher against the real
-// `@vitest/expect` module so `tsc -b` can resolve it.
-declare module '@vitest/expect' {
-  interface Matchers<T = any> {
-    toHaveNoViolations(): {
-      actual: import('axe-core').Result[];
-      pass: boolean;
-      message(): string;
-    };
-  }
-}

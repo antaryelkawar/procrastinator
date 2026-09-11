@@ -45,4 +45,9 @@ type ImportBatch struct {
 	// OwnerHouseholdID is the owner_household_id column; nil means NULL
 	// (a personal row has no household owner).
 	OwnerHouseholdID *string
+	// DeletedAt is the soft-delete timestamp; nil means the batch is active.
+	DeletedAt *time.Time
 }
+
+// GetID returns the entity's row identity.
+func (b ImportBatch) GetID() string { return b.ID }

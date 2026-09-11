@@ -1,35 +1,41 @@
 /**
- * Application route table (design D9 / module layout).
+ * Application route table (design D9 — route-surface cleanup).
  *
- *   /                         → redirects to /assets
- *   /add                       unified add (file/text/statement) (task 8.2)
- *   /assets                    asset list                 (task 4.2)
- *   /assets/:assetId           asset detail               (task 4.3)
- *   /finance/accounts          finance accounts           (task 4.4)
- *   /finance/movements         money movements            (task 4.5)
- *   /finance/import            statement import           (task 4.9)
- *   /finance/import/history    import history             (task 4.10)
- *   /finance/import/:batchId   batch detail               (task 4.10)
+ * Seven reachable routes, every other path hits the `*` not-found:
  *
- * Every screen renders inside <AppShell /> (sidebar / mobile nav sheet /
- * active-user switcher). Until the 4.x screens land, each route renders a
- * lightweight placeholder (see `pages/placeholders.tsx`) so the shell and
- * navigation are fully testable now. Static segments rank above dynamic
- * ones, so `/finance/import/history` wins over `/finance/import/:batchId`.
+ *   /                        landing page
+ *   /search                  search results
+ *   /ingest/reviews          review queue
+ *   /assets                  asset list
+ *   /assets/:assetId         asset detail
+ *   /documents               documents list
+ *   /finance/accounts        finance accounts
+ *
+ * Five legacy routes redirect (via <Navigate replace>) to their closest
+ * surviving view:
+ *
+ *   /add                        → /
+ *   /finance/movements          → /finance/accounts
+ *   /finance/import             → /finance/accounts
+ *   /finance/import/history     → /finance/accounts
+ *   /finance/import/:batchId    → /finance/accounts
+ *
+ * Every screen renders inside <AppShell /> — a single top bar (brand + ☰
+ * hamburger trigger + theme toggle) and the shared right-side navigation
+ * sheet. There is no sidebar and no permanent nav list; the hamburger sheet
+ * is the only navigation mechanism on every route.
  */
-import { Link, Navigate, Route, Routes } from 'react-router-dom';
+import { Link, Navigate, Route, Routes } from 'react-router';
 import { AppShell } from '@/components/layout/app-shell';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { Button } from '@/components/ui/button';
-import { AddPage } from './pages/add/add-page';
-import { AssetListPage } from './pages/assets/asset-list-page';
-import { AssetDetailPage } from './pages/assets/asset-detail-page';
-import { AccountsPage } from './pages/finance/accounts-page';
-import { MovementsPage } from './pages/finance/movements-page';
-import { ImportPage } from './pages/finance/import-page';
-import { ImportHistoryPage } from './pages/finance/import-history-page';
-import { SearchResultsPage } from './pages/search/search-results-page';
-import { ReviewQueuePage } from './pages/reviews/review-queue-page';
+import { AssetListPage } from './features/assets/asset-list-page';
+import { AssetDetailPage } from './features/assets/asset-detail-page';
+import { DocumentsPage } from './features/documents/documents-page';
+import { AccountsPage } from './features/finance/accounts-page';
+import { SearchResultsPage } from './features/search/search-results-page';
+import { LandingPage } from './features/landing/landing-page';
+import { ReviewQueuePage } from './features/reviews/review-queue-page';
 
 function NotFoundPage() {
   return (
@@ -52,15 +58,16 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route path="/" element={<Navigate to="/assets" replace />} />
-        <Route path="/add" element={<AddPage />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/add" element={<Navigate to="/" replace />} />
         <Route path="/assets" element={<AssetListPage />} />
         <Route path="/assets/:assetId" element={<AssetDetailPage />} />
+        <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/finance/accounts" element={<AccountsPage />} />
-        <Route path="/finance/movements" element={<MovementsPage />} />
-        <Route path="/finance/import" element={<ImportPage />} />
-        <Route path="/finance/import/history" element={<ImportHistoryPage />} />
-        <Route path="/finance/import/:batchId" element={<ImportHistoryPage />} />
+        <Route path="/finance/movements" element={<Navigate to="/finance/accounts" replace />} />
+        <Route path="/finance/import" element={<Navigate to="/finance/accounts" replace />} />
+        <Route path="/finance/import/history" element={<Navigate to="/finance/accounts" replace />} />
+        <Route path="/finance/import/:batchId" element={<Navigate to="/finance/accounts" replace />} />
         <Route path="/search" element={<SearchResultsPage />} />
         <Route path="/ingest/reviews" element={<ReviewQueuePage />} />
         <Route path="*" element={<NotFoundPage />} />

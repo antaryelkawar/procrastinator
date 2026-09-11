@@ -1,10 +1,49 @@
-import '@testing-library/jest-dom/vitest';
-import * as matchers from 'vitest-axe/matchers';
-import 'vitest-axe/extend-expect';
+import type { TestingLibraryMatchers } from '@testing-library/jest-dom/matchers';
+import * as jestDomMatchers from '@testing-library/jest-dom/matchers';
+import type { AxeResults } from 'axe-core';
+import * as axeMatchers from 'vitest-axe/matchers';
 import { expect, beforeAll, afterEach, afterAll, vi } from 'vitest';
 import { server } from '../mocks/server';
 
-expect.extend(matchers);
+// Central matcher typing for vitest v5. Both `@testing-library/jest-dom` and
+// `vitest-axe` register their matchers at runtime here and ship type
+// augmentations, but the two target different shapes that no longer merge under
+// vitest v5: jest-dom augments the root `vitest` module (via a
+// `/// <reference>` that also pulls its runtime entry) while vitest-axe targets
+// a `Vi` namespace vitest v5 dropped, and the internal `@vitest/expect` module
+// the old per-file augmentations used is gone. So we register both families via
+// `expect.extend` (below) and declare both on the root `Assertion` in this one
+// file — the only place the two-param base `Assertion` merges cleanly — giving
+// every test file (which runs through this setup) typed DOM + axe matchers.
+declare module 'vitest' {
+  interface Assertion<R extends void | Promise<void> = void, T = unknown>
+    extends TestingLibraryMatchers<unknown, T> {
+    toHaveNoViolations(): {
+      actual: AxeResults['violations'];
+      pass: boolean;
+      message(): string;
+    };
+  }
+}
+
+expect.extend(jestDomMatchers);
+expect.extend(axeMatchers);
+
+// jsdom does not implement window.matchMedia. The theme provider and any
+// media-query code call it, so stub it to return a light-mode MediaQueryList
+// with no-op listeners.
+if (typeof window !== "undefined" && typeof window.matchMedia === "undefined") {
+  window.matchMedia = (query: string): MediaQueryList => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  });
+}
 
 // jsdom does not implement scrollIntoView; Radix Select (and other primitives)
 // call it to position open content. Stub it so component tests can drive those

@@ -15,4 +15,8 @@ type Extractor interface {
 // FileStorage stores uploaded file bytes and returns the Source record.
 type FileStorage interface {
 	Put(ctx context.Context, data []byte) (entity.Source, error)
+	// Get returns the stored bytes for the user-relative key (Source.Path).
+	// It is the inverse of Put and is used to re-read a source's bytes when
+	// re-running extraction (Reprocess).
+	Get(ctx context.Context, path string) ([]byte, error)
 }

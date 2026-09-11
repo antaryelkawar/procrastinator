@@ -1,0 +1,13 @@
+- generic [ref=e3]:
+  - button "Open navigation" [ref=e4]
+  - main [ref=e5]:
+    - generic [ref=e6]:
+      - button "Add review" [ref=e7]
+      - generic [ref=e8]:
+        - heading "Ingest review queue" [level=1] [ref=e9]
+        - combobox "Filter by status" [ref=e10]:
+          - generic: Pending
+      - generic [ref=e19]:
+        - heading "No pending reviews" [level=2] [ref=e20]
+        - generic [ref=e21]: All uploads have been processed. New low-confidence uploads will appear here for review.
+  - region "Notifications alt+T"

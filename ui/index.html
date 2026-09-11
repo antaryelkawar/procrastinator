@@ -5,6 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Procrastinator</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- PWA (task 9.1): installability + mobile theming -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#6366f1" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <!-- Pre-paint theme bootstrap (task 6.1): applies the .dark/.light class to
+         <html> before first paint so there is no flash of the wrong theme.
+         Mirrors src/lib/theme-bootstrap.ts (which is unit-tested); kept inline
+         because it must run before the module bundle loads. -->
+    <script>
+      (function () {
+        var theme = null;
+        try { theme = localStorage.getItem("procrastinator-theme"); } catch (e) {}
+        var dark = theme === "dark" || ((theme === "system" || theme === null) && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.add(dark ? "dark" : "light");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

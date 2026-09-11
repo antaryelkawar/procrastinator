@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -32,8 +31,7 @@ func NewHouseholdRepository(pool *pgxpool.Pool) *HouseholdRepository {
 			scope:   &poolScope{pool: pool},
 			table:   "households",
 			scanRow: scanHousehold,
-			toMap:   householdToMap,
-			filters: householdFilters,
+			codec:   householdCodec,
 		},
 	}
 }
@@ -45,8 +43,7 @@ func newHouseholdRepoForTx(tx pgx.Tx) *HouseholdRepository {
 			scope:   &txScopeImpl{tx: tx},
 			table:   "households",
 			scanRow: scanHousehold,
-			toMap:   householdToMap,
-			filters: householdFilters,
+			codec:   householdCodec,
 		},
 	}
 }
@@ -180,7 +177,7 @@ func (r *HouseholdRepository) GetHouseholdVisible(ctx context.Context, id string
 		if err != nil {
 			return err
 		}
-		stmt := fmt.Sprintf("SELECT * FROM %s WHERE id = $1 AND %s", r.table, vis)
+		stmt := fmt.Sprintf("SELECT %s FROM %s WHERE id = $1 AND %s", r.selectList(), r.table, vis)
 		var scanErr error
 		result, scanErr = r.scanRow(q.QueryRow(ctx, stmt, args...))
 		return scanErr
@@ -206,7 +203,7 @@ func (r *HouseholdRepository) ListHouseholdsVisible(ctx context.Context, opts ..
 		if err != nil {
 			return err
 		}
-		stmt := fmt.Sprintf("SELECT * FROM %s WHERE %s", r.table, vis)
+		stmt := fmt.Sprintf("SELECT %s FROM %s WHERE %s", r.selectList(), r.table, vis)
 		rows, err := q.Query(ctx, stmt, args...)
 		if err != nil {
 			return err
@@ -255,47 +252,4 @@ func (r *HouseholdRepository) Exists(ctx context.Context, id string, opts ...rep
 		return q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM households WHERE id = $1)`, id).Scan(&exists)
 	})
 	return exists, err
-}
-
-var householdFieldCols = map[string]string{
-	"display_name": "display_name",
-	"owner_id":    "owner_id",
-	"created_at":   "created_at",
-}
-
-var householdOrderCols = map[string]string{
-	"id":         "id",
-	"created_at": "created_at",
-}
-
-var householdFilters = filterConfig{fieldCols: householdFieldCols, orderCols: householdOrderCols}
-
-// scanHousehold scans a row into an entity.Household,
-// mapping pgx.ErrNoRows to repo.ErrNotFound. Column order matches the
-// households table (migration 00005_household_scope).
-func scanHousehold(row rowScanner) (entity.Household, error) {
-	var h entity.Household
-	err := row.Scan(&h.ID, &h.OwnerID, &h.DisplayName, &h.CreatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return entity.Household{}, repo.ErrNotFound
-		}
-		return entity.Household{}, err
-	}
-	return h, nil
-}
-
-func householdToMap(h entity.Household) map[string]any {
-	m := make(map[string]any)
-	if h.ID != "" {
-		m["id"] = h.ID
-	}
-	if h.OwnerID != "" {
-		m["owner_id"] = h.OwnerID
-	}
-	if h.DisplayName != "" {
-		m["display_name"] = h.DisplayName
-	}
-	// created_at is intentionally omitted: the DB default (now()) applies.
-	return m
 }

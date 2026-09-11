@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -128,7 +129,7 @@ func TestOptionBeatsCtx(t *testing.T) {
 
 	ctx := user.WithUser(context.Background(), "globex")
 	q := &recordingQuerier{}
-	r := &pgRepository[entity.Asset]{scope: &noopScope{q: q}, table: "assets", scanRow: scanAsset}
+	r := assetRepo(q)
 
 	_, err := r.Get(ctx, "some-id", repo.Owner("acme"))
 	if !errors.Is(err, repo.ErrNotFound) {
@@ -152,14 +153,14 @@ func TestOptionBeatsCtx(t *testing.T) {
 	}
 }
 
-// assetRepo builds an asset repository with the given querier and filter config.
+// assetRepo builds an asset repository with the given querier. The codec
+// carries the asset filter/order whitelist (design D3).
 func assetRepo(q Querier) *pgRepository[entity.Asset] {
 	return &pgRepository[entity.Asset]{
 		scope:   &noopScope{q: q},
 		table:   "assets",
 		scanRow: scanAsset,
-		toMap:   assetToMap,
-		filters: assetFilters,
+		codec:   assetCodec,
 	}
 }
 
@@ -351,8 +352,8 @@ func TestIN_Slice(t *testing.T) {
 	if !strings.Contains(q.sql, "owner_id = $1") {
 		t.Fatalf("sql = %q, want owner_id = $1", q.sql)
 	}
-	if !strings.Contains(q.sql, "brand IN ($2, $3)") {
-		t.Fatalf("sql = %q, want brand IN ($2, $3)", q.sql)
+	if !strings.Contains(q.sql, "(payload #>> '{data,brand}') IN ($2, $3)") {
+		t.Fatalf("sql = %q, want (payload #>> '{data,brand}') IN ($2, $3)", q.sql)
 	}
 	got := []any{}
 	for _, a := range q.args {
@@ -410,11 +411,11 @@ func TestValidFilterAndOrderBy(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 
-	if !strings.Contains(q.sql, "norm_brand = $2") {
-		t.Errorf("sql = %q, want norm_brand = $2", q.sql)
+	if !strings.Contains(q.sql, "(payload #>> '{data,norm_brand}') = $2") {
+		t.Errorf("sql = %q, want (payload #>> '{data,norm_brand}') = $2", q.sql)
 	}
-	if !strings.Contains(q.sql, "norm_model LIKE $3") {
-		t.Errorf("sql = %q, want norm_model LIKE $3", q.sql)
+	if !strings.Contains(q.sql, "(payload #>> '{data,norm_model}') LIKE $3") {
+		t.Errorf("sql = %q, want (payload #>> '{data,norm_model}') LIKE $3", q.sql)
 	}
 	if !strings.Contains(q.sql, "ORDER BY created_at, id") {
 		t.Errorf("sql = %q, want ORDER BY created_at, id", q.sql)
@@ -434,5 +435,120 @@ func TestValidFilterAndOrderBy(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("args[%d] = %v, want %v", i, got[i], want[i])
 		}
+	}
+}
+
+// TestUpdateSetClassification verifies the Update-merge field classification
+// helpers against every whitelisted expression: bare identifiers are real
+// columns, payload expressions yield the correct data.* key.
+func TestUpdateSetClassification(t *testing.T) {
+	t.Parallel()
+
+	realCols := map[string]string{
+		"id": "id", "owner_id": "owner_id", "owner_household_id": "owner_household_id",
+		"created_at": "created_at", "updated_at": "updated_at", "deleted_at": "deleted_at",
+		"asset_id": "asset_id", "source_id": "source_id", "line_ref": "line_ref",
+		"import_batch_id": "import_batch_id", "linked_document_id": "linked_document_id",
+		"source_account_id": "source_account_id", "destination_account_id": "destination_account_id",
+		"account_id": "account_id",
+	}
+	dataCols := map[string]string{
+		"(payload #>> '{data,brand}')":                       "brand",
+		"((payload #>> '{data,purchase_date}')::date)":       "purchase_date",
+		"((payload #>> '{data,price}')::numeric)":            "price",
+		"((payload #>> '{data,uploaded_at}')::timestamptz)":  "uploaded_at",
+		"((payload #>> '{data,byte_size}')::bigint)":         "byte_size",
+		"((payload #>> '{data,amount}')::numeric)":           "amount",
+		"((payload #>> '{data,occurred_on}')::date)":         "occurred_on",
+		"((payload #>> '{data,recorded_at}')::timestamptz)":  "recorded_at",
+		"((payload #>> '{data,decided_at}')::timestamptz)":   "decided_at",
+		"((payload #>> '{data,line_count_valid}')::int)":     "line_count_valid",
+		"((payload #>> '{data,line_count_duplicate}')::int)": "line_count_duplicate",
+		"(payload #>> '{data,doc_type}')":                    "doc_type",
+		"(payload #>> '{data,display_name}')":                "display_name",
+	}
+
+	for _, expr := range realCols {
+		if !isBareColumn(expr) {
+			t.Errorf("isBareColumn(%q) = false, want true", expr)
+		}
+	}
+	for expr, key := range dataCols {
+		if isBareColumn(expr) {
+			t.Errorf("isBareColumn(%q) = true, want false", expr)
+			continue
+		}
+		if got := dataKeyOf(expr); got != key {
+			t.Errorf("dataKeyOf(%q) = %q, want %q", expr, got, key)
+		}
+	}
+
+	// Every whitelisted expression in the production maps must classify. The
+	// whitelists live on each codec (design D3).
+	cfgs := []filterConfig{assetCodec.filterConfig(), sourceCodec.filterConfig(), documentCodec.filterConfig(),
+		accountCodec.filterConfig(), movementCodec.filterConfig(), importBatchCodec.filterConfig(),
+		importLineCodec.filterConfig(), reviewCodec.filterConfig(), householdCodec.filterConfig()}
+	for _, cfg := range cfgs {
+		for field, expr := range cfg.fieldCols {
+			if isBareColumn(expr) {
+				if _, ok := realCols[expr]; !ok {
+					t.Errorf("%s.%s: bare column %q not in realCols probe set (check it exists in schema)", cfg.fieldCols, field, expr)
+				}
+			} else if dataKeyOf(expr) == "" {
+				t.Errorf("%s.%s: dataKeyOf(%q) = \"\", want non-empty", "cfg", field, expr)
+			}
+		}
+	}
+}
+
+// TestDecodeEncodePayload verifies decodePayloadData/encodePayload round-trip
+// and the empty-payload tolerance.
+func TestDecodeEncodePayload(t *testing.T) {
+	t.Parallel()
+
+	// Empty / missing payload → empty map, no error.
+	for _, b := range [][]byte{nil, {}, []byte("{}")} {
+		m, err := decodePayloadData(b)
+		if err != nil {
+			t.Fatalf("decodePayloadData(%q) err = %v", b, err)
+		}
+		if len(m) != 0 {
+			t.Errorf("decodePayloadData(%q) = %v, want empty", b, m)
+		}
+	}
+
+	// Money stays exact through JSON (json.Number in, json.Number out).
+	data := map[string]any{"amount": repoJSONNum("39999.99"), "kind": "expense", "nested": map[string]any{"price": repoJSONNum("123.45")}}
+	raw, err := encodePayload(data)
+	if err != nil {
+		t.Fatalf("encodePayload: %v", err)
+	}
+	if !strings.Contains(string(raw), `"39999.99"`) && !strings.Contains(string(raw), `39999.99`) {
+		t.Fatalf("encoded payload %s lost the exact decimal", raw)
+	}
+	got, err := decodePayloadData(raw)
+	if err != nil {
+		t.Fatalf("decodePayloadData: %v", err)
+	}
+	n, ok := got["amount"].(json.Number)
+	if !ok {
+		t.Fatalf("amount = %T, want json.Number", got["amount"])
+	}
+	if n.String() != "39999.99" {
+		t.Errorf("amount = %s, want 39999.99", n.String())
+	}
+}
+
+// repoJSONNum wraps a decimal string as json.Number.
+func repoJSONNum(s string) json.Number { return json.Number(s) }
+
+// TestSelectListShape verifies selectList renders the codec column list.
+func TestSelectListShape(t *testing.T) {
+	t.Parallel()
+	r := &pgRepository[entity.Asset]{codec: assetCodec, scanRow: scanAsset}
+	got := r.selectList()
+	want := "id, owner_id, owner_household_id, deleted_at, created_at, updated_at, payload"
+	if got != want {
+		t.Errorf("selectList = %q, want %q", got, want)
 	}
 }

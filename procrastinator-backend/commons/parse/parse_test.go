@@ -545,7 +545,9 @@ func TestParseExtraction_Errors(t *testing.T) {
 		{"whitespace only", "   \n\t  ", ""},
 		{"no JSON object", "hello world", ""},
 		{"JSON array empty", `[]`, ""},
-		{"JSON array with object", `[{"a":"b"}]`, ""},
+		// NOTE: "JSON array with object" moved to
+		// TestParseExtraction_ArrayWrap — a single-element array wrap is now
+		// accepted (live-provider regression, 2026-09-11).
 		{"invalid JSON", `{"a":`, ""},
 		{"trailing garbage after object", `{"a":"b"} trailing`, ""},
 	}
@@ -559,6 +561,105 @@ func TestParseExtraction_Errors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestParseExtraction_ArrayWrap covers the live-provider regression observed on
+// 2026-09-11: gemma via the Gemini OpenAI-compatible endpoint intermittently
+// wraps the extraction object in a JSON array (e.g. `[ { ... } ]`) despite the
+// json_object response format. Both consensus workers then hit the parser's
+// "trailing data after JSON object" guard at the same time, producing
+// "all extraction workers failed". A single-element array wrap must parse to
+// the inner object; multi-element arrays remain ambiguous and must still error.
+func TestParseExtraction_ArrayWrap(t *testing.T) {
+	t.Parallel()
+
+	t.Run("single-element array wrap parses to inner object", func(t *testing.T) {
+		// Shape captured verbatim from the live server log (indentation and
+		// newlines included).
+		raw := `[
+  {
+    "classification": "receipt",
+    "brand": "Sony",
+    "name": "headphone",
+    "model": "WH-1000XM5",
+    "asset_category": "electronics",
+    "serial_number": "XM5-7788990011",
+    "purchase_date": "2026-09-05",
+    "warranty_end": null,
+    "warranty_duration": null,
+    "price": "348.00",
+    "currency": "USD",
+    "metadata": {
+      "vendor": "Target"
+    },
+    "confidence": 1.0
+  }
+]`
+		ext, err := ParseExtraction(raw)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ext.Classification != "receipt" {
+			t.Errorf("Classification = %q, want %q", ext.Classification, "receipt")
+		}
+		if ext.Brand == nil || *ext.Brand != "Sony" {
+			t.Errorf("Brand = %v, want pointer to %q", ext.Brand, "Sony")
+		}
+		if ext.Model == nil || *ext.Model != "WH-1000XM5" {
+			t.Errorf("Model = %v, want pointer to %q", ext.Model, "WH-1000XM5")
+		}
+		if ext.SerialNumber == nil || *ext.SerialNumber != "XM5-7788990011" {
+			t.Errorf("SerialNumber = %v, want pointer to %q", ext.SerialNumber, "XM5-7788990011")
+		}
+		if ext.RawPayload != raw {
+			t.Errorf("RawPayload = %q, want original raw", ext.RawPayload)
+		}
+	})
+
+	t.Run("compact single-element array wrap parses", func(t *testing.T) {
+		ext, err := ParseExtraction(`[{"classification":"warranty","brand":"LG"}]`)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ext.Classification != "warranty" {
+			t.Errorf("Classification = %q, want %q", ext.Classification, "warranty")
+		}
+	})
+
+	t.Run("thought tags around array wrap still parse", func(t *testing.T) {
+		raw := `<thought>analyzing</thought>[{"brand":"LG"}]`
+		ext, err := ParseExtraction(raw)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ext.Brand == nil || *ext.Brand != "LG" {
+			t.Errorf("Brand = %v, want pointer to %q", ext.Brand, "LG")
+		}
+	})
+
+	t.Run("multi-element array still errors", func(t *testing.T) {
+		_, err := ParseExtraction(`[{"brand":"LG"},{"brand":"Samsung"}]`)
+		if err == nil {
+			t.Fatal("expected error for multi-element array, got nil")
+		}
+	})
+
+	t.Run("empty array still errors", func(t *testing.T) {
+		_, err := ParseExtraction(`[]`)
+		if err == nil {
+			t.Fatal("expected error for empty array, got nil")
+		}
+	})
+
+	t.Run("bare object unchanged", func(t *testing.T) {
+		ext, err := ParseExtraction(`{"classification":"invoice","brand":"LG"}`)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ext.Classification != "invoice" {
+			t.Errorf("Classification = %q, want %q", ext.Classification, "invoice")
+		}
+	})
 }
 
 func TestParseExtraction_NewFields(t *testing.T) {

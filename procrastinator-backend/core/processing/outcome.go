@@ -1,6 +1,8 @@
 package processing
 
 import (
+	"time"
+
 	"procrastinator-backend/commons/entity"
 )
 
@@ -33,10 +35,12 @@ const (
 // maps to. AssetDeleted is true when the linked asset is soft-deleted, in
 // which case the UI should offer a restore instead of reprocessing.
 type Duplicate struct {
-	SourceID     string
-	DocumentID   string
-	AssetID      string
-	AssetDeleted bool
+	SourceID         string
+	DocumentID       string
+	AssetID          string
+	AssetDeleted     bool
+	SourceFilename   string
+	SourceUploadedAt time.Time
 }
 
 // Provenance carries per-worker extraction results, errors, and the candidate

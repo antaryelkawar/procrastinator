@@ -114,8 +114,7 @@ func visAssetRepo(q Querier) *pgRepository[entity.Asset] {
 		scope:     &noopScope{q: q},
 		table:     "assets",
 		scanRow:   scanAsset,
-		toMap:     assetToMap,
-		filters:   assetFilters,
+		codec:     assetCodec,
 		shareable: true,
 	}
 }
@@ -127,8 +126,7 @@ func visHouseholdRepo(q Querier) *pgRepository[entity.Household] {
 		scope:   &noopScope{q: q},
 		table:   "households",
 		scanRow: scanHousehold,
-		toMap:   householdToMap,
-		filters: householdFilters,
+		codec:   householdCodec,
 		// shareable intentionally left false (zero value).
 	}
 }
@@ -158,8 +156,8 @@ func TestVisibility_ListWithHouseholds(t *testing.T) {
 	if strings.Contains(q.lastSQL, "IN ()") {
 		t.Fatalf("sql = %q, must not contain empty IN ()", q.lastSQL)
 	}
-	if !strings.Contains(q.lastSQL, "SELECT * FROM assets") {
-		t.Fatalf("sql = %q, want SELECT * FROM assets", q.lastSQL)
+	if !strings.Contains(q.lastSQL, "SELECT id, owner_id, owner_household_id, deleted_at, created_at, updated_at, payload FROM assets") {
+		t.Fatalf("sql = %q, want explicit column list FROM assets", q.lastSQL)
 	}
 	got := []any(q.lastArgs)
 	wantArgs := []any{"acme", "hh-1", "hh-2"}
@@ -193,11 +191,17 @@ func TestVisibility_ListNoHouseholds(t *testing.T) {
 	if !strings.Contains(q.lastSQL, "owner_id = $1") {
 		t.Fatalf("sql = %q, want owner_id = $1", q.lastSQL)
 	}
-	if strings.Contains(q.lastSQL, "owner_household_id") {
-		t.Fatalf("sql = %q, must not reference owner_household_id for a user with no households", q.lastSQL)
+	// The WHERE clause (not the SELECT list, which carries the
+	// owner_household_id column) must not reference the household disjunct.
+	where := q.lastSQL
+	if i := strings.Index(q.lastSQL, " WHERE "); i >= 0 {
+		where = q.lastSQL[i+len(" WHERE "):]
 	}
-	if strings.Contains(q.lastSQL, "IN (") {
-		t.Fatalf("sql = %q, must not contain an IN clause for a user with no households", q.lastSQL)
+	if strings.Contains(where, "owner_household_id") {
+		t.Fatalf("where = %q, must not reference owner_household_id for a user with no households", where)
+	}
+	if strings.Contains(where, "IN (") {
+		t.Fatalf("where = %q, must not contain an IN clause for a user with no households", where)
 	}
 	if strings.Contains(q.lastSQL, "scope_type") {
 		t.Fatalf("sql = %q, must not reference scope_type", q.lastSQL)

@@ -49,6 +49,13 @@ func (f *fakeStorage) Put(ctx context.Context, data []byte) (entity.Source, erro
 	}, nil
 }
 
+// Get satisfies the repo.FileStorage interface. The fake never needs to read
+// back bytes (Reprocess is exercised against real file storage in the api
+// integration tests), so this is a no-op stub.
+func (f *fakeStorage) Get(_ context.Context, _ string) ([]byte, error) {
+	return nil, nil
+}
+
 // putCalls returns the number of Put invocations so far.
 func (f *fakeStorage) putCalls() int {
 	f.mu.Lock()

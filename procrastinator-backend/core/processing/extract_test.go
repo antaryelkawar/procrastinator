@@ -84,7 +84,7 @@ func TestExtractRun_AllWorkersSucceed(t *testing.T) {
 	}
 	ext := NewExtractor(fake, workers, time.Second, "BASE PROMPT")
 
-	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47})
+	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47}, "")
 
 	if len(results) != len(workers) {
 		t.Fatalf("len(results) = %d, want %d", len(results), len(workers))
@@ -129,7 +129,7 @@ func TestExtractRun_OneWorkerFails(t *testing.T) {
 	}
 	ext := NewExtractor(fake, workers, time.Second, "BASE PROMPT")
 
-	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47})
+	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47}, "")
 
 	if len(results) != 2 {
 		t.Fatalf("len(results) = %d, want 2", len(results))
@@ -159,7 +159,7 @@ func TestExtractRun_AllWorkersFail(t *testing.T) {
 	}
 	ext := NewExtractor(fake, workers, time.Second, "BASE PROMPT")
 
-	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47})
+	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47}, "")
 
 	if len(results) != 2 {
 		t.Fatalf("len(results) = %d, want 2", len(results))
@@ -185,7 +185,7 @@ func TestExtractRun_ParseFailureRecorded(t *testing.T) {
 	}
 	ext := NewExtractor(fake, workers, time.Second, "BASE PROMPT")
 
-	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47})
+	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47}, "")
 
 	if len(results) != 1 {
 		t.Fatalf("len(results) = %d, want 1", len(results))
@@ -216,7 +216,7 @@ func TestExtractRun_PerWorkerTimeout(t *testing.T) {
 	ext := NewExtractor(fake, workers, 50*time.Millisecond, "BASE PROMPT")
 
 	start := time.Now()
-	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47})
+	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47}, "")
 	elapsed := time.Since(start)
 
 	if len(results) != 2 {
@@ -245,7 +245,7 @@ func TestExtractRun_StrategyPrompts(t *testing.T) {
 	}
 	ext := NewExtractor(fake, workers, time.Second, "BASE PROMPT")
 
-	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47})
+	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47}, "")
 
 	for _, r := range results {
 		if r.Err != nil {
@@ -286,7 +286,7 @@ func TestExtractRun_OneRequestPerWorker(t *testing.T) {
 	}
 	ext := NewExtractor(fake, workers, time.Second, "BASE PROMPT")
 
-	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47})
+	results := ext.Run(context.Background(), "image/png", []byte{0x89, 0x50, 0x4E, 0x47}, "")
 
 	if len(results) != 3 {
 		t.Fatalf("len(results) = %d, want 3", len(results))
@@ -306,7 +306,7 @@ func TestExtractRun_ContentParts(t *testing.T) {
 	ext := NewExtractor(fake, workers, time.Second, "BASE PROMPT")
 
 	docData := []byte{0x89, 0x50, 0x4E, 0x47}
-	_ = ext.Run(context.Background(), "image/png", docData)
+	_ = ext.Run(context.Background(), "image/png", docData, "")
 
 	if fake.count() != 1 {
 		t.Fatalf("fake chat count = %d, want 1", fake.count())

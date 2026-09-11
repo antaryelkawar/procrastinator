@@ -117,17 +117,3 @@ describe('shadcn/ui components smoke test', () => {
     expect(results).toHaveNoViolations();
   });
 });
-
-// The `vitest-axe` package registers `toHaveNoViolations` at runtime via
-// `expect.extend` in the test setup, but its bundled type augmentation targets a
-// `Vi` namespace that vitest v3 does not use. Declare the matcher against the
-// real `@vitest/expect` module so `tsc -b` can resolve it.
-declare module '@vitest/expect' {
-  interface Matchers<T = any> {
-    toHaveNoViolations(): {
-      actual: import('axe-core').Result[];
-      pass: boolean;
-      message(): string;
-    };
-  }
-}

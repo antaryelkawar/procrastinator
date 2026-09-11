@@ -91,10 +91,10 @@ describe('request serialization', () => {
 
 describe('success unwrapping', () => {
   it('listAssets resolves the parsed JSON body', async () => {
-    stubFetch(jsonResponse({ id: 'a1', brand: 'Dell', doc_type: 'invoice', metadata: {}, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }));
+    stubFetch(jsonResponse({ id: 'a1', data: { brand: 'Dell', doc_type: 'invoice', metadata: {} }, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }));
     const asset = await client.getAsset(ALICE, 'a1');
     expect(asset.id).toBe('a1');
-    expect(asset.brand).toBe('Dell');
+    expect(asset.data.brand).toBe('Dell');
   });
 
   it('deleteMovement resolves undefined for a 204 No Content response', async () => {
@@ -107,7 +107,7 @@ describe('success unwrapping', () => {
 });
 
 describe('asset lifecycle', () => {
-  const asset = { id: 'a1', brand: 'Dell', metadata: {}, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' };
+  const asset = { id: 'a1', data: { brand: 'Dell', metadata: {} }, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' };
 
   it('deleteAsset resolves undefined for a 204 and targets the asset path', async () => {
     const calls = stubFetch(new Response(null, { status: 204 }));
@@ -126,9 +126,9 @@ describe('asset lifecycle', () => {
   });
 
   it('patchAsset sends the patch body and unwraps the asset', async () => {
-    const calls = stubFetch(jsonResponse({ ...asset, name: 'Microwave Oven' }));
+    const calls = stubFetch(jsonResponse({ ...asset, data: { ...asset.data, name: 'Microwave Oven' } }));
     const patched = await client.patchAsset(ALICE, 'a1', { name: 'Microwave Oven', asset_category: 'appliance' });
-    expect(patched.name).toBe('Microwave Oven');
+    expect(patched.data.name).toBe('Microwave Oven');
     expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/assets/a1`);
     expect(calls[0]?.init?.method).toBe('PATCH');
     expect(calls[0]?.init?.body).toBe(JSON.stringify({ name: 'Microwave Oven', asset_category: 'appliance' }));
@@ -193,6 +193,70 @@ describe('asset lifecycle', () => {
     expect(url).toContain('warranty_status=expiring_within%3A90');
     expect(url).toContain('has_documents=true');
     expect(url).toContain('doc_classification=amc');
+  });
+});
+
+describe('document reprocess / keep (duplicate resolution)', () => {
+  const documentBody = { id: 'd1', data: { doc_type: 'invoice' }, source_filename: 'invoice.pdf' };
+
+  it('parseDocumentChoiceUri extracts userId + documentId from a reprocess URI', () => {
+    expect(client.parseDocumentChoiceUri(`/api/users/alice/documents/d1/reprocess`, 'reprocess')).toEqual({
+      userId: 'alice',
+      documentId: 'd1',
+    });
+    expect(client.parseDocumentChoiceUri(`/api/users/alice/documents/d1/keep`, 'keep')).toEqual({
+      userId: 'alice',
+      documentId: 'd1',
+    });
+    // Action mismatch → null
+    expect(client.parseDocumentChoiceUri(`/api/users/alice/documents/d1/keep`, 'reprocess')).toBeNull();
+    // Malformed → null
+    expect(client.parseDocumentChoiceUri(`/not/a/match`, 'keep')).toBeNull();
+    // Trailing query string is tolerated
+    expect(client.parseDocumentChoiceUri(`/api/users/alice/documents/d1/keep?x=1`, 'keep')).toEqual({
+      userId: 'alice',
+      documentId: 'd1',
+    });
+  });
+
+  it('reprocessDocument POSTs to the reprocess URI and unwraps the document', async () => {
+    const calls = stubFetch(jsonResponse(documentBody));
+    const doc = await client.reprocessDocument(ALICE, 'd1');
+    expect(doc.id).toBe('d1');
+    expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/documents/d1/reprocess`);
+    expect(calls[0]?.init?.method).toBe('POST');
+    // No comment → body is undefined (JSON.stringify(undefined) === undefined),
+    // but the orval-generated client still sets Content-Type application/json.
+    expect(calls[0]?.init?.body).toBeUndefined();
+    const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json');
+  });
+
+  it('reprocessDocument sends the comment as a JSON body when provided', async () => {
+    const calls = stubFetch(jsonResponse(documentBody));
+    await client.reprocessDocument(ALICE, 'd1', 'treat as warranty');
+    expect(calls[0]?.init?.method).toBe('POST');
+    expect(calls[0]?.init?.body).toBe(JSON.stringify({ comment: 'treat as warranty' }));
+    const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json');
+  });
+
+  it('keepDocument POSTs to the keep URI with no body and unwraps the document', async () => {
+    const calls = stubFetch(jsonResponse(documentBody));
+    const doc = await client.keepDocument(ALICE, 'd1');
+    expect(doc.id).toBe('d1');
+    expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/documents/d1/keep`);
+    expect(calls[0]?.init?.method).toBe('POST');
+    expect(calls[0]?.init?.body).toBeUndefined();
+  });
+
+  it('reprocess/keep throw an ApiError on a non-2xx response', async () => {
+    stubFetch(errorResponse(404, JSON.stringify({ error: 'not found' })));
+    const err = await client.keepDocument(ALICE, 'ghost').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    const apiError = err as ApiError;
+    expect(apiError.status).toBe(404);
+    expect(apiError.detail).toBe('not found');
   });
 });
 

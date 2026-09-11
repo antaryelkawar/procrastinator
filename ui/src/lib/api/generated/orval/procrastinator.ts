@@ -22,10 +22,10 @@ import { customFetch } from '../mutator';
 /**
  * Intrinsic category of the asset
  */
-export type AssetAssetCategory = typeof AssetAssetCategory[keyof typeof AssetAssetCategory] | null;
+export type AssetDataAssetCategory = typeof AssetDataAssetCategory[keyof typeof AssetDataAssetCategory] | null;
 
 
-export const AssetAssetCategory = {
+export const AssetDataAssetCategory = {
   appliance: 'appliance',
   electronics: 'electronics',
   computing: 'computing',
@@ -37,36 +37,34 @@ export const AssetAssetCategory = {
   other: 'other',
 } as const;
 
-export type AssetMetadata = { [key: string]: unknown };
+export type AssetDataMetadata = { [key: string]: unknown };
 
-export type AssetMergedAssetsItem = {
+export type AssetDataMergedAssetsItem = {
   asset_id: string;
   merged_at: string;
 };
 
 /**
- * A user asset derived from an ingested document.
+ * The asset payload data (stored shape).
  */
-export interface Asset {
-  id: string;
+export type AssetData = {
   /** Canonical product name (e.g. "Microwave Oven") */
   name?: string | null;
   brand?: string | null;
   model?: string | null;
   serial_number?: string | null;
   /** Intrinsic category of the asset */
-  asset_category?: AssetAssetCategory;
+  asset_category?: AssetDataAssetCategory;
   /** Confidence in the category assignment [0.0, 1.0] */
   category_confidence?: number | null;
+  /** True when the user has manually set the category (sticky). */
+  category_user_set?: boolean | null;
   purchase_date?: string | null;
   warranty_end?: string | null;
   /** @pattern ^[0-9]+(\.[0-9]+)?$ */
   price?: string | null;
   currency?: string | null;
-  metadata: AssetMetadata;
-  created_at: string;
-  updated_at: string;
-  owner_household_id?: string | null;
+  metadata: AssetDataMetadata;
   confidence?: number | null;
   /** Set when the asset is soft-deleted */
   deleted_at?: string | null;
@@ -75,13 +73,39 @@ export interface Asset {
   /** Timestamp of the merge */
   merged_at?: string | null;
   /** Assets that were merged into this asset (survivor view) */
-  merged_assets?: AssetMergedAssetsItem[] | null;
+  merged_assets?: AssetDataMergedAssetsItem[] | null;
+};
+
+/**
+ * A user asset derived from an ingested document.
+ */
+export interface Asset {
+  id: string;
+  owner_household_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  /** The asset payload data (stored shape). */
+  data: AssetData;
 }
 
-export type DocumentDocType = typeof DocumentDocType[keyof typeof DocumentDocType];
+/**
+ * Processing status: processed (asset linked), in_review (pending
+ * review), failed (extraction failed), asset_less (no matching asset).
+ */
+export type DocumentStatus = typeof DocumentStatus[keyof typeof DocumentStatus];
 
 
-export const DocumentDocType = {
+export const DocumentStatus = {
+  processed: 'processed',
+  in_review: 'in_review',
+  failed: 'failed',
+  asset_less: 'asset_less',
+} as const;
+
+export type DocumentDataDocType = typeof DocumentDataDocType[keyof typeof DocumentDataDocType];
+
+
+export const DocumentDataDocType = {
   invoice: 'invoice',
   receipt: 'receipt',
   warranty: 'warranty',
@@ -90,40 +114,70 @@ export const DocumentDocType = {
   other: 'other',
 } as const;
 
+export type DocumentDataExtractedFields = { [key: string]: unknown } | null;
+
+/**
+ * The document payload data (stored shape).
+ */
+export type DocumentData = {
+  doc_type: DocumentDataDocType;
+  confidence?: number | null;
+  extracted_fields?: DocumentDataExtractedFields;
+  raw_extraction?: string | null;
+  user_directive?: string | null;
+};
+
 /**
  * A document attached to an asset, with its source metadata.
  */
 export interface Document {
   id: string;
-  doc_type: DocumentDocType;
+  /** The asset this document is linked to (null when detached). */
+  asset_id?: string | null;
+  source_id: string;
   source_filename: string;
   source_uploaded_at: string;
-  created_at: string;
   owner_household_id?: string | null;
-  confidence?: number | null;
+  /**
+     * Processing status: processed (asset linked), in_review (pending
+     * review), failed (extraction failed), asset_less (no matching asset).
+     */
+  status: DocumentStatus;
+  created_at: string;
+  updated_at: string;
+  /** The document payload data (stored shape). */
+  data: DocumentData;
 }
+
+/**
+ * The account payload data (stored shape).
+ */
+export type AccountData = {
+  name: string;
+  account_type: string;
+  currency: string;
+  institution?: string | null;
+  external_descriptor?: string | null;
+  /** @pattern ^[0-9]+(\.[0-9]+)?$ */
+  balance: string;
+};
 
 /**
  * A financial account with its derived balance.
  */
 export interface Account {
   id: string;
-  name: string;
-  type: string;
-  currency: string;
-  institution?: string | null;
-  external_descriptor?: string | null;
-  /** @pattern ^[0-9]+(\.[0-9]+)?$ */
-  balance: string;
+  owner_household_id?: string | null;
   created_at: string;
   updated_at: string;
+  /** The account payload data (stored shape). */
+  data: AccountData;
 }
 
 /**
- * A money movement in the ledger.
+ * The movement payload data (stored shape).
  */
-export interface Movement {
-  id: string;
+export type MovementData = {
   kind: string;
   /** @pattern ^[0-9]+(\.[0-9]+)?$ */
   amount: string;
@@ -132,16 +186,26 @@ export interface Movement {
   recorded_at: string;
   description: string;
   origin: string;
+  import_line?: number | null;
+  external_reference?: string | null;
+  link_creator?: string | null;
+  link_conflicting: boolean;
+};
+
+/**
+ * A money movement in the ledger.
+ */
+export interface Movement {
+  id: string;
   source_account_id?: string | null;
   destination_account_id?: string | null;
   import_batch_id?: string | null;
-  import_line?: number | null;
-  external_reference?: string | null;
   linked_document_id?: string | null;
-  link_creator?: string | null;
-  link_conflicting: boolean;
+  owner_household_id?: string | null;
   created_at: string;
   updated_at: string;
+  /** The movement payload data (stored shape). */
+  data: MovementData;
 }
 
 /**
@@ -173,22 +237,30 @@ export interface ImportLine {
 }
 
 /**
- * A statement import batch with its parsed lines.
+ * The import batch payload data (stored shape).
  */
-export interface ImportBatch {
-  id: string;
+export type ImportBatchData = {
   state: string;
-  account_id: string;
-  source: ImportSource;
   filename: string;
   format: string;
   line_count_valid: number;
   line_count_duplicate: number;
   line_count_possible_dup: number;
   line_count_error: number;
+  lines?: ImportLine[] | null;
+};
+
+/**
+ * A statement import batch with its parsed lines.
+ */
+export interface ImportBatch {
+  id: string;
+  account_id: string;
+  source: ImportSource;
   created_at: string;
   updated_at: string;
-  lines: ImportLine[] | null;
+  /** The import batch payload data (stored shape). */
+  data: ImportBatchData;
 }
 
 /**
@@ -208,14 +280,23 @@ export interface HouseholdMember {
 }
 
 /**
+ * The household payload data (stored shape).
+ */
+export type HouseholdData = {
+  display_name: string;
+};
+
+/**
  * A household with its members.
  */
 export interface Household {
   id: string;
-  display_name: string;
   owner_id: string;
   created_at: string;
+  updated_at: string;
   members: HouseholdMember[];
+  /** The household payload data (stored shape). */
+  data: HouseholdData;
 }
 
 /**
@@ -325,32 +406,49 @@ export interface SearchResultsPage {
   total: number;
 }
 
-export type IngestReviewCandidateFields = { [key: string]: unknown };
+export type IngestReviewDataCandidateFields = { [key: string]: unknown };
 
-export type IngestReviewState = typeof IngestReviewState[keyof typeof IngestReviewState];
+export type IngestReviewDataState = typeof IngestReviewDataState[keyof typeof IngestReviewDataState];
 
 
-export const IngestReviewState = {
+export const IngestReviewDataState = {
   pending: 'pending',
   approved: 'approved',
   rejected: 'rejected',
 } as const;
+
+export type IngestReviewDataProvenance = { [key: string]: unknown } | null;
+
+/**
+ * The ingest review payload data (stored shape).
+ */
+export type IngestReviewData = {
+  doc_type: string;
+  confidence?: number | null;
+  candidate_fields: IngestReviewDataCandidateFields;
+  state: IngestReviewDataState;
+  best_matched_asset_id?: string | null;
+  decided_at?: string | null;
+  decided_by?: string | null;
+  raw_extraction?: string | null;
+  provenance?: IngestReviewDataProvenance;
+};
 
 /**
  * An ingest review candidate held for human approval.
  */
 export interface IngestReview {
   id: string;
-  doc_type: string;
-  confidence?: number | null;
-  candidate_fields: IngestReviewCandidateFields;
-  state: IngestReviewState;
+  source_id: string;
+  owner_household_id?: string | null;
   source_filename: string;
   source_uploaded_at: string;
   best_matched_asset_id?: string | null;
   best_matched_asset_title?: string | null;
   created_at: string;
-  decided_at?: string | null;
+  updated_at: string;
+  /** The ingest review payload data (stored shape). */
+  data: IngestReviewData;
 }
 
 /**
@@ -361,6 +459,41 @@ export interface ApproveReviewResponse {
   review: IngestReview;
 }
 
+/**
+ * Optional comment for the reprocess request.
+ */
+export interface ReprocessDocumentRequest {
+  /** Free-text comment passed as the extraction directive. */
+  comment?: string | null;
+}
+
+/**
+ * The reprocess/keep prompt fields for the UI modal.
+ */
+export type DuplicateReportPrompt = {
+  reprocess_uri: string;
+  keep_uri: string;
+  expires_at: string;
+  timeout_toast: string;
+};
+
+/**
+ * The structured 409 response when a duplicate document upload is detected.
+ */
+export interface DuplicateReport {
+  code: 'duplicate';
+  /** The existing document id, or null when the duplicate source has no linked document (e.g. statement-classified sources). */
+  existing_document_id?: string | null;
+  existing_source_filename: string;
+  existing_source_uploaded_at: string;
+  existing_asset_id?: string | null;
+  /** The reprocess/keep prompt fields for the UI modal. */
+  prompt: DuplicateReportPrompt;
+}
+
+/**
+ * The outcome kind for one add item.
+ */
 export type AddItemOutcomeKind = typeof AddItemOutcomeKind[keyof typeof AddItemOutcomeKind];
 
 
@@ -431,9 +564,32 @@ export interface PatchAssetRequest {
   currency?: string;
 }
 
+export type ListDocumentsParams = {
+/**
+ * Filter by processing status.
+ */
+status?: ListDocumentsStatus;
+/**
+ * Case-insensitive substring match on source filename.
+ */
+q?: string;
+};
+
+export type ListDocumentsStatus = typeof ListDocumentsStatus[keyof typeof ListDocumentsStatus];
+
+
+export const ListDocumentsStatus = {
+  processed: 'processed',
+  in_review: 'in_review',
+  failed: 'failed',
+  asset_less: 'asset_less',
+} as const;
+
 export type UploadDocumentBody = {
   file: Blob | File;
   owner_household_id?: string | null;
+  /** Optional free-text note (user directive) for the extraction. */
+  note?: string | null;
 };
 
 export type AddItemsBody = {
@@ -595,6 +751,60 @@ export const ListReviewsStatus = {
   rejected: 'rejected',
 } as const;
 
+export type listDocumentsResponse200 = {
+  data: Document[]
+  status: 200
+}
+
+export type listDocumentsResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type listDocumentsResponseSuccess = (listDocumentsResponse200) & {
+  headers: Headers;
+};
+export type listDocumentsResponseError = (listDocumentsResponse500) & {
+  headers: Headers;
+};
+
+export type listDocumentsResponse = (listDocumentsResponseSuccess | listDocumentsResponseError)
+
+export const getListDocumentsUrl = (userId: string,
+    params?: ListDocumentsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/users/${userId}/documents?${stringifiedParams}` : `/api/users/${userId}/documents`
+}
+
+/**
+ * Lists all documents for the user, joined with source metadata.
+ * Supports filtering by processing status and searching by filename.
+ * @summary List documents
+ */
+export const listDocuments = async (userId: string,
+    params?: ListDocumentsParams, options?: Parameters<typeof customFetch>[1]): Promise<listDocumentsResponse> => {
+
+  return customFetch<listDocumentsResponse>(getListDocumentsUrl(userId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export type uploadDocumentResponse201 = {
   data: Asset
   status: 201
@@ -608,6 +818,11 @@ export type uploadDocumentResponse202 = {
 export type uploadDocumentResponse400 = {
   data: Error
   status: 400
+}
+
+export type uploadDocumentResponse409 = {
+  data: DuplicateReport
+  status: 409
 }
 
 export type uploadDocumentResponse413 = {
@@ -638,7 +853,7 @@ export type uploadDocumentResponse502 = {
 export type uploadDocumentResponseSuccess = (uploadDocumentResponse201 | uploadDocumentResponse202) & {
   headers: Headers;
 };
-export type uploadDocumentResponseError = (uploadDocumentResponse400 | uploadDocumentResponse413 | uploadDocumentResponse415 | uploadDocumentResponse422 | uploadDocumentResponse500 | uploadDocumentResponse502) & {
+export type uploadDocumentResponseError = (uploadDocumentResponse400 | uploadDocumentResponse409 | uploadDocumentResponse413 | uploadDocumentResponse415 | uploadDocumentResponse422 | uploadDocumentResponse500 | uploadDocumentResponse502) & {
   headers: Headers;
 };
 
@@ -668,6 +883,9 @@ if(uploadDocumentBody?.file !== undefined) {
 if(uploadDocumentBody?.owner_household_id !== undefined && uploadDocumentBody.owner_household_id !== null) {
  formData.append(`owner_household_id`, uploadDocumentBody.owner_household_id);
  }
+if(uploadDocumentBody?.note !== undefined && uploadDocumentBody.note !== null) {
+ formData.append(`note`, uploadDocumentBody.note);
+ }
 
   return customFetch<uploadDocumentResponse>(getUploadDocumentUrl(userId),
   {
@@ -675,6 +893,175 @@ if(uploadDocumentBody?.owner_household_id !== undefined && uploadDocumentBody.ow
     method: 'POST'
     ,
     body: formData
+  }
+);}
+
+
+
+export type deleteDocumentResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteDocumentResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type deleteDocumentResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type deleteDocumentResponseSuccess = (deleteDocumentResponse204) & {
+  headers: Headers;
+};
+export type deleteDocumentResponseError = (deleteDocumentResponse404 | deleteDocumentResponse500) & {
+  headers: Headers;
+};
+
+export type deleteDocumentResponse = (deleteDocumentResponseSuccess | deleteDocumentResponseError)
+
+export const getDeleteDocumentUrl = (userId: string,
+    id: string,) => {
+
+
+
+
+  return `/api/users/${userId}/documents/${id}`
+}
+
+/**
+ * Soft-deletes the document and detaches it from its asset (the asset
+ * remains, now asset-less-eligible). The linked asset is NOT deleted.
+ * @summary Delete a document
+ */
+export const deleteDocument = async (userId: string,
+    id: string, options?: Parameters<typeof customFetch>[1]): Promise<deleteDocumentResponse> => {
+
+  return customFetch<deleteDocumentResponse>(getDeleteDocumentUrl(userId,id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export type reprocessDocumentResponse202 = {
+  data: Document
+  status: 202
+}
+
+export type reprocessDocumentResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type reprocessDocumentResponse409 = {
+  data: Error
+  status: 409
+}
+
+export type reprocessDocumentResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type reprocessDocumentResponseSuccess = (reprocessDocumentResponse202) & {
+  headers: Headers;
+};
+export type reprocessDocumentResponseError = (reprocessDocumentResponse404 | reprocessDocumentResponse409 | reprocessDocumentResponse500) & {
+  headers: Headers;
+};
+
+export type reprocessDocumentResponse = (reprocessDocumentResponseSuccess | reprocessDocumentResponseError)
+
+export const getReprocessDocumentUrl = (userId: string,
+    id: string,) => {
+
+
+
+
+  return `/api/users/${userId}/documents/${id}/reprocess`
+}
+
+/**
+ * Re-runs the extraction pipeline for the document. An optional comment
+ * is persisted to data.user_directive and passed into the extraction
+ * prompt. Returns 409 when the document is already in-flight (in_review).
+ * @summary Reprocess a document
+ */
+export const reprocessDocument = async (userId: string,
+    id: string,
+    reprocessDocumentRequest?: ReprocessDocumentRequest, options?: Parameters<typeof customFetch>[1]): Promise<reprocessDocumentResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<reprocessDocumentResponse>(getReprocessDocumentUrl(userId,id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(reprocessDocumentRequest)
+  }
+);}
+
+
+
+export type keepDocumentResponse200 = {
+  data: Document
+  status: 200
+}
+
+export type keepDocumentResponse404 = {
+  data: Error
+  status: 404
+}
+
+export type keepDocumentResponse500 = {
+  data: Error
+  status: 500
+}
+
+export type keepDocumentResponseSuccess = (keepDocumentResponse200) & {
+  headers: Headers;
+};
+export type keepDocumentResponseError = (keepDocumentResponse404 | keepDocumentResponse500) & {
+  headers: Headers;
+};
+
+export type keepDocumentResponse = (keepDocumentResponseSuccess | keepDocumentResponseError)
+
+export const getKeepDocumentUrl = (userId: string,
+    id: string,) => {
+
+
+
+
+  return `/api/users/${userId}/documents/${id}/keep`
+}
+
+/**
+ * Resolves the document's pending_choice to keep_existing. No
+ * re-extraction runs. Returns 200 with the updated document.
+ * @summary Keep existing (resolve pending choice)
+ */
+export const keepDocument = async (userId: string,
+    id: string, options?: Parameters<typeof customFetch>[1]): Promise<keepDocumentResponse> => {
+
+  return customFetch<keepDocumentResponse>(getKeepDocumentUrl(userId,id),
+  {
+    ...options,
+    method: 'POST'
+
+
   }
 );}
 

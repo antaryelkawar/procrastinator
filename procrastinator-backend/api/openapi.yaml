@@ -28,6 +28,41 @@ paths:
         description: The user the resource belongs to (path tenancy).
         schema:
           type: string
+    get:
+      operationId: listDocuments
+      summary: List documents
+      description: |
+        Lists all documents for the user, joined with source metadata.
+        Supports filtering by processing status and searching by filename.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Filter by processing status.
+          schema:
+            type: string
+            enum: [processed, in_review, failed, asset_less]
+        - name: q
+          in: query
+          required: false
+          description: Case-insensitive substring match on source filename.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The user's documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/document'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
     post:
       operationId: uploadDocument
       summary: Upload a document
@@ -48,6 +83,10 @@ paths:
                 owner_household_id:
                   type: string
                   nullable: true
+                note:
+                  type: string
+                  nullable: true
+                  description: Optional free-text note (user directive) for the extraction.
               required:
                 - file
       responses:
@@ -87,6 +126,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/error'
+        "409":
+          description: Duplicate document detected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/duplicate_report'
         "500":
           description: Internal error
           content:
@@ -95,6 +140,132 @@ paths:
                 $ref: '#/components/schemas/error'
         "502":
           description: Extraction failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/documents/{id}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        description: The document id.
+        schema:
+          type: string
+    delete:
+      operationId: deleteDocument
+      summary: Delete a document
+      description: |
+        Soft-deletes the document and detaches it from its asset (the asset
+        remains, now asset-less-eligible). The linked asset is NOT deleted.
+      responses:
+        "204":
+          description: Document deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/documents/{id}/reprocess:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        description: The document id.
+        schema:
+          type: string
+    post:
+      operationId: reprocessDocument
+      summary: Reprocess a document
+      description: |
+        Re-runs the extraction pipeline for the document. An optional comment
+        is persisted to data.user_directive and passed into the extraction
+        prompt. Returns 409 when the document is already in-flight (in_review).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/reprocess_document_request'
+      responses:
+        "202":
+          description: Reprocess accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/document'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "409":
+          description: Document is already in-flight
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+  /api/users/{userId}/documents/{id}/keep:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the resource belongs to (path tenancy).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        description: The document id.
+        schema:
+          type: string
+    post:
+      operationId: keepDocument
+      summary: Keep existing (resolve pending choice)
+      description: |
+        Resolves the document's pending_choice to keep_existing. No
+        re-extraction runs. Returns 200 with the updated document.
+      responses:
+        "200":
+          description: Kept existing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/document'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        "500":
+          description: Internal error
           content:
             application/json:
               schema:
@@ -1711,101 +1882,111 @@ components:
       properties:
         id:
           type: string
-        name:
+        owner_household_id:
           type: string
           nullable: true
-          description: Canonical product name (e.g. "Microwave Oven")
-        brand:
-          type: string
-          nullable: true
-        model:
-          type: string
-          nullable: true
-        serial_number:
-          type: string
-          nullable: true
-        asset_category:
-          type: string
-          nullable: true
-          description: Intrinsic category of the asset
-          enum:
-            - appliance
-            - electronics
-            - computing
-            - furniture
-            - vehicle
-            - tool
-            - clothing
-            - document_only
-            - other
-        category_confidence:
-          type: number
-          format: float
-          nullable: true
-          description: Confidence in the category assignment [0.0, 1.0]
-        purchase_date:
-          type: string
-          format: date-time
-          nullable: true
-        warranty_end:
-          type: string
-          format: date-time
-          nullable: true
-        price:
-          type: string
-          pattern: '^[0-9]+(\.[0-9]+)?$'
-          nullable: true
-        currency:
-          type: string
-          nullable: true
-        metadata:
-          type: object
-          additionalProperties: true
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
-        owner_household_id:
-          type: string
-          nullable: true
-        confidence:
-          type: number
-          format: float
-          nullable: true
-        deleted_at:
-          type: string
-          format: date-time
-          nullable: true
-          description: Set when the asset is soft-deleted
-        merged_into:
-          type: string
-          nullable: true
-          description: Id of the survivor asset if this asset was merged
-        merged_at:
-          type: string
-          format: date-time
-          nullable: true
-          description: Timestamp of the merge
-        merged_assets:
-          type: array
-          nullable: true
-          description: Assets that were merged into this asset (survivor view)
-          items:
-            type: object
-            properties:
-              asset_id:
-                type: string
-              merged_at:
-                type: string
-                format: date-time
-            required:
-              - asset_id
-              - merged_at
+        data:
+          type: object
+          description: The asset payload data (stored shape).
+          properties:
+            name:
+              type: string
+              nullable: true
+              description: Canonical product name (e.g. "Microwave Oven")
+            brand:
+              type: string
+              nullable: true
+            model:
+              type: string
+              nullable: true
+            serial_number:
+              type: string
+              nullable: true
+            asset_category:
+              type: string
+              nullable: true
+              description: Intrinsic category of the asset
+              enum:
+                - appliance
+                - electronics
+                - computing
+                - furniture
+                - vehicle
+                - tool
+                - clothing
+                - document_only
+                - other
+            category_confidence:
+              type: number
+              format: float
+              nullable: true
+              description: Confidence in the category assignment [0.0, 1.0]
+            category_user_set:
+              type: boolean
+              nullable: true
+              description: True when the user has manually set the category (sticky).
+            purchase_date:
+              type: string
+              format: date
+              nullable: true
+            warranty_end:
+              type: string
+              format: date
+              nullable: true
+            price:
+              type: string
+              pattern: '^[0-9]+(\.[0-9]+)?$'
+              nullable: true
+            currency:
+              type: string
+              nullable: true
+            metadata:
+              type: object
+              additionalProperties: true
+            confidence:
+              type: number
+              format: float
+              nullable: true
+            deleted_at:
+              type: string
+              format: date-time
+              nullable: true
+              description: Set when the asset is soft-deleted
+            merged_into:
+              type: string
+              nullable: true
+              description: Id of the survivor asset if this asset was merged
+            merged_at:
+              type: string
+              format: date-time
+              nullable: true
+              description: Timestamp of the merge
+            merged_assets:
+              type: array
+              nullable: true
+              description: Assets that were merged into this asset (survivor view)
+              items:
+                type: object
+                properties:
+                  asset_id:
+                    type: string
+                  merged_at:
+                    type: string
+                    format: date-time
+                required:
+                  - asset_id
+                  - merged_at
+          required:
+            - metadata
       required:
         - id
-        - metadata
+        - data
         - created_at
         - updated_at
     document:
@@ -1814,93 +1995,123 @@ components:
       properties:
         id:
           type: string
-        doc_type:
+        asset_id:
           type: string
-          enum:
-            - invoice
-            - receipt
-            - warranty
-            - amc
-            - statement
-            - other
+          nullable: true
+          description: The asset this document is linked to (null when detached).
+        source_id:
+          type: string
         source_filename:
           type: string
         source_uploaded_at:
           type: string
           format: date-time
-        created_at:
-          type: string
-          format: date-time
         owner_household_id:
           type: string
           nullable: true
-        confidence:
-          type: number
-          format: float
-          nullable: true
-      required:
-        - id
-        - doc_type
-        - source_filename
-        - source_uploaded_at
-        - created_at
-    account:
-      type: object
-      description: A financial account with its derived balance.
-      properties:
-        id:
+        status:
           type: string
-        name:
-          type: string
-        type:
-          type: string
-        currency:
-          type: string
-        institution:
-          type: string
-          nullable: true
-        external_descriptor:
-          type: string
-          nullable: true
-        balance:
-          type: string
-          pattern: '^[0-9]+(\.[0-9]+)?$'
+          enum:
+            - processed
+            - in_review
+            - failed
+            - asset_less
+          description: |
+            Processing status: processed (asset linked), in_review (pending
+            review), failed (extraction failed), asset_less (no matching asset).
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+        data:
+          type: object
+          description: The document payload data (stored shape).
+          properties:
+            doc_type:
+              type: string
+              enum:
+                - invoice
+                - receipt
+                - warranty
+                - amc
+                - statement
+                - other
+            confidence:
+              type: number
+              format: float
+              nullable: true
+            extracted_fields:
+              type: object
+              additionalProperties: true
+              nullable: true
+            raw_extraction:
+              type: string
+              nullable: true
+            user_directive:
+              type: string
+              nullable: true
+          required:
+            - doc_type
       required:
         - id
-        - name
-        - type
-        - currency
-        - balance
+        - source_id
+        - source_filename
+        - source_uploaded_at
+        - status
         - created_at
         - updated_at
+        - data
+    account:
+      type: object
+      description: A financial account with its derived balance.
+      properties:
+        id:
+          type: string
+        owner_household_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        data:
+          type: object
+          description: The account payload data (stored shape).
+          properties:
+            name:
+              type: string
+            account_type:
+              type: string
+            currency:
+              type: string
+            institution:
+              type: string
+              nullable: true
+            external_descriptor:
+              type: string
+              nullable: true
+            balance:
+              type: string
+              pattern: '^[0-9]+(\.[0-9]+)?$'
+          required:
+            - name
+            - account_type
+            - currency
+            - balance
+      required:
+        - id
+        - created_at
+        - updated_at
+        - data
     movement:
       type: object
       description: A money movement in the ledger.
       properties:
         id:
-          type: string
-        kind:
-          type: string
-        amount:
-          type: string
-          pattern: '^[0-9]+(\.[0-9]+)?$'
-        currency:
-          type: string
-        occurred_on:
-          type: string
-          format: date
-        recorded_at:
-          type: string
-          format: date-time
-        description:
-          type: string
-        origin:
           type: string
         source_account_id:
           type: string
@@ -1911,38 +2122,64 @@ components:
         import_batch_id:
           type: string
           nullable: true
-        import_line:
-          type: integer
-          nullable: true
-        external_reference:
-          type: string
-          nullable: true
         linked_document_id:
           type: string
           nullable: true
-        link_creator:
+        owner_household_id:
           type: string
           nullable: true
-        link_conflicting:
-          type: boolean
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+        data:
+          type: object
+          description: The movement payload data (stored shape).
+          properties:
+            kind:
+              type: string
+            amount:
+              type: string
+              pattern: '^[0-9]+(\.[0-9]+)?$'
+            currency:
+              type: string
+            occurred_on:
+              type: string
+              format: date
+            recorded_at:
+              type: string
+              format: date-time
+            description:
+              type: string
+            origin:
+              type: string
+            import_line:
+              type: integer
+              nullable: true
+            external_reference:
+              type: string
+              nullable: true
+            link_creator:
+              type: string
+              nullable: true
+            link_conflicting:
+              type: boolean
+          required:
+            - kind
+            - amount
+            - currency
+            - occurred_on
+            - recorded_at
+            - description
+            - origin
+            - link_conflicting
       required:
         - id
-        - kind
-        - amount
-        - currency
-        - occurred_on
-        - recorded_at
-        - description
-        - origin
-        - link_conflicting
         - created_at
         - updated_at
+        - data
     import_source:
       type: object
       description: Metadata about an uploaded statement's source.
@@ -2008,49 +2245,54 @@ components:
       properties:
         id:
           type: string
-        state:
-          type: string
         account_id:
           type: string
         source:
           $ref: '#/components/schemas/import_source'
-        filename:
-          type: string
-        format:
-          type: string
-        line_count_valid:
-          type: integer
-        line_count_duplicate:
-          type: integer
-        line_count_possible_dup:
-          type: integer
-        line_count_error:
-          type: integer
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
-        lines:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/import_line'
+        data:
+          type: object
+          description: The import batch payload data (stored shape).
+          properties:
+            state:
+              type: string
+            filename:
+              type: string
+            format:
+              type: string
+            line_count_valid:
+              type: integer
+            line_count_duplicate:
+              type: integer
+            line_count_possible_dup:
+              type: integer
+            line_count_error:
+              type: integer
+            lines:
+              type: array
+              nullable: true
+              items:
+                $ref: '#/components/schemas/import_line'
+          required:
+            - state
+            - filename
+            - format
+            - line_count_valid
+            - line_count_duplicate
+            - line_count_possible_dup
+            - line_count_error
       required:
         - id
-        - state
         - account_id
         - source
-        - filename
-        - format
-        - line_count_valid
-        - line_count_duplicate
-        - line_count_possible_dup
-        - line_count_error
         - created_at
         - updated_at
-        - lines
+        - data
     commit_summary:
       type: object
       description: The result of committing an import batch.
@@ -2080,23 +2322,33 @@ components:
       properties:
         id:
           type: string
-        display_name:
-          type: string
         owner_id:
           type: string
         created_at:
+          type: string
+          format: date-time
+        updated_at:
           type: string
           format: date-time
         members:
           type: array
           items:
             $ref: '#/components/schemas/household_member'
+        data:
+          type: object
+          description: The household payload data (stored shape).
+          properties:
+            display_name:
+              type: string
+          required:
+            - display_name
       required:
         - id
-        - display_name
         - owner_id
         - created_at
+        - updated_at
         - members
+        - data
     error:
       type: object
       description: The standard error envelope for non-2xx responses.
@@ -2268,21 +2520,11 @@ components:
       properties:
         id:
           type: string
-        doc_type:
+        source_id:
           type: string
-        confidence:
-          type: number
-          format: float
+        owner_household_id:
+          type: string
           nullable: true
-        candidate_fields:
-          type: object
-          additionalProperties: true
-        state:
-          type: string
-          enum:
-            - pending
-            - approved
-            - rejected
         source_filename:
           type: string
         source_uploaded_at:
@@ -2297,18 +2539,57 @@ components:
         created_at:
           type: string
           format: date-time
-        decided_at:
+        updated_at:
           type: string
           format: date-time
-          nullable: true
+        data:
+          type: object
+          description: The ingest review payload data (stored shape).
+          properties:
+            doc_type:
+              type: string
+            confidence:
+              type: number
+              format: float
+              nullable: true
+            candidate_fields:
+              type: object
+              additionalProperties: true
+            state:
+              type: string
+              enum:
+                - pending
+                - approved
+                - rejected
+            best_matched_asset_id:
+              type: string
+              nullable: true
+            decided_at:
+              type: string
+              format: date-time
+              nullable: true
+            decided_by:
+              type: string
+              nullable: true
+            raw_extraction:
+              type: string
+              nullable: true
+            provenance:
+              type: object
+              additionalProperties: true
+              nullable: true
+          required:
+            - doc_type
+            - candidate_fields
+            - state
       required:
         - id
-        - doc_type
-        - candidate_fields
-        - state
+        - source_id
         - source_filename
         - source_uploaded_at
         - created_at
+        - updated_at
+        - data
     approve_review_response:
       type: object
       description: 'Response for approving a review: the committed asset and the updated review.'
@@ -2320,18 +2601,63 @@ components:
       required:
         - asset
         - review
+    reprocess_document_request:
+      type: object
+      description: Optional comment for the reprocess request.
+      properties:
+        comment:
+          type: string
+          nullable: true
+          description: Free-text comment passed as the extraction directive.
+    duplicate_report:
+      type: object
+      description: The structured 409 response when a duplicate document upload is detected.
+      properties:
+        code:
+          type: string
+          const: "duplicate"
+        existing_document_id:
+          type: string
+          nullable: true
+          description: The existing document id, or null when the duplicate source has no linked document (e.g. statement-classified sources).
+        existing_source_filename:
+          type: string
+        existing_source_uploaded_at:
+          type: string
+          format: date-time
+        existing_asset_id:
+          type: string
+          nullable: true
+        prompt:
+          type: object
+          description: The reprocess/keep prompt fields for the UI modal.
+          properties:
+            reprocess_uri:
+              type: string
+            keep_uri:
+              type: string
+            expires_at:
+              type: string
+              format: date-time
+            timeout_toast:
+              type: string
+          required: [reprocess_uri, keep_uri, expires_at, timeout_toast]
+      required: [code, existing_source_filename, existing_source_uploaded_at, prompt]
+    add_item_outcome_kind:
+      type: string
+      description: The outcome kind for one add item.
+      enum:
+        - asset_committed
+        - held_for_review
+        - duplicate
+        - statement_preview
+        - failed
     add_item_outcome:
       type: object
       description: The uniform per-item outcome of a unified add request.
       properties:
         kind:
-          type: string
-          enum:
-            - asset_committed
-            - held_for_review
-            - duplicate
-            - statement_preview
-            - failed
+          $ref: '#/components/schemas/add_item_outcome_kind'
         asset_id:
           type: string
           nullable: true

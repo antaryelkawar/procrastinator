@@ -1,6 +1,7 @@
 package entity
 
-// Document classification vocabulary (6 values, migration 00006).
+// Document classification vocabulary (6 values), stored in the document payload
+// under data.doc_type since the fresh uniform-jsonb schema (00001_schema).
 // These classify the *document*, not the asset: the asset carries its own
 // intrinsic AssetCategory.
 

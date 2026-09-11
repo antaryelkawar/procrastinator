@@ -30,8 +30,8 @@ func TestCreateHousehold(t *testing.T) {
 		if hh.Id == "" {
 			t.Error("id is empty, want non-empty")
 		}
-		if hh.DisplayName != "My Family" {
-			t.Errorf("display_name = %q, want %q", hh.DisplayName, "My Family")
+		if hh.Data.DisplayName != "My Family" {
+			t.Errorf("display_name = %q, want %q", hh.Data.DisplayName, "My Family")
 		}
 		if hh.OwnerId != "test-user" {
 			t.Errorf("owner_id = %q, want %q", hh.OwnerId, "test-user")
@@ -249,8 +249,8 @@ func TestListHouseholds(t *testing.T) {
 		if len(list) != 1 {
 			t.Fatalf("list count = %d, want 1", len(list))
 		}
-		if list[0].DisplayName != "My Family" {
-			t.Errorf("display_name = %q, want %q", list[0].DisplayName, "My Family")
+		if list[0].Data.DisplayName != "My Family" {
+			t.Errorf("display_name = %q, want %q", list[0].Data.DisplayName, "My Family")
 		}
 		if list[0].OwnerId != "test-user" {
 			t.Errorf("owner_id = %q, want %q", list[0].OwnerId, "test-user")
@@ -348,8 +348,8 @@ func TestGetHousehold(t *testing.T) {
 		if got.Id != created.Id {
 			t.Errorf("id = %q, want %q", got.Id, created.Id)
 		}
-		if got.DisplayName != "My Family" {
-			t.Errorf("display_name = %q, want %q", got.DisplayName, "My Family")
+		if got.Data.DisplayName != "My Family" {
+			t.Errorf("display_name = %q, want %q", got.Data.DisplayName, "My Family")
 		}
 		if got.OwnerId != "test-user" {
 			t.Errorf("owner_id = %q, want %q", got.OwnerId, "test-user")

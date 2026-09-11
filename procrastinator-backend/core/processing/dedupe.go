@@ -62,10 +62,12 @@ func DedupeSource(ctx context.Context,
 	}
 
 	dup := &Duplicate{
-		SourceID:     src.ID,
-		DocumentID:   docID,
-		AssetID:      assetID,
-		AssetDeleted: assetDeleted,
+		SourceID:         src.ID,
+		DocumentID:       docID,
+		AssetID:          assetID,
+		AssetDeleted:     assetDeleted,
+		SourceFilename:   src.Filename,
+		SourceUploadedAt: src.UploadedAt,
 	}
 	return Outcome{Kind: OutcomeDuplicate, Duplicate: dup}, true, nil
 }

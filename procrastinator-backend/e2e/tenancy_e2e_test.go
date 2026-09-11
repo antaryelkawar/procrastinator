@@ -6,8 +6,8 @@
 // backstop on the shared tables).
 //
 // Precondition: the compose `postgres` service is running and migrations are
-// applied to v6 (00006_asset_rework). When the database is
-// unreachable or not migrated, the test skips with a reason rather than failing.
+// applied to v1 (00001_schema, the fresh uniform-jsonb set). When the database
+// is unreachable or not migrated, the test skips with a reason rather than failing.
 //
 // The test is self-contained and re-runnable: it provisions a unique
 // per-run prefix (e2e-<unix>-<hex>) and three users, then cleans up its rows
@@ -237,14 +237,14 @@ func TestTenancyE2E(t *testing.T) {
 		t.Skipf("PG unreachable (ping): %v", err)
 	}
 
-	// The owner model needs migration 00006 (asset rework).
-	// Skip if the schema is not at v6 rather than failing on a missing object.
+	// The owner model needs the fresh uniform-jsonb schema (00001).
+	// Skip if the schema is not at v1 rather than failing on a missing object.
 	var maxVersion int
 	if err := pool.QueryRow(ctx, `SELECT coalesce(max(version_id), 0) FROM goose_db_version`).Scan(&maxVersion); err != nil {
 		t.Skipf("check goose_db_version: %v", err)
 	}
-	if maxVersion != 6 {
-		t.Skipf("schema not at v6 (final set); max goose version is %d; run goose migrations to v6 first", maxVersion)
+	if maxVersion != 1 {
+		t.Skipf("schema not at v1 (fresh uniform-jsonb set); max goose version is %d; run goose migrations to v1 first", maxVersion)
 	}
 
 	// Unique per-run prefix (matches ^[A-Za-z0-9_-]{1,64}$).
@@ -656,8 +656,8 @@ func TestConfidenceReviewE2E(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT coalesce(max(version_id), 0) FROM goose_db_version`).Scan(&maxVersion); err != nil {
 		t.Skipf("check goose_db_version: %v", err)
 	}
-	if maxVersion != 6 {
-		t.Skipf("schema not at v6; max goose version is %d", maxVersion)
+	if maxVersion != 1 {
+		t.Skipf("schema not at v1 (fresh uniform-jsonb set); max goose version is %d", maxVersion)
 	}
 
 	var rb [4]byte
@@ -941,8 +941,8 @@ func TestSearchIsolationE2E(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT coalesce(max(version_id), 0) FROM goose_db_version`).Scan(&maxVersion); err != nil {
 		t.Skipf("check goose_db_version: %v", err)
 	}
-	if maxVersion != 6 {
-		t.Skipf("schema not at v6; max goose version is %d", maxVersion)
+	if maxVersion != 1 {
+		t.Skipf("schema not at v1 (fresh uniform-jsonb set); max goose version is %d", maxVersion)
 	}
 
 	var rb [4]byte

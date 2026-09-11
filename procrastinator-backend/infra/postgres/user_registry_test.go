@@ -96,7 +96,7 @@ func TestUserRegistry_FKEforcement(t *testing.T) {
 		t.Fatalf("bind user: %v", err)
 	}
 	_, err = tx.Exec(ctx,
-		`INSERT INTO assets (id, owner_id, doc_type) VALUES (gen_random_uuid(), 'unregistered-user', 'invoice')`)
+		`INSERT INTO assets (owner_id) VALUES ('unregistered-user')`)
 	pgFKViolation(t, "INSERT asset for unregistered user", err)
 }
 

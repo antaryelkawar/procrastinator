@@ -35,3 +35,5 @@ export type PatchMovementRequest = components['schemas']['patch_movement_request
 export type LinkMovementRequest = components['schemas']['link_movement_request'];
 export type MergeRequest = components['schemas']['merge_request'];
 export type PatchAssetRequest = components['schemas']['patch_asset_request'];
+export type DuplicateReport = components['schemas']['duplicate_report'];
+export type ReprocessDocumentRequest = components['schemas']['reprocess_document_request'];

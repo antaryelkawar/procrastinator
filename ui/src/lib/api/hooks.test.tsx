@@ -10,31 +10,32 @@ vi.mock('../../context/active-user', async (importOriginal) => {
   return { ...actual, useActiveUser: vi.fn() };
 });
 import * as upload from './upload';
+// Orphan mutations + shared plumbing live in ./hooks; the feature-facing hooks
+// are co-located with their features (asset-management-v2 modular-structure).
 import {
-  useAccounts,
-  useAdd,
-  useAsset,
-  useAssetDocuments,
-  useAssets,
+  useDeleteAsset,
+  useMergeAsset,
+  usePatchAsset,
+  useUnlinkMovement,
+  useUploadDocument,
+} from './hooks';
+import { useAccounts, useAssetDocuments, useAssets } from '@/features/docs/hooks';
+import { useAsset } from '@/features/assets/use-asset';
+import {
   useBatch,
   useBatches,
   useCommitBatch,
   useCreateAccount,
   useCreateMovement,
-  useDeleteAsset,
   useDeleteMovement,
   useDiscardBatch,
   useLinkMovement,
-  useMergeAsset,
   useMovements,
-  usePatchAsset,
   usePatchDescription,
-  useRestoreAsset,
-  useSearch,
-  useUnlinkMovement,
-  useUploadDocument,
   useUploadStatement,
-} from './hooks';
+} from '@/features/finance/hooks';
+import { useAdd, useRestoreAsset } from '@/features/add/hooks';
+import { useSearch } from '@/features/search/use-search';
 import type { MovementFilterInput, SearchFilterInput } from './hooks';
 import { ApiError } from './errors';
 import type {
@@ -94,54 +95,64 @@ const ALICE = 'alice';
 
 const assetFixture: Asset = {
   id: 'a1',
-  brand: 'Dell',
-  model: 'XPS 13',
-  serial_number: 'SN-1',
-  purchase_date: '2026-01-15T00:00:00Z',
-  warranty_end: '2026-09-01T00:00:00Z',
-  price: '39999.99',
-  currency: 'INR',
-  metadata: {},
+  data: {
+    brand: 'Dell',
+    model: 'XPS 13',
+    serial_number: 'SN-1',
+    purchase_date: '2026-01-15T00:00:00Z',
+    warranty_end: '2026-09-01T00:00:00Z',
+    price: '39999.99',
+    currency: 'INR',
+    metadata: {},
+  },
   created_at: '2026-08-01T10:00:00Z',
   updated_at: '2026-08-01T10:00:00Z',
 };
 
 const documentFixture: Document = {
   id: 'd1',
-  doc_type: 'invoice',
+  source_id: 's1',
+  data: {
+    doc_type: 'invoice',
+  },
   source_filename: 'invoice.pdf',
   source_uploaded_at: '2026-08-01T10:00:00Z',
+  status: 'processed',
   created_at: '2026-08-01T10:00:00Z',
+  updated_at: '2026-08-01T10:00:00Z',
 };
 
 const accountFixture: Account = {
   id: 'acc1',
-  name: 'Main',
-  type: 'bank',
-  currency: 'INR',
-  balance: '150',
+  data: {
+    name: 'Main',
+    account_type: 'bank',
+    currency: 'INR',
+    balance: '150',
+  },
   created_at: '2026-08-01T10:00:00Z',
   updated_at: '2026-08-01T10:00:00Z',
 };
 
 const movementFixture: Movement = {
   id: 'mv1',
-  kind: 'expense',
-  amount: '100',
-  currency: 'INR',
-  occurred_on: '2026-08-20',
-  recorded_at: '2026-08-20T09:00:00Z',
-  description: 'groceries',
-  origin: 'manual',
   source_account_id: 'acc1',
-  link_conflicting: false,
+  data: {
+    kind: 'expense',
+    amount: '100',
+    currency: 'INR',
+    occurred_on: '2026-08-20',
+    recorded_at: '2026-08-20T09:00:00Z',
+    description: 'groceries',
+    origin: 'manual',
+    link_conflicting: false,
+  },
   created_at: '2026-08-20T09:00:00Z',
   updated_at: '2026-08-20T09:00:00Z',
 };
 
 const batchFixture: ImportBatch = {
   id: 'b1',
-  state: 'preview',
   account_id: 'acc1',
   source: {
     id: 's1',
@@ -151,24 +162,33 @@ const batchFixture: ImportBatch = {
     sha256: 'abc123',
     uploaded_at: '2026-08-20T09:00:00Z',
   },
-  filename: 'statement.csv',
-  format: 'csv',
-  line_count_valid: 8,
-  line_count_duplicate: 1,
-  line_count_possible_dup: 0,
-  line_count_error: 1,
+  data: {
+    state: 'preview',
+    filename: 'statement.csv',
+    format: 'csv',
+    line_count_valid: 8,
+    line_count_duplicate: 1,
+    line_count_possible_dup: 0,
+    line_count_error: 1,
+    lines: null,
+  },
   created_at: '2026-08-20T09:00:00Z',
   updated_at: '2026-08-20T09:00:00Z',
-  lines: null,
 };
 
-const discardedBatchFixture: ImportBatch = { ...batchFixture, state: 'discarded' };
+const discardedBatchFixture: ImportBatch = {
+  ...batchFixture,
+  data: { ...batchFixture.data, state: 'discarded' },
+};
 const commitSummaryFixture: CommitSummary = { created: 8, skipped: 1 };
 const pdfFile = new File(['invoice'], 'invoice.pdf', { type: 'application/pdf' });
 const csvFile = new File(['date,amount'], 'statement.csv', { type: 'text/csv' });
 
 const restoredAssetFixture: Asset = { ...assetFixture };
-const patchedAssetFixture: Asset = { ...assetFixture, name: 'Microwave Oven' };
+const patchedAssetFixture: Asset = {
+  ...assetFixture,
+  data: { ...assetFixture.data, name: 'Microwave Oven' },
+};
 
 const addOutcomesFixture: AddItemOutcome[] = [
   { kind: 'asset_committed', asset_id: 'a1' },

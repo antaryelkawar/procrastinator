@@ -39,6 +39,9 @@ import type {
   mergeAssetResponseSuccess,
   addItemsResponseSuccess,
   listAssetDocumentsResponseSuccess,
+  listDocumentsResponseSuccess,
+  reprocessDocumentResponseSuccess,
+  keepDocumentResponseSuccess,
   listAccountsResponseSuccess,
   getAccountResponseSuccess,
   createAccountResponseSuccess,
@@ -74,6 +77,10 @@ import {
   mergeAsset as _mergeAsset,
   addItems as _addItems,
   listAssetDocuments as _listAssetDocuments,
+  listDocuments as _listDocuments,
+  deleteDocument as _deleteDocument,
+  reprocessDocument as _reprocessDocument,
+  keepDocument as _keepDocument,
   listAccounts as _listAccounts,
   getAccount as _getAccount,
   createAccount as _createAccount,
@@ -170,6 +177,85 @@ export async function addItems(
 ): Promise<AddItemOutcome[]> {
   const res = await _addItems(userId, body as AddItemsBody);
   return (res as addItemsResponseSuccess).data;
+}
+
+// ---------------------------------------------------------------------------
+// Document list (documents feature, task 8.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * The derived lifecycle status the backend attaches to each document in
+ * `GET /api/users/{uid}/documents` (server-side, not part of the stored
+ * `document` payload — the generated type predates it).
+ */
+export type DocumentStatus = 'processed' | 'in_review' | 'failed' | 'asset_less';
+
+/** A document row as served by the list endpoint. (Document now includes `status` in the schema.) */
+export type DocumentRow = Document;
+
+/**
+ * List the active user's documents (task 8.1). Optional `status` filter
+ * (one of the four derived states) and `q` filename substring; both are
+ * omitted from the query string when absent/blank.
+ */
+export async function listDocuments(
+  userId: string,
+  params?: { status?: DocumentStatus; q?: string }
+): Promise<DocumentRow[]> {
+  const res = await _listDocuments(userId, params);
+  return (res as listDocumentsResponseSuccess).data;
+}
+
+/**
+ * Soft-delete + detach a document (task 8.1); the linked asset is preserved.
+ * 204 No Content on success; throws `ApiError` on non-2xx.
+ */
+export async function deleteDocument(userId: string, documentId: string): Promise<void> {
+  await _deleteDocument(userId, documentId);
+}
+
+// ---------------------------------------------------------------------------
+// Document reprocess / keep (duplicate resolution, task 7.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Match a `reprocess_uri` / `keep_uri` from a `DuplicateReport.prompt` (e.g.
+ * `/api/users/{uid}/documents/{docId}/reprocess`) and extract the document id.
+ * Returns `null` when the URI does not match the expected shape.
+ */
+export function parseDocumentChoiceUri(
+  uri: string,
+  action: 'reprocess' | 'keep'
+): { userId: string; documentId: string } | null {
+  const match = uri.match(/\/api\/users\/([^/]+)\/documents\/([^/]+)\/(reprocess|keep)(?:\?.*)?$/);
+  if (!match || match[3] !== action) {
+    return null;
+  }
+  return { userId: match[1] as string, documentId: match[2] as string };
+}
+
+/**
+ * Reprocess a duplicate document (POST `{reprocess_uri}`). The optional
+ * `comment` is a user hint passed to the extractor. Returns the reprocessed
+ * `document` entity.
+ */
+export async function reprocessDocument(
+  userId: string,
+  documentId: string,
+  comment?: string
+): Promise<Document> {
+  const body = comment !== undefined && comment !== null && comment.trim() !== '' ? { comment } : undefined;
+  const res = await _reprocessDocument(userId, documentId, body);
+  return (res as reprocessDocumentResponseSuccess).data;
+}
+
+/**
+ * Keep the existing document on a duplicate (POST `{keep_uri}`, no body).
+ * Returns the kept `document` entity.
+ */
+export async function keepDocument(userId: string, documentId: string): Promise<Document> {
+  const res = await _keepDocument(userId, documentId);
+  return (res as keepDocumentResponseSuccess).data;
 }
 
 // ---------------------------------------------------------------------------

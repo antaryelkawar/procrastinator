@@ -27,23 +27,21 @@ func TestScanReviewDecodesJSONB(t *testing.T) {
 
 	created := time.Date(2025, 6, 1, 12, 30, 45, 0, time.UTC)
 
-	// A fake rowScanner returning exactly 14 values in ingest_reviews column order.
+	// A fake rowScanner returning exactly 8 values in the ingest_reviews
+	// codec selectCols order (id, owner_id, owner_household_id, source_id,
+	// deleted_at, created_at, updated_at, payload). All the data portion
+	// lives in the payload's data object; numbers arrive as json.Number
+	// (UseNumber decode output).
 	fake := fakeRow{
 		values: []any{
 			"rev-id",
 			"owner-id",
 			strPtr("hh-id"),
 			"src-id",
-			"invoice",
-			[]byte(`{"brand":"Samsung","model":"WF80A"}`),
-			[]byte(`"raw llm output"`),
-			f64ptr(0.42),
-			strPtr("asset-id"),
-			entity.ReviewStatePending,
+			(*time.Time)(nil),
 			created,
 			(*time.Time)(nil),
-			(*string)(nil),
-			[]byte(`{"workers":[{"model":"gpt-4","result":"ok"}],"candidates":["a1","a2"]}`),
+			[]byte(`{"data":{"doc_type":"invoice","candidate_fields":{"brand":"Samsung","model":"WF80A"},"raw_extraction":"raw llm output","confidence":0.42,"best_matched_asset_id":"asset-id","state":"pending","provenance":{"workers":[{"model":"gpt-4","result":"ok"}],"candidates":["a1","a2"]}}}`),
 		},
 	}
 
@@ -107,9 +105,10 @@ func TestScanReviewNoRows(t *testing.T) {
 	}
 }
 
-// TestReviewToMapNonZero verifies reviewToMap includes only non-zero/non-nil
-// fields and encodes the jsonb columns.
-func TestReviewToMapNonZero(t *testing.T) {
+// TestReviewCodecMarshal verifies reviewCodec.marshal includes only
+// non-zero/non-nil fields in the data.* object and that columns() returns the
+// non-payload column values (owner_household_id, source_id).
+func TestReviewCodecMarshal(t *testing.T) {
 	t.Parallel()
 
 	created := time.Date(2025, 6, 1, 12, 30, 45, 0, time.UTC)
@@ -130,64 +129,77 @@ func TestReviewToMapNonZero(t *testing.T) {
 		Provenance:         map[string]any{"workers": []any{"w1", "w2"}},
 	}
 
-	m := reviewToMap(r)
+	data, clear := reviewCodec.marshal(r)
+	if len(clear) != 0 {
+		t.Errorf("clear = %v, want empty (reviews have no clearing semantics)", clear)
+	}
 
-	// Scalar (non-pointer) keys compared by value.
+	// Scalar data keys compared by value.
 	wantScalars := map[string]any{
-		"id":        "rev-id",
-		"owner_id":  "owner-id",
-		"source_id": "src-id",
-		"doc_type":  "invoice",
-		"state":     "approved",
+		"doc_type":              "invoice",
+		"raw_extraction":        "raw",
+		"best_matched_asset_id": "asset-id",
+		"state":                 "approved",
+		"decided_by":            "decider",
+		"decided_at":            "2025-06-01T12:30:45Z",
 	}
 	for k, v := range wantScalars {
-		got, ok := m[k]
+		got, ok := data[k]
 		if !ok {
-			t.Fatalf("missing key %q in map: %v", k, m)
+			t.Fatalf("missing data key %q: %v", k, data)
 		}
 		if got != v {
-			t.Errorf("key %q = %v, want %v", k, got, v)
+			t.Errorf("data[%q] = %v, want %v", k, got, v)
 		}
 	}
 
-	// Pointer keys compared by dereferenced value.
-	assertPtrString(t, "owner_household_id", m["owner_household_id"], "hh-id")
-	assertPtrFloat64(t, "confidence", m["confidence"], 0.9)
-	assertPtrString(t, "best_matched_asset_id", m["best_matched_asset_id"], "asset-id")
-	assertPtrString(t, "decided_by", m["decided_by"], "decider")
-	gotAt, ok := m["decided_at"].(*time.Time)
-	if !ok {
-		t.Fatalf("decided_at = %T, want *time.Time", m["decided_at"])
+	// Pointer-backed keys compared by dereferenced value.
+	if cf, ok := data["candidate_fields"].(map[string]any); !ok || cf["brand"] != "Samsung" {
+		t.Errorf("data[candidate_fields] = %v, want brand=Samsung", data["candidate_fields"])
 	}
-	if !gotAt.Equal(created) {
-		t.Errorf("decided_at = %v, want %v", *gotAt, created)
+	if prov, ok := data["provenance"].(map[string]any); !ok || prov["workers"] == nil {
+		t.Errorf("data[provenance] = %v, want workers map entry", data["provenance"])
 	}
+	assertDataFloat64(t, "confidence", data, 0.9)
 
-	// jsonb columns are JSON-encoded bytes.
-	if cf, ok := m["candidate_fields"].([]byte); !ok {
-		t.Fatalf("candidate_fields = %T, want []byte", m["candidate_fields"])
-	} else if string(cf) != `{"brand":"Samsung"}` {
-		t.Errorf("candidate_fields = %s, want encoded map", cf)
+	// columns() carries the non-payload column values.
+	cols := reviewCodec.columns(r)
+	if len(cols) != 2 {
+		t.Fatalf("columns = %v, want owner_household_id + source_id", cols)
 	}
-	if re, ok := m["raw_extraction"].([]byte); !ok {
-		t.Fatalf("raw_extraction = %T, want []byte", m["raw_extraction"])
-	} else if string(re) != `"raw"` {
-		t.Errorf("raw_extraction = %s, want encoded string", re)
-	}
-	if prov, ok := m["provenance"].([]byte); !ok {
-		t.Fatalf("provenance = %T, want []byte", m["provenance"])
-	} else if len(prov) == 0 {
-		t.Errorf("provenance is empty, want encoded map")
+	assertPtrString(t, "owner_household_id", cols["owner_household_id"], "hh-id")
+	if cols["source_id"] != "src-id" {
+		t.Errorf("columns[source_id] = %v, want src-id", cols["source_id"])
 	}
 }
 
-// TestReviewToMapZero verifies reviewToMap omits all zero-valued fields.
-func TestReviewToMapZero(t *testing.T) {
+// TestReviewCodecMarshalZero verifies reviewCodec.marshal on a zero entity
+// produces an empty data object and empty columns (no clearing keys).
+func TestReviewCodecMarshalZero(t *testing.T) {
 	t.Parallel()
 
-	m := reviewToMap(entity.IngestReview{})
-	if len(m) != 0 {
-		t.Fatalf("reviewToMap(zero) = %v, want empty map", m)
+	data, clear := reviewCodec.marshal(entity.IngestReview{})
+	if len(data) != 0 {
+		t.Errorf("data = %v, want empty", data)
+	}
+	if len(clear) != 0 {
+		t.Errorf("clear = %v, want empty", clear)
+	}
+	cols := reviewCodec.columns(entity.IngestReview{})
+	if len(cols) != 0 {
+		t.Errorf("columns = %v, want empty", cols)
+	}
+}
+
+// assertDataFloat64 checks a numeric data-map value against a float64.
+func assertDataFloat64(t *testing.T, key string, data map[string]any, want float64) {
+	t.Helper()
+	f, ok := numFloat64(data[key])
+	if !ok {
+		t.Fatalf("data[%q] = %v, want numeric %v", key, data[key], want)
+	}
+	if f != want {
+		t.Errorf("data[%q] = %v, want %v", key, f, want)
 	}
 }
 

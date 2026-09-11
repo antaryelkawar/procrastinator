@@ -42,7 +42,7 @@ func (r *MovementRepository) BalanceForAccount(ctx context.Context, accountID st
 		args = append(args, accountID)
 		accN := len(args)
 		stmt := fmt.Sprintf(
-			"SELECT COALESCE(SUM(amount) FILTER (WHERE destination_account_id = $%d), 0) - COALESCE(SUM(amount) FILTER (WHERE source_account_id = $%d), 0) FROM money_movements WHERE %s",
+			"SELECT COALESCE(SUM((payload->'data'->>'amount')::numeric) FILTER (WHERE destination_account_id = $%d), 0) - COALESCE(SUM((payload->'data'->>'amount')::numeric) FILTER (WHERE source_account_id = $%d), 0) FROM money_movements WHERE %s",
 			accN, accN, vis)
 		return q.QueryRow(ctx, stmt, args...).Scan(&balance)
 	})
@@ -60,10 +60,10 @@ func (r *MovementRepository) MovementsForAccount(ctx context.Context, accountID 
 	if err != nil {
 		return nil, err
 	}
-	if err := validateFilters(r.filters, o.Filters); err != nil {
+	if err := validateFilters(r.codec.filters, o.Filters); err != nil {
 		return nil, err
 	}
-	if err := validateOrderBy(r.filters, o.OrderBy); err != nil {
+	if err := validateOrderBy(r.codec.filters, o.OrderBy); err != nil {
 		return nil, err
 	}
 
@@ -79,15 +79,17 @@ func (r *MovementRepository) MovementsForAccount(ctx context.Context, accountID 
 		conds = append(conds, fmt.Sprintf("(source_account_id = $%d OR destination_account_id = $%d)", len(args)+1, len(args)+2))
 		args = append(args, accountID, accountID)
 		for _, f := range o.Filters {
-			addFilterCond(r.filters, &conds, &args, f)
+			addFilterCond(r.codec.filters, &conds, &args, f)
 		}
 
 		var sb strings.Builder
-		sb.WriteString("SELECT * FROM money_movements WHERE ")
+		sb.WriteString("SELECT ")
+		sb.WriteString(r.selectList())
+		sb.WriteString(" FROM money_movements WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 		if o.OrderBy != "" {
 			sb.WriteString(" ORDER BY ")
-			sb.WriteString(orderClause(r.filters, o.OrderBy))
+			sb.WriteString(orderClause(r.codec.filters, o.OrderBy))
 		}
 		if o.Limit > 0 {
 			args = append(args, o.Limit)
@@ -130,10 +132,10 @@ func (r *DocumentRepository) LinkCandidates(ctx context.Context, amount, currenc
 	if err != nil {
 		return nil, err
 	}
-	if err := validateFilters(r.filters, o.Filters); err != nil {
+	if err := validateFilters(r.codec.filters, o.Filters); err != nil {
 		return nil, err
 	}
-	if err := validateOrderBy(r.filters, o.OrderBy); err != nil {
+	if err := validateOrderBy(r.codec.filters, o.OrderBy); err != nil {
 		return nil, err
 	}
 
@@ -157,8 +159,8 @@ func (r *DocumentRepository) LinkCandidates(ctx context.Context, amount, currenc
 		// $2..$hhCount = households) and append nothing of its own — so capture
 		// it NOW, before the price/currency args are added.
 		hhCount := len(args)
-		addCond("extracted_fields ->> 'price'", amount)
-		addCond("extracted_fields ->> 'currency'", currency)
+		addCond("(payload #>> '{data,extracted_fields,price}')", amount)
+		addCond("(payload #>> '{data,extracted_fields,currency}')", currency)
 
 		// The NOT EXISTS subquery is owner-scoped by default; it adds the
 		// aliased household disjunct only when the user actually has household
@@ -175,15 +177,17 @@ func (r *DocumentRepository) LinkCandidates(ctx context.Context, amount, currenc
 		conds = append(conds, fmt.Sprintf(
 			"NOT EXISTS (SELECT 1 FROM money_movements m WHERE %s AND m.linked_document_id = documents.id)", sub))
 		for _, f := range o.Filters {
-			addFilterCond(r.filters, &conds, &args, f)
+			addFilterCond(r.codec.filters, &conds, &args, f)
 		}
 
 		var sb strings.Builder
-		sb.WriteString("SELECT * FROM documents WHERE ")
+		sb.WriteString("SELECT ")
+		sb.WriteString(r.selectList())
+		sb.WriteString(" FROM documents WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 		if o.OrderBy != "" {
 			sb.WriteString(" ORDER BY ")
-			sb.WriteString(orderClause(r.filters, o.OrderBy))
+			sb.WriteString(orderClause(r.codec.filters, o.OrderBy))
 		}
 		if o.Limit > 0 {
 			args = append(args, o.Limit)
@@ -241,11 +245,12 @@ func (r *DocumentRepository) SearchDocuments(ctx context.Context, pattern string
 		extra := ""
 		if filters.DocClassification != nil {
 			args = append(args, *filters.DocClassification)
-			extra = fmt.Sprintf(" AND d.doc_type = $%d", len(args))
+			extra = fmt.Sprintf(" AND (d.payload #>> '{data,doc_type}') = $%d", len(args))
 		}
+		prefixed := "SELECT d." + strings.Join(r.codec.selectCols, ", d.")
 		stmt := fmt.Sprintf(
-			"SELECT d.* FROM documents d INNER JOIN sources s ON s.id = d.source_id WHERE %s AND s.filename ILIKE $%d%s ORDER BY d.created_at DESC, d.id ASC",
-			vis, patN, extra)
+			"%s FROM documents d INNER JOIN sources s ON s.id = d.source_id WHERE %s AND (s.payload #>> '{data,filename}') ILIKE $%d%s ORDER BY d.created_at DESC, d.id ASC",
+			prefixed, vis, patN, extra)
 
 		rows, err := q.Query(ctx, stmt, args...)
 		if err != nil {

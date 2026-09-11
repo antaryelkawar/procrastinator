@@ -77,6 +77,18 @@ func (s *Storage) Put(ctx context.Context, payload []byte) (entity.Source, error
 	}, nil
 }
 
+// Get returns the stored bytes for the user-relative key (Source.Path),
+// read from dir/<key>. The key is joined with the storage dir so a malformed
+// key cannot escape the storage root.
+func (s *Storage) Get(_ context.Context, key string) ([]byte, error) {
+	path := filepath.Join(s.dir, key)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	return data, nil
+}
+
 // sniffType returns "application/pdf", "image/png", or "image/jpeg" when the
 // data matches a supported type, and "" otherwise. The %PDF- magic is checked
 // first so PDFs are recognized even when http.DetectContentType would fall

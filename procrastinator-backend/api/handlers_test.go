@@ -108,6 +108,12 @@ func (e *testEnv) setLLMPayload(p string) {
 	e.llm.setPayload(p)
 }
 
+// lastSystemPrompt returns the system prompt of the env's most recent LLM
+// request (used to assert directive attachment in the extraction prompt).
+func (e *testEnv) lastSystemPrompt() string {
+	return e.llm.systemPrompt()
+}
+
 // envOpts configures newEnv.
 type envOpts struct {
 	maxBytes int64
@@ -126,18 +132,36 @@ type envOpts struct {
 // server. Tests may re-point the payload between uploads (see
 // TestListDocuments/Ordered) while the env's handler stays live.
 type llmState struct {
-	mu      sync.Mutex
-	payload string
-	status  int
-	calls   int
+	mu               sync.Mutex
+	payload          string
+	status           int
+	calls            int
+	lastSystemPrompt string
 }
 
 // handler returns the http.Handler serving the fake LLM endpoint.
 func (s *llmState) handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.calls++
 		payload, status := s.payload, s.status
+		// Capture the system prompt from the request so tests can assert the
+		// extraction prompt contains the user's directive (note).
+		if r.Body != nil {
+			var req struct {
+				Messages []struct {
+					Role    string `json:"role"`
+					Content string `json:"content"`
+				} `json:"messages"`
+			}
+			body, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(body, &req)
+			for _, m := range req.Messages {
+				if m.Role == "system" {
+					s.lastSystemPrompt = m.Content
+				}
+			}
+		}
 		s.mu.Unlock()
 
 		if status != http.StatusOK {
@@ -149,6 +173,13 @@ func (s *llmState) handler() http.Handler {
 		content, _ := json.Marshal(payload)
 		fmt.Fprintf(w, `{"choices":[{"message":{"content":%s}}]}`, content)
 	})
+}
+
+// systemPrompt returns the system prompt of the most recent LLM request.
+func (s *llmState) systemPrompt() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastSystemPrompt
 }
 
 // setPayload re-points the fake LLM's next reply.
@@ -368,6 +399,47 @@ func (e *testEnv) uploadFile(t *testing.T, userID string, filename string, conte
 	body, ct := buildMultipart(t, "file", filename, contentType, content)
 	rec := do(t, e.handler, http.MethodPost, "/api/users/"+userID+"/documents", "", body, ct)
 
+	var asset map[string]any
+	if rec.Code == http.StatusCreated {
+		if err := json.Unmarshal(rec.Body.Bytes(), &asset); err != nil {
+			t.Fatalf("unmarshal upload asset JSON: %v (body: %s)", err, rec.Body.String())
+		}
+	}
+	return rec, asset
+}
+
+// buildMultipartWithNote builds a multipart body with a file and an optional
+// note field (the user directive).
+func buildMultipartWithNote(t *testing.T, filename string, contentType string, content []byte, note *string) (*bytes.Buffer, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreatePart(map[string][]string{
+		"Content-Disposition": {fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename)},
+		"Content-Type":        {contentType},
+	})
+	if err != nil {
+		t.Fatalf("create multipart part: %v", err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatalf("write multipart part: %v", err)
+	}
+	if note != nil {
+		if err := w.WriteField("note", *note); err != nil {
+			t.Fatalf("write note field: %v", err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	return &buf, w.FormDataContentType()
+}
+
+// uploadFileWithNote posts a multipart file + note to /api/users/{userID}/documents.
+func (e *testEnv) uploadFileWithNote(t *testing.T, userID, filename, contentType string, content []byte, note *string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	body, ct := buildMultipartWithNote(t, filename, contentType, content, note)
+	rec := do(t, e.handler, http.MethodPost, "/api/users/"+userID+"/documents", "", body, ct)
 	var asset map[string]any
 	if rec.Code == http.StatusCreated {
 		if err := json.Unmarshal(rec.Body.Bytes(), &asset); err != nil {
@@ -640,6 +712,115 @@ func TestUpload(t *testing.T) {
 			t.Fatalf("status = %d, want 403 (body: %s)", rec.Code, rec.Body.String())
 		}
 	})
+
+	t.Run("DuplicateUploadReturns409", func(t *testing.T) {
+		e := newEnv(t, envOpts{})
+		content := pdfBytes(24)
+
+		// First upload: should succeed with 201.
+		rec1, _ := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", content)
+		if rec1.Code != http.StatusCreated {
+			t.Fatalf("first upload status = %d, want 201 (body: %s)", rec1.Code, rec1.Body.String())
+		}
+
+		// Second upload (same content): should return 409 with DuplicateReport.
+		rec2, _ := e.uploadFile(t, "test-user", "invoice-copy.pdf", "application/pdf", content)
+		if rec2.Code != http.StatusConflict {
+			t.Fatalf("duplicate upload status = %d, want 409 (body: %s)", rec2.Code, rec2.Body.String())
+		}
+
+		// Verify the 409 body matches the DuplicateReport shape.
+		var report map[string]any
+		if err := json.Unmarshal(rec2.Body.Bytes(), &report); err != nil {
+			t.Fatalf("unmarshal 409 body: %v (body: %s)", err, rec2.Body.String())
+		}
+		if got := strVal(report, "code"); got != "duplicate" {
+			t.Errorf("code = %q, want \"duplicate\"", got)
+		}
+		if strVal(report, "existing_document_id") == "" {
+			t.Error("existing_document_id is empty, want non-empty")
+		}
+		if strVal(report, "existing_source_filename") == "" {
+			t.Error("existing_source_filename is empty, want non-empty")
+		}
+		prompt, ok := report["prompt"].(map[string]any)
+		if !ok {
+			t.Fatalf("prompt is not a JSON object: %v", report["prompt"])
+		}
+		if strVal(prompt, "reprocess_uri") == "" {
+			t.Error("prompt.reprocess_uri is empty, want non-empty")
+		}
+		if strVal(prompt, "keep_uri") == "" {
+			t.Error("prompt.keep_uri is empty, want non-empty")
+		}
+		if strVal(prompt, "expires_at") == "" {
+			t.Error("prompt.expires_at is empty, want non-empty (RFC3339)")
+		}
+		if strVal(prompt, "timeout_toast") == "" {
+			t.Error("prompt.timeout_toast is empty, want non-empty")
+		}
+
+		// Verify pending_choice was created on a document row.
+		ctx := context.Background()
+		docs, err := e.factory.Documents.List(ctx, repo.Owner("test-user"))
+		if err != nil {
+			t.Fatalf("list documents: %v", err)
+		}
+		foundPending := false
+		for _, d := range docs {
+			if d.PendingChoice != nil && d.PendingChoice.State == "pending" {
+				foundPending = true
+				break
+			}
+		}
+		if !foundPending {
+			t.Error("no document with pending_choice state=pending found, want at least one")
+		}
+	})
+
+	t.Run("NotePersistedAndInPrompt", func(t *testing.T) {
+		e := newEnv(t, envOpts{})
+		note := "the serial is under the barcode"
+		rec, _ := e.uploadFileWithNote(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(24), &note)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
+		}
+
+		// Verify user_directive was persisted on the document.
+		ctx := context.Background()
+		docs, err := e.factory.Documents.List(ctx, repo.Owner("test-user"))
+		if err != nil {
+			t.Fatalf("list documents: %v", err)
+		}
+		if len(docs) == 0 {
+			t.Fatal("no documents found, want at least one")
+		}
+		if got := docs[0].UserDirective; got != note {
+			t.Errorf("user_directive = %q, want %q", got, note)
+		}
+
+		// Verify the extraction prompt contained the note text.
+		if sp := e.lastSystemPrompt(); !strings.Contains(sp, note) {
+			t.Errorf("extraction system prompt does not contain note %q (prompt: %s)", note, sp)
+		}
+	})
+
+	t.Run("NotelessUploadWorks", func(t *testing.T) {
+		e := newEnv(t, envOpts{})
+		rec, _ := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(24))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
+		}
+		// The document should have an empty user_directive.
+		ctx := context.Background()
+		docs, err := e.factory.Documents.List(ctx, repo.Owner("test-user"))
+		if err != nil {
+			t.Fatalf("list documents: %v", err)
+		}
+		if len(docs) > 0 && docs[0].UserDirective != "" {
+			t.Errorf("user_directive = %q, want empty for noteless upload", docs[0].UserDirective)
+		}
+	})
 }
 
 // TestUploadDocument_LowConfidenceHolds verifies that a document whose
@@ -668,8 +849,8 @@ func TestUploadDocument_LowConfidenceHolds(t *testing.T) {
 	if review.Id == "" {
 		t.Errorf("review id is empty, want non-empty (body: %s)", rec.Body.String())
 	}
-	if review.State != "pending" {
-		t.Errorf("review state = %q, want %q (body: %s)", review.State, "pending", rec.Body.String())
+	if review.Data.State != gen.IngestReviewDataStatePending {
+		t.Errorf("review state = %q, want %q (body: %s)", review.Data.State, "pending", rec.Body.String())
 	}
 }
 

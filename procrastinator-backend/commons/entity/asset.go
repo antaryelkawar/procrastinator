@@ -71,3 +71,6 @@ type Asset struct {
 	// MergedAt is when the merge occurred; nil means not merged.
 	MergedAt *time.Time
 }
+
+// GetID returns the entity's row identity.
+func (a Asset) GetID() string { return a.ID }

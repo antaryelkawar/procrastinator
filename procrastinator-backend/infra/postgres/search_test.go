@@ -112,10 +112,20 @@ func searchRepos(t *testing.T) *repo.Factory {
 			return
 		}
 		// Admin pool (superuser) for test-helper lookups that must bypass RLS.
-		// Derive the admin DSN from the test DSN by swapping the role to pgadmin.
-		adminDSN := "postgres://pgadmin:pgadmin@localhost:5432/procrastinator?search_path=" + testSchemaSearch + ",public"
-		var err error
-		searchAdmin, err = pgxpool.New(context.Background(), adminDSN)
+		// Derive it from the actual test DSN (same database) by swapping the
+		// role to pgadmin, so the p_search schema resolves in the right DB.
+		adminCfg, err := pgxpool.ParseConfig(dsn)
+		if err != nil {
+			searchInitErr = err
+			return
+		}
+		adminCfg.ConnConfig.User = "pgadmin"
+		adminCfg.ConnConfig.Password = "pgadmin"
+		if adminCfg.ConnConfig.RuntimeParams == nil {
+			adminCfg.ConnConfig.RuntimeParams = make(map[string]string)
+		}
+		adminCfg.ConnConfig.RuntimeParams["search_path"] = testSchemaSearch + ",public"
+		searchAdmin, err = pgxpool.NewWithConfig(context.Background(), adminCfg)
 		if err != nil {
 			searchInitErr = err
 			return
@@ -200,16 +210,25 @@ func seedUserA(ctx context.Context, pool *pgxpool.Pool, hhID string) error {
 	}
 
 	// Assets: personal (S-A-001) and household (S-A-H, owner_household_id = H).
+	// Data fields (brand/model/serial + norms) live in payload.data.*; the raw
+	// and norm keys are both present since the search ILIKEs the raw fields and
+	// the identity indexes key on the norm fields.
 	var assetAID string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO assets (owner_id, brand, model, serial_number, doc_type)
-		 VALUES ($1, 'AlphaCorp', 'X1', $2, 'invoice') RETURNING id`,
+		`INSERT INTO assets (owner_id, payload)
+		 VALUES ($1, jsonb_build_object('data', jsonb_build_object(
+			'brand', 'AlphaCorp', 'norm_brand', 'alphacorp',
+			'model', 'X1', 'norm_model', 'x1',
+			'serial', $2::text, 'norm_serial', 'SEARCH-A-001'))) RETURNING id`,
 		searchUserA, serAPersonal).Scan(&assetAID); err != nil {
 		return fmt.Errorf("seed personal asset: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO assets (owner_id, brand, model, serial_number, doc_type, owner_household_id)
-		 VALUES ($1, 'AlphaCorp', 'XH', $2, 'invoice', $3)`,
+		`INSERT INTO assets (owner_id, owner_household_id, payload)
+		 VALUES ($1, $3, jsonb_build_object('data', jsonb_build_object(
+			'brand', 'AlphaCorp', 'norm_brand', 'alphacorp',
+			'model', 'XH', 'norm_model', 'xh',
+			'serial', $2::text, 'norm_serial', 'SEARCH-A-H')))`,
 		searchUserA, serAHousehold, hhID); err != nil {
 		return fmt.Errorf("seed household asset: %w", err)
 	}
@@ -217,16 +236,21 @@ func seedUserA(ctx context.Context, pool *pgxpool.Pool, hhID string) error {
 	// Account.
 	var accountAID string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO financial_accounts (owner_id, name, account_type, currency, institution)
-		 VALUES ($1, $2, 'bank', 'USD', 'FirstBank') RETURNING id`,
+		`INSERT INTO financial_accounts (owner_id, payload)
+		 VALUES ($1, jsonb_build_object('data', jsonb_build_object(
+			'name', $2::text, 'account_type', 'bank', 'currency', 'USD', 'institution', 'FirstBank'))) RETURNING id`,
 		searchUserA, nameAAccount).Scan(&accountAID); err != nil {
 		return fmt.Errorf("seed account: %w", err)
 	}
 
 	// Movement (expense from the account so the chk_kind_accounts constraint holds).
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO money_movements (owner_id, kind, amount, currency, occurred_on, description, norm_description, origin, source_account_id, external_reference)
-		 VALUES ($1, 'expense', '4.20', 'USD', '2025-01-15', $2, $2, 'manual', $3, $4)`,
+		`INSERT INTO money_movements (owner_id, source_account_id, payload)
+		 VALUES ($1, $3, jsonb_build_object('data', jsonb_build_object(
+			'kind', 'expense', 'amount', '4.20', 'currency', 'USD',
+			'occurred_on', '2025-01-15',
+			'description', $2::text, 'norm_description', 'alpha coffee purchase',
+			'origin', 'manual', 'external_reference', $4::text)))`,
 		searchUserA, descAMove, accountAID, extARef); err != nil {
 		return fmt.Errorf("seed movement: %w", err)
 	}
@@ -234,22 +258,26 @@ func seedUserA(ctx context.Context, pool *pgxpool.Pool, hhID string) error {
 	// Source + document (the document-join fixture).
 	var sourceAID string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO sources (owner_id, filename, content_type, byte_size, storage_path, sha256)
-		 VALUES ($1, $2, 'application/pdf', 1024, 'storage/a.pdf', 'sha-a') RETURNING id`,
+		`INSERT INTO sources (owner_id, payload)
+		 VALUES ($1, jsonb_build_object('data', jsonb_build_object(
+			'filename', $2::text, 'content_type', 'application/pdf',
+			'byte_size', 1024, 'storage_path', 'storage/a.pdf', 'sha256', 'sha-a'))) RETURNING id`,
 		searchUserA, filA).Scan(&sourceAID); err != nil {
 		return fmt.Errorf("seed source: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO documents (owner_id, asset_id, source_id, doc_type, extracted_fields, raw_extraction)
-		 VALUES ($1, $2, $3, 'invoice', '{}'::jsonb, '"raw-a"'::jsonb)`,
+		`INSERT INTO documents (owner_id, asset_id, source_id, payload)
+		 VALUES ($1, $2, $3, jsonb_build_object('data', jsonb_build_object(
+			'doc_type', 'invoice', 'extracted_fields', '{}'::jsonb, 'raw_extraction', '"raw-a"')))`,
 		searchUserA, assetAID, sourceAID); err != nil {
 		return fmt.Errorf("seed document: %w", err)
 	}
 
 	// Import batch (references the account and the source).
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO import_batches (owner_id, state, account_id, source_id, filename, format)
-		 VALUES ($1, 'preview', $2, $3, $4, 'csv')`,
+		`INSERT INTO import_batches (owner_id, account_id, source_id, payload)
+		 VALUES ($1, $2, $3, jsonb_build_object('data', jsonb_build_object(
+			'state', 'preview', 'filename', $4::text, 'format', 'csv')))`,
 		searchUserA, accountAID, sourceAID, batchAFil); err != nil {
 		return fmt.Errorf("seed import batch: %w", err)
 	}
@@ -278,8 +306,11 @@ func seedUserB(ctx context.Context, pool *pgxpool.Pool) error {
 	// Personal asset (S-B-002).
 	var assetBID string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO assets (owner_id, brand, model, serial_number, doc_type)
-		 VALUES ($1, 'BetaCorp', 'Y2', $2, 'invoice') RETURNING id`,
+		`INSERT INTO assets (owner_id, payload)
+		 VALUES ($1, jsonb_build_object('data', jsonb_build_object(
+			'brand', 'BetaCorp', 'norm_brand', 'betacorp',
+			'model', 'Y2', 'norm_model', 'y2',
+			'serial', $2::text, 'norm_serial', 'SEARCH-B-002'))) RETURNING id`,
 		searchUserB, serBPersonal).Scan(&assetBID); err != nil {
 		return fmt.Errorf("seed personal asset: %w", err)
 	}
@@ -287,16 +318,21 @@ func seedUserB(ctx context.Context, pool *pgxpool.Pool) error {
 	// Account.
 	var accountBID string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO financial_accounts (owner_id, name, account_type, currency, institution)
-		 VALUES ($1, $2, 'bank', 'USD', 'SecondBank') RETURNING id`,
+		`INSERT INTO financial_accounts (owner_id, payload)
+		 VALUES ($1, jsonb_build_object('data', jsonb_build_object(
+			'name', $2::text, 'account_type', 'bank', 'currency', 'USD', 'institution', 'SecondBank'))) RETURNING id`,
 		searchUserB, nameBAccount).Scan(&accountBID); err != nil {
 		return fmt.Errorf("seed account: %w", err)
 	}
 
 	// Movement (income into the account so the chk_kind_accounts constraint holds).
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO money_movements (owner_id, kind, amount, currency, occurred_on, description, norm_description, origin, destination_account_id, external_reference)
-		 VALUES ($1, 'income', '12.00', 'USD', '2025-01-16', $2, $2, 'manual', $3, $4)`,
+		`INSERT INTO money_movements (owner_id, destination_account_id, payload)
+		 VALUES ($1, $3, jsonb_build_object('data', jsonb_build_object(
+			'kind', 'income', 'amount', '12.00', 'currency', 'USD',
+			'occurred_on', '2025-01-16',
+			'description', $2::text, 'norm_description', 'beta grocery run',
+			'origin', 'manual', 'external_reference', $4::text)))`,
 		searchUserB, descBMove, accountBID, extBRef); err != nil {
 		return fmt.Errorf("seed movement: %w", err)
 	}
@@ -304,22 +340,26 @@ func seedUserB(ctx context.Context, pool *pgxpool.Pool) error {
 	// Source + document (the document-join fixture).
 	var sourceBID string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO sources (owner_id, filename, content_type, byte_size, storage_path, sha256)
-		 VALUES ($1, $2, 'application/pdf', 2048, 'storage/b.pdf', 'sha-b') RETURNING id`,
+		`INSERT INTO sources (owner_id, payload)
+		 VALUES ($1, jsonb_build_object('data', jsonb_build_object(
+			'filename', $2::text, 'content_type', 'application/pdf',
+			'byte_size', 2048, 'storage_path', 'storage/b.pdf', 'sha256', 'sha-b'))) RETURNING id`,
 		searchUserB, filB).Scan(&sourceBID); err != nil {
 		return fmt.Errorf("seed source: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO documents (owner_id, asset_id, source_id, doc_type, extracted_fields, raw_extraction)
-		 VALUES ($1, $2, $3, 'invoice', '{}'::jsonb, '"raw-b"'::jsonb)`,
+		`INSERT INTO documents (owner_id, asset_id, source_id, payload)
+		 VALUES ($1, $2, $3, jsonb_build_object('data', jsonb_build_object(
+			'doc_type', 'invoice', 'extracted_fields', '{}'::jsonb, 'raw_extraction', '"raw-b"')))`,
 		searchUserB, assetBID, sourceBID); err != nil {
 		return fmt.Errorf("seed document: %w", err)
 	}
 
 	// Import batch (references the account and the source).
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO import_batches (owner_id, state, account_id, source_id, filename, format)
-		 VALUES ($1, 'preview', $2, $3, $4, 'csv')`,
+		`INSERT INTO import_batches (owner_id, account_id, source_id, payload)
+		 VALUES ($1, $2, $3, jsonb_build_object('data', jsonb_build_object(
+			'state', 'preview', 'filename', $4::text, 'format', 'csv')))`,
 		searchUserB, accountBID, sourceBID, batchBFil); err != nil {
 		return fmt.Errorf("seed import batch: %w", err)
 	}
@@ -372,7 +412,7 @@ func docFilenameSet(t *testing.T, pool *pgxpool.Pool, got []entity.Document) map
 			continue
 		}
 		var fn string
-		if err := searchAdmin.QueryRow(context.Background(), `SELECT filename FROM sources WHERE id = $1`, d.SourceID).Scan(&fn); err != nil {
+		if err := searchAdmin.QueryRow(context.Background(), `SELECT payload #>> '{data,filename}' FROM sources WHERE id = $1`, d.SourceID).Scan(&fn); err != nil {
 			t.Fatalf("resolve source filename for doc %s: %v", d.ID, err)
 		}
 		m[fn] = true

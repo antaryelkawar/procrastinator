@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ActiveUserProvider, useActiveUser } from './active-user';
 
 // Mock localStorage
-let localStorageMock = (function () {
+const localStorageMock = (function () {
   let store: { [key: string]: string } = {};
   return {
     getItem: function (key: string): string | null {

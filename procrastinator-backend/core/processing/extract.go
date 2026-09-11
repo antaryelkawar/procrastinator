@@ -83,8 +83,9 @@ func NewExtractor(chatter Chatter, workers []Worker, timeout time.Duration, syst
 
 // Run executes all workers concurrently and returns one WorkerResult per
 // worker, in the same order as the configured workers. It never returns an
-// error: failures are recorded per worker.
-func (e *Extractor) Run(ctx context.Context, contentType string, docData []byte) []WorkerResult {
+// error: failures are recorded per worker. directive is the user's free-text
+// note, appended to the system prompt when non-empty.
+func (e *Extractor) Run(ctx context.Context, contentType string, docData []byte, directive string) []WorkerResult {
 	results := make([]WorkerResult, len(e.workers))
 
 	// Plain Group (no derived context): each g.Go closure returns nil so one
@@ -97,7 +98,7 @@ func (e *Extractor) Run(ctx context.Context, contentType string, docData []byte)
 		w := e.workers[i]
 
 		eg.Go(func() error {
-			results[i] = e.runWorker(ctx, w, contentType, docData)
+			results[i] = e.runWorker(ctx, w, contentType, docData, directive)
 			return nil
 		})
 	}
@@ -108,11 +109,11 @@ func (e *Extractor) Run(ctx context.Context, contentType string, docData []byte)
 
 // runWorker issues exactly one chat request for w, parses the response, and
 // records the outcome in a WorkerResult.
-func (e *Extractor) runWorker(ctx context.Context, w Worker, contentType string, docData []byte) WorkerResult {
+func (e *Extractor) runWorker(ctx context.Context, w Worker, contentType string, docData []byte, directive string) WorkerResult {
 	wctx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
 
-	raw, err := e.chatter.Chat(wctx, e.systemPromptFor(w.Strategy), docContentParts(contentType, docData))
+	raw, err := e.chatter.Chat(wctx, e.systemPromptFor(w.Strategy, directive), docContentParts(contentType, docData))
 	if err != nil {
 		return WorkerResult{
 			Worker: w,
@@ -135,12 +136,17 @@ func (e *Extractor) runWorker(ctx context.Context, w Worker, contentType string,
 }
 
 // systemPromptFor derives the prompt for s: the verify strategy appends
-// verifyNote to the base prompt, everything else uses the base prompt.
-func (e *Extractor) systemPromptFor(s Strategy) string {
+// verifyNote to the base prompt, and a non-empty directive is appended as a
+// user note. Everything else uses the base prompt.
+func (e *Extractor) systemPromptFor(s Strategy, directive string) string {
+	prompt := e.systemPrompt
 	if s.Name == "verify" {
-		return e.systemPrompt + "\n\n" + verifyNote
+		prompt += "\n\n" + verifyNote
 	}
-	return e.systemPrompt
+	if directive != "" {
+		prompt += "\n\nUser note: " + directive
+	}
+	return prompt
 }
 
 // docContentParts mirrors the wire format used by infra/llm.Extractor.Extract:

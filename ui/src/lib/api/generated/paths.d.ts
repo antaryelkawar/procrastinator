@@ -14,7 +14,12 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List documents
+         * @description Lists all documents for the user, joined with source metadata.
+         *     Supports filtering by processing status and searching by filename.
+         */
+        get: operations["listDocuments"];
         put?: never;
         /**
          * Upload a document
@@ -24,6 +29,85 @@ export interface paths {
          *     absent the document is personal.
          */
         post: operations["uploadDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{userId}/documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                /** @description The document id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a document
+         * @description Soft-deletes the document and detaches it from its asset (the asset
+         *     remains, now asset-less-eligible). The linked asset is NOT deleted.
+         */
+        delete: operations["deleteDocument"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{userId}/documents/{id}/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                /** @description The document id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reprocess a document
+         * @description Re-runs the extraction pipeline for the document. An optional comment
+         *     is persisted to data.user_directive and passed into the extraction
+         *     prompt. Returns 409 when the document is already in-flight (in_review).
+         */
+        post: operations["reprocessDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{userId}/documents/{id}/keep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                /** @description The document id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Keep existing (resolve pending choice)
+         * @description Resolves the document's pending_choice to keep_existing. No
+         *     re-extraction runs. Returns 200 with the updated document.
+         */
+        post: operations["keepDocument"];
         delete?: never;
         options?: never;
         head?: never;
@@ -678,108 +762,140 @@ export interface components {
         /** @description A user asset derived from an ingested document. */
         asset: {
             id: string;
-            /** @description Canonical product name (e.g. "Microwave Oven") */
-            name?: string | null;
-            brand?: string | null;
-            model?: string | null;
-            serial_number?: string | null;
-            /**
-             * @description Intrinsic category of the asset
-             * @enum {string|null}
-             */
-            asset_category?: "appliance" | "electronics" | "computing" | "furniture" | "vehicle" | "tool" | "clothing" | "document_only" | "other" | null;
-            /**
-             * Format: float
-             * @description Confidence in the category assignment [0.0, 1.0]
-             */
-            category_confidence?: number | null;
-            /** Format: date-time */
-            purchase_date?: string | null;
-            /** Format: date-time */
-            warranty_end?: string | null;
-            price?: string | null;
-            currency?: string | null;
-            metadata: {
-                [key: string]: unknown;
-            };
+            owner_household_id?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             updated_at: string;
-            owner_household_id?: string | null;
-            /** Format: float */
-            confidence?: number | null;
-            /**
-             * Format: date-time
-             * @description Set when the asset is soft-deleted
-             */
-            deleted_at?: string | null;
-            /** @description Id of the survivor asset if this asset was merged */
-            merged_into?: string | null;
-            /**
-             * Format: date-time
-             * @description Timestamp of the merge
-             */
-            merged_at?: string | null;
-            /** @description Assets that were merged into this asset (survivor view) */
-            merged_assets?: {
-                asset_id: string;
-                /** Format: date-time */
-                merged_at: string;
-            }[] | null;
+            /** @description The asset payload data (stored shape). */
+            data: {
+                /** @description Canonical product name (e.g. "Microwave Oven") */
+                name?: string | null;
+                brand?: string | null;
+                model?: string | null;
+                serial_number?: string | null;
+                /**
+                 * @description Intrinsic category of the asset
+                 * @enum {string|null}
+                 */
+                asset_category?: "appliance" | "electronics" | "computing" | "furniture" | "vehicle" | "tool" | "clothing" | "document_only" | "other" | null;
+                /**
+                 * Format: float
+                 * @description Confidence in the category assignment [0.0, 1.0]
+                 */
+                category_confidence?: number | null;
+                /** @description True when the user has manually set the category (sticky). */
+                category_user_set?: boolean | null;
+                /** Format: date */
+                purchase_date?: string | null;
+                /** Format: date */
+                warranty_end?: string | null;
+                price?: string | null;
+                currency?: string | null;
+                metadata: {
+                    [key: string]: unknown;
+                };
+                /** Format: float */
+                confidence?: number | null;
+                /**
+                 * Format: date-time
+                 * @description Set when the asset is soft-deleted
+                 */
+                deleted_at?: string | null;
+                /** @description Id of the survivor asset if this asset was merged */
+                merged_into?: string | null;
+                /**
+                 * Format: date-time
+                 * @description Timestamp of the merge
+                 */
+                merged_at?: string | null;
+                /** @description Assets that were merged into this asset (survivor view) */
+                merged_assets?: {
+                    asset_id: string;
+                    /** Format: date-time */
+                    merged_at: string;
+                }[] | null;
+            };
         };
         /** @description A document attached to an asset, with its source metadata. */
         document: {
             id: string;
-            /** @enum {string} */
-            doc_type: "invoice" | "receipt" | "warranty" | "amc" | "statement" | "other";
+            /** @description The asset this document is linked to (null when detached). */
+            asset_id?: string | null;
+            source_id: string;
             source_filename: string;
             /** Format: date-time */
             source_uploaded_at: string;
+            owner_household_id?: string | null;
+            /**
+             * @description Processing status: processed (asset linked), in_review (pending
+             *     review), failed (extraction failed), asset_less (no matching asset).
+             * @enum {string}
+             */
+            status: "processed" | "in_review" | "failed" | "asset_less";
             /** Format: date-time */
             created_at: string;
-            owner_household_id?: string | null;
-            /** Format: float */
-            confidence?: number | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description The document payload data (stored shape). */
+            data: {
+                /** @enum {string} */
+                doc_type: "invoice" | "receipt" | "warranty" | "amc" | "statement" | "other";
+                /** Format: float */
+                confidence?: number | null;
+                extracted_fields?: {
+                    [key: string]: unknown;
+                } | null;
+                raw_extraction?: string | null;
+                user_directive?: string | null;
+            };
         };
         /** @description A financial account with its derived balance. */
         account: {
             id: string;
-            name: string;
-            type: string;
-            currency: string;
-            institution?: string | null;
-            external_descriptor?: string | null;
-            balance: string;
+            owner_household_id?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description The account payload data (stored shape). */
+            data: {
+                name: string;
+                account_type: string;
+                currency: string;
+                institution?: string | null;
+                external_descriptor?: string | null;
+                balance: string;
+            };
         };
         /** @description A money movement in the ledger. */
         movement: {
             id: string;
-            kind: string;
-            amount: string;
-            currency: string;
-            /** Format: date */
-            occurred_on: string;
-            /** Format: date-time */
-            recorded_at: string;
-            description: string;
-            origin: string;
             source_account_id?: string | null;
             destination_account_id?: string | null;
             import_batch_id?: string | null;
-            import_line?: number | null;
-            external_reference?: string | null;
             linked_document_id?: string | null;
-            link_creator?: string | null;
-            link_conflicting: boolean;
+            owner_household_id?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description The movement payload data (stored shape). */
+            data: {
+                kind: string;
+                amount: string;
+                currency: string;
+                /** Format: date */
+                occurred_on: string;
+                /** Format: date-time */
+                recorded_at: string;
+                description: string;
+                origin: string;
+                import_line?: number | null;
+                external_reference?: string | null;
+                link_creator?: string | null;
+                link_conflicting: boolean;
+            };
         };
         /** @description Metadata about an uploaded statement's source. */
         import_source: {
@@ -808,20 +924,23 @@ export interface components {
         /** @description A statement import batch with its parsed lines. */
         import_batch: {
             id: string;
-            state: string;
             account_id: string;
             source: components["schemas"]["import_source"];
-            filename: string;
-            format: string;
-            line_count_valid: number;
-            line_count_duplicate: number;
-            line_count_possible_dup: number;
-            line_count_error: number;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             updated_at: string;
-            lines: components["schemas"]["import_line"][] | null;
+            /** @description The import batch payload data (stored shape). */
+            data: {
+                state: string;
+                filename: string;
+                format: string;
+                line_count_valid: number;
+                line_count_duplicate: number;
+                line_count_possible_dup: number;
+                line_count_error: number;
+                lines?: components["schemas"]["import_line"][] | null;
+            };
         };
         /** @description The result of committing an import batch. */
         commit_summary: {
@@ -837,11 +956,16 @@ export interface components {
         /** @description A household with its members. */
         household: {
             id: string;
-            display_name: string;
             owner_id: string;
             /** Format: date-time */
             created_at: string;
+            /** Format: date-time */
+            updated_at: string;
             members: components["schemas"]["household_member"][];
+            /** @description The household payload data (stored shape). */
+            data: {
+                display_name: string;
+            };
         };
         /** @description The standard error envelope for non-2xx responses. */
         error: {
@@ -916,14 +1040,8 @@ export interface components {
         /** @description An ingest review candidate held for human approval. */
         ingest_review: {
             id: string;
-            doc_type: string;
-            /** Format: float */
-            confidence?: number | null;
-            candidate_fields: {
-                [key: string]: unknown;
-            };
-            /** @enum {string} */
-            state: "pending" | "approved" | "rejected";
+            source_id: string;
+            owner_household_id?: string | null;
             source_filename: string;
             /** Format: date-time */
             source_uploaded_at: string;
@@ -932,17 +1050,64 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
-            decided_at?: string | null;
+            updated_at: string;
+            /** @description The ingest review payload data (stored shape). */
+            data: {
+                doc_type: string;
+                /** Format: float */
+                confidence?: number | null;
+                candidate_fields: {
+                    [key: string]: unknown;
+                };
+                /** @enum {string} */
+                state: "pending" | "approved" | "rejected";
+                best_matched_asset_id?: string | null;
+                /** Format: date-time */
+                decided_at?: string | null;
+                decided_by?: string | null;
+                raw_extraction?: string | null;
+                provenance?: {
+                    [key: string]: unknown;
+                } | null;
+            };
         };
         /** @description Response for approving a review: the committed asset and the updated review. */
         approve_review_response: {
             asset: components["schemas"]["asset"];
             review: components["schemas"]["ingest_review"];
         };
+        /** @description Optional comment for the reprocess request. */
+        reprocess_document_request: {
+            /** @description Free-text comment passed as the extraction directive. */
+            comment?: string | null;
+        };
+        /** @description The structured 409 response when a duplicate document upload is detected. */
+        duplicate_report: {
+            /** @constant */
+            code: "duplicate";
+            /** @description The existing document id, or null when the duplicate source has no linked document (e.g. statement-classified sources). */
+            existing_document_id?: string | null;
+            existing_source_filename: string;
+            /** Format: date-time */
+            existing_source_uploaded_at: string;
+            existing_asset_id?: string | null;
+            /** @description The reprocess/keep prompt fields for the UI modal. */
+            prompt: {
+                reprocess_uri: string;
+                keep_uri: string;
+                /** Format: date-time */
+                expires_at: string;
+                timeout_toast: string;
+            };
+        };
+        /**
+         * @description The outcome kind for one add item.
+         * @enum {string}
+         */
+        add_item_outcome_kind: "asset_committed" | "held_for_review" | "duplicate" | "statement_preview" | "failed";
         /** @description The uniform per-item outcome of a unified add request. */
         add_item_outcome: {
-            /** @enum {string} */
-            kind: "asset_committed" | "held_for_review" | "duplicate" | "statement_preview" | "failed";
+            kind: components["schemas"]["add_item_outcome_kind"];
             /** @description Set when kind is asset_committed */
             asset_id?: string | null;
             /** @description Set when kind is held_for_review */
@@ -986,6 +1151,43 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listDocuments: {
+        parameters: {
+            query?: {
+                /** @description Filter by processing status. */
+                status?: "processed" | "in_review" | "failed" | "asset_less";
+                /** @description Case-insensitive substring match on source filename. */
+                q?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's documents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["document"][];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
     uploadDocument: {
         parameters: {
             query?: never;
@@ -1002,6 +1204,8 @@ export interface operations {
                     /** Format: binary */
                     file: string;
                     owner_household_id?: string | null;
+                    /** @description Optional free-text note (user directive) for the extraction. */
+                    note?: string | null;
                 };
             };
         };
@@ -1031,6 +1235,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Duplicate document detected */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["duplicate_report"];
                 };
             };
             /** @description Upload exceeds size limit */
@@ -1071,6 +1284,146 @@ export interface operations {
             };
             /** @description Extraction failed */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    deleteDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                /** @description The document id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    reprocessDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                /** @description The document id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["reprocess_document_request"];
+            };
+        };
+        responses: {
+            /** @description Reprocess accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["document"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Document is already in-flight */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+        };
+    };
+    keepDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the resource belongs to (path tenancy). */
+                userId: string;
+                /** @description The document id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Kept existing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["document"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

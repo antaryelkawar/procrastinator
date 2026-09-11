@@ -93,12 +93,12 @@ func seedAssetInBoundTx(ctx context.Context, pool *pgxpool.Pool, userID, brand, 
 		return fmt.Errorf("bind seed user %q: %w", userID, err)
 	}
 	if _, err := tx.Exec(ctx,
-		`DELETE FROM assets WHERE owner_id = $1 AND norm_serial = $2`,
+		`DELETE FROM assets WHERE owner_id = $1 AND (payload #>> '{data,norm_serial}') = $2`,
 		userID, serial); err != nil {
 		return fmt.Errorf("reset seed asset for %q: %w", userID, err)
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO assets (owner_id, brand, norm_serial) VALUES ($1, $2, $3)`,
+		`INSERT INTO assets (owner_id, payload) VALUES ($1, jsonb_build_object('data', jsonb_build_object('brand', $2::text, 'norm_serial', $3::text)))`,
 		userID, brand, serial); err != nil {
 		return fmt.Errorf("seed asset for %q: %w", userID, err)
 	}
@@ -175,7 +175,7 @@ func TestRLS_BoundTransactionSeesOnlyBoundUser(t *testing.T) {
 
 	// The seed row must be visible to the acme-bound transaction.
 	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM assets WHERE norm_serial = $1`, seedAcmeSerial).Scan(&n); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM assets WHERE (payload #>> '{data,norm_serial}') = $1`, seedAcmeSerial).Scan(&n); err != nil {
 		t.Fatalf("count seed acme: %v", err)
 	}
 	if n != 1 {
@@ -199,7 +199,7 @@ func TestRLS_CrossUserWriteRejectedByPolicy(t *testing.T) {
 		defer tx.Rollback(ctx)
 
 		_, err := tx.Exec(ctx,
-			`INSERT INTO assets (owner_id, brand, norm_serial) VALUES ('globex', 'X', 'rls-x-1')`)
+			`INSERT INTO assets (owner_id, payload) VALUES ('globex', jsonb_build_object('data', jsonb_build_object('brand', 'X', 'norm_serial', 'rls-x-1')))`)
 		assertRLSViolation(t, "INSERT globex row while bound to acme", err)
 		tx.Rollback(ctx)
 
@@ -207,7 +207,7 @@ func TestRLS_CrossUserWriteRejectedByPolicy(t *testing.T) {
 		txG := bindUser(t, ctx, pool, rlsUserGlobex)
 		defer txG.Rollback(ctx)
 		var n int
-		if err := txG.QueryRow(ctx, `SELECT count(*) FROM assets WHERE norm_serial = 'rls-x-1'`).Scan(&n); err != nil {
+		if err := txG.QueryRow(ctx, `SELECT count(*) FROM assets WHERE (payload #>> '{data,norm_serial}') = 'rls-x-1'`).Scan(&n); err != nil {
 			t.Fatalf("count failed-insert row: %v", err)
 		}
 		if n != 0 {
@@ -221,7 +221,7 @@ func TestRLS_CrossUserWriteRejectedByPolicy(t *testing.T) {
 		defer tx.Rollback(ctx)
 
 		// globex rows are invisible to acme via the USING policy → 0 rows.
-		tag, err := tx.Exec(ctx, `UPDATE assets SET brand = 'hacked' WHERE owner_id = 'globex'`)
+		tag, err := tx.Exec(ctx, `UPDATE assets SET payload = jsonb_set(payload, '{data,brand}', '"hacked"') WHERE owner_id = 'globex'`)
 		if err != nil {
 			t.Fatalf("UPDATE other-user rows: %v", err)
 		}
@@ -235,7 +235,7 @@ func TestRLS_CrossUserWriteRejectedByPolicy(t *testing.T) {
 		defer txG.Rollback(ctx)
 		var brand string
 		if err := txG.QueryRow(ctx,
-			`SELECT brand FROM assets WHERE norm_serial = $1`, seedGlobexSerial).Scan(&brand); err != nil {
+			`SELECT payload #>> '{data,brand}' FROM assets WHERE (payload #>> '{data,norm_serial}') = $1`, seedGlobexSerial).Scan(&brand); err != nil {
 			t.Fatalf("read globex seed brand: %v", err)
 		}
 		if brand != "G" {
@@ -257,7 +257,7 @@ func TestRLS_CrossUserWriteRejectedByPolicy(t *testing.T) {
 		defer txA.Rollback(ctx)
 		var ownerID string
 		if err := txA.QueryRow(ctx,
-			`SELECT owner_id FROM assets WHERE norm_serial = $1`, seedAcmeSerial).Scan(&ownerID); err != nil {
+			`SELECT owner_id FROM assets WHERE (payload #>> '{data,norm_serial}') = $1`, seedAcmeSerial).Scan(&ownerID); err != nil {
 			t.Fatalf("read acme seed owner: %v", err)
 		}
 		if ownerID != rlsUserAcme {
@@ -290,7 +290,7 @@ func TestRLS_UnboundTransactionSeesNothing(t *testing.T) {
 	}
 
 	_, err = tx.Exec(ctx,
-		`INSERT INTO assets (owner_id, brand, norm_serial) VALUES ('acme', 'X', 'rls-unbound-1')`)
+		`INSERT INTO assets (owner_id, payload) VALUES ('acme', jsonb_build_object('data', jsonb_build_object('brand', 'X', 'norm_serial', 'rls-unbound-1')))`)
 	assertRLSViolation(t, "INSERT while unbound", err)
 	tx.Rollback(ctx)
 }
@@ -328,7 +328,7 @@ func TestRLS_UserBindingDoesNotLeakAcrossPoolConnections(t *testing.T) {
 	{
 		tx := bindUser(t, ctx, dedicated, rlsUserAcme)
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO assets (owner_id, brand, norm_serial) VALUES ($1, $2, $3)`,
+			`INSERT INTO assets (owner_id, payload) VALUES ($1, jsonb_build_object('data', jsonb_build_object('brand', $2::text, 'norm_serial', $3::text)))`,
 			rlsUserAcme, "R", marker); err != nil {
 			tx.Rollback(ctx)
 			t.Fatalf("tx A insert: %v", err)
@@ -393,7 +393,7 @@ func TestRLS_UserBindingDoesNotLeakAcrossPoolConnections(t *testing.T) {
 	// Cleanup: delete the per-run row, bound to acme.
 	{
 		tx := bindUser(t, ctx, dedicated, rlsUserAcme)
-		tag, err := tx.Exec(ctx, `DELETE FROM assets WHERE owner_id = $1 AND norm_serial = $2`, rlsUserAcme, marker)
+		tag, err := tx.Exec(ctx, `DELETE FROM assets WHERE owner_id = $1 AND (payload #>> '{data,norm_serial}') = $2`, rlsUserAcme, marker)
 		if err != nil {
 			tx.Rollback(ctx)
 			t.Fatalf("cleanup delete: %v", err)
@@ -420,7 +420,8 @@ func TestRLS_HouseholdOwnerCanInsertWithoutMembershipRow(t *testing.T) {
 	tx := bindUser(t, ctx, pool, rlsUserAcme)
 	householdID := fmt.Sprintf("rls-hh-%d", time.Now().UnixNano())
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO households (id, owner_id, display_name) VALUES ($1, $2, 'Acme Household')`,
+		`INSERT INTO households (id, owner_id, payload)
+		 VALUES ($1, $2, '{"data": {"display_name": "Acme Household"}}'::jsonb)`,
 		householdID, rlsUserAcme); err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("create household: %v", err)
@@ -442,7 +443,8 @@ func TestRLS_HouseholdOwnerCanInsertWithoutMembershipRow(t *testing.T) {
 	// 3. Try to insert an asset into this household.
 	// This should pass because the owner is exempt from the membership check.
 	_, err = tx.Exec(ctx,
-		`INSERT INTO assets (owner_id, brand, norm_serial, owner_household_id) VALUES ($1, 'A', 'rls-hh-1', $2)`,
+		`INSERT INTO assets (owner_id, owner_household_id, payload)
+		 VALUES ($1, $2, '{"data": {"brand": "A", "norm_serial": "rls-hh-1"}}'::jsonb)`,
 		rlsUserAcme, householdID)
 	if err != nil {
 		tx.Rollback(ctx)

@@ -85,7 +85,19 @@ func ParseExtraction(raw string) (entity.Extraction, error) {
 	}
 
 	if rest := strings.TrimSpace(payload[end:]); rest != "" {
-		return entity.Extraction{}, fmt.Errorf("trailing data after JSON object: %q", rest)
+		// Provider regression observed live on 2026-09-11: the model
+		// intermittently wraps the single extraction object in a JSON array
+		// (`[ { ... } ]`) even though the request asks for a JSON object. The
+		// brace counter above stops at the object's own `}`, so the array's
+		// closing `]` surfaces as "trailing data" and BOTH consensus workers
+		// fail together ("all extraction workers failed"). Accept that wrap
+		// only when the object is preceded by `[` and followed by exactly `]`
+		// with nothing else in between — empty arrays never reach here (no
+		// `{`) and multi-element arrays leave `,{...}]` as the remainder, so
+		// they still error below.
+		if !isSingleElementArrayWrap(stripped[:idx], rest) {
+			return entity.Extraction{}, fmt.Errorf("trailing data after JSON object: %q", rest)
+		}
 	}
 
 	ext := entity.Extraction{
@@ -132,6 +144,16 @@ func ParseExtraction(raw string) (entity.Extraction, error) {
 	}
 
 	return ext, nil
+}
+
+// isSingleElementArrayWrap reports whether the located JSON object is wrapped
+// in a JSON array with exactly one element. objectPrefix is everything before
+// the object's opening brace (after thought stripping); trailing is the
+// non-whitespace remainder after the object's closing brace. The wrap is
+// accepted only for `[ <object> ]` — nothing else may appear inside the
+// brackets.
+func isSingleElementArrayWrap(objectPrefix, trailing string) bool {
+	return strings.TrimSpace(objectPrefix) == "[" && strings.TrimSpace(trailing) == "]"
 }
 
 // findObjectEnd returns the index just past the closing brace of the first

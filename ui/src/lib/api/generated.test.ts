@@ -52,19 +52,21 @@ describe('OpenAPI generated types integration', () => {
     // This is verified by the fact that Movement.link_conflicting is boolean, not boolean | undefined
     const _movementWithRequiredField: Movement = {
       id: 'mv1',
-      kind: 'expense',
-      amount: '100.00',
-      currency: 'USD',
-      occurred_on: '2024-01-15',
-      recorded_at: '2024-01-15T10:00:00Z',
-      description: 'Test',
-      origin: 'manual',
-      link_conflicting: false, // Required field
+      data: {
+        kind: 'expense',
+        amount: '100.00',
+        currency: 'USD',
+        occurred_on: '2024-01-15',
+        recorded_at: '2024-01-15T10:00:00Z',
+        description: 'Test',
+        origin: 'manual',
+        link_conflicting: false, // Required field
+      },
       created_at: '2024-01-15T10:00:00Z',
       updated_at: '2024-01-15T10:00:00Z',
     };
 
-    expect(_movementWithRequiredField.link_conflicting).toBe(false);
+    expect(_movementWithRequiredField.data.link_conflicting).toBe(false);
   });
 
   it('verifies optional fields are properly marked as optional', () => {
@@ -73,13 +75,15 @@ describe('OpenAPI generated types integration', () => {
     // Optional fields (brand, model, etc.) can be undefined
     const _assetWithoutOptionalFields: Asset = {
       id: 'a1',
-      metadata: {},
+      data: {
+        metadata: {},
+        // All optional fields are omitted
+      },
       created_at: '2024-01-15T10:00:00Z',
       updated_at: '2024-01-15T10:00:00Z',
-      // All optional fields are omitted
     };
 
     expect(_assetWithoutOptionalFields.id).toBe('a1');
-    expect(_assetWithoutOptionalFields.brand).toBeUndefined();
+    expect(_assetWithoutOptionalFields.data.brand).toBeUndefined();
   });
 });

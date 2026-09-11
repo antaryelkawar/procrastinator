@@ -21,115 +21,154 @@ import (
 
 // Defines values for AddItemOutcomeKind.
 const (
-	AssetCommitted   AddItemOutcomeKind = "asset_committed"
-	Duplicate        AddItemOutcomeKind = "duplicate"
-	Failed           AddItemOutcomeKind = "failed"
-	HeldForReview    AddItemOutcomeKind = "held_for_review"
-	StatementPreview AddItemOutcomeKind = "statement_preview"
+	AddItemOutcomeKindAssetCommitted   AddItemOutcomeKind = "asset_committed"
+	AddItemOutcomeKindDuplicate        AddItemOutcomeKind = "duplicate"
+	AddItemOutcomeKindFailed           AddItemOutcomeKind = "failed"
+	AddItemOutcomeKindHeldForReview    AddItemOutcomeKind = "held_for_review"
+	AddItemOutcomeKindStatementPreview AddItemOutcomeKind = "statement_preview"
 )
 
 // Valid indicates whether the value is a known member of the AddItemOutcomeKind enum.
 func (e AddItemOutcomeKind) Valid() bool {
 	switch e {
-	case AssetCommitted:
+	case AddItemOutcomeKindAssetCommitted:
 		return true
-	case Duplicate:
+	case AddItemOutcomeKindDuplicate:
 		return true
-	case Failed:
+	case AddItemOutcomeKindFailed:
 		return true
-	case HeldForReview:
+	case AddItemOutcomeKindHeldForReview:
 		return true
-	case StatementPreview:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for AssetAssetCategory.
-const (
-	AssetAssetCategoryAppliance    AssetAssetCategory = "appliance"
-	AssetAssetCategoryClothing     AssetAssetCategory = "clothing"
-	AssetAssetCategoryComputing    AssetAssetCategory = "computing"
-	AssetAssetCategoryDocumentOnly AssetAssetCategory = "document_only"
-	AssetAssetCategoryElectronics  AssetAssetCategory = "electronics"
-	AssetAssetCategoryFurniture    AssetAssetCategory = "furniture"
-	AssetAssetCategoryOther        AssetAssetCategory = "other"
-	AssetAssetCategoryTool         AssetAssetCategory = "tool"
-	AssetAssetCategoryVehicle      AssetAssetCategory = "vehicle"
-)
-
-// Valid indicates whether the value is a known member of the AssetAssetCategory enum.
-func (e AssetAssetCategory) Valid() bool {
-	switch e {
-	case AssetAssetCategoryAppliance:
-		return true
-	case AssetAssetCategoryClothing:
-		return true
-	case AssetAssetCategoryComputing:
-		return true
-	case AssetAssetCategoryDocumentOnly:
-		return true
-	case AssetAssetCategoryElectronics:
-		return true
-	case AssetAssetCategoryFurniture:
-		return true
-	case AssetAssetCategoryOther:
-		return true
-	case AssetAssetCategoryTool:
-		return true
-	case AssetAssetCategoryVehicle:
+	case AddItemOutcomeKindStatementPreview:
 		return true
 	default:
 		return false
 	}
 }
 
-// Defines values for DocumentDocType.
+// Defines values for AssetDataAssetCategory.
 const (
-	DocumentDocTypeAmc       DocumentDocType = "amc"
-	DocumentDocTypeInvoice   DocumentDocType = "invoice"
-	DocumentDocTypeOther     DocumentDocType = "other"
-	DocumentDocTypeReceipt   DocumentDocType = "receipt"
-	DocumentDocTypeStatement DocumentDocType = "statement"
-	DocumentDocTypeWarranty  DocumentDocType = "warranty"
+	AssetDataAssetCategoryAppliance    AssetDataAssetCategory = "appliance"
+	AssetDataAssetCategoryClothing     AssetDataAssetCategory = "clothing"
+	AssetDataAssetCategoryComputing    AssetDataAssetCategory = "computing"
+	AssetDataAssetCategoryDocumentOnly AssetDataAssetCategory = "document_only"
+	AssetDataAssetCategoryElectronics  AssetDataAssetCategory = "electronics"
+	AssetDataAssetCategoryFurniture    AssetDataAssetCategory = "furniture"
+	AssetDataAssetCategoryOther        AssetDataAssetCategory = "other"
+	AssetDataAssetCategoryTool         AssetDataAssetCategory = "tool"
+	AssetDataAssetCategoryVehicle      AssetDataAssetCategory = "vehicle"
 )
 
-// Valid indicates whether the value is a known member of the DocumentDocType enum.
-func (e DocumentDocType) Valid() bool {
+// Valid indicates whether the value is a known member of the AssetDataAssetCategory enum.
+func (e AssetDataAssetCategory) Valid() bool {
 	switch e {
-	case DocumentDocTypeAmc:
+	case AssetDataAssetCategoryAppliance:
 		return true
-	case DocumentDocTypeInvoice:
+	case AssetDataAssetCategoryClothing:
 		return true
-	case DocumentDocTypeOther:
+	case AssetDataAssetCategoryComputing:
 		return true
-	case DocumentDocTypeReceipt:
+	case AssetDataAssetCategoryDocumentOnly:
 		return true
-	case DocumentDocTypeStatement:
+	case AssetDataAssetCategoryElectronics:
 		return true
-	case DocumentDocTypeWarranty:
+	case AssetDataAssetCategoryFurniture:
+		return true
+	case AssetDataAssetCategoryOther:
+		return true
+	case AssetDataAssetCategoryTool:
+		return true
+	case AssetDataAssetCategoryVehicle:
 		return true
 	default:
 		return false
 	}
 }
 
-// Defines values for IngestReviewState.
+// Defines values for DocumentDataDocType.
 const (
-	IngestReviewStateApproved IngestReviewState = "approved"
-	IngestReviewStatePending  IngestReviewState = "pending"
-	IngestReviewStateRejected IngestReviewState = "rejected"
+	DocumentDataDocTypeAmc       DocumentDataDocType = "amc"
+	DocumentDataDocTypeInvoice   DocumentDataDocType = "invoice"
+	DocumentDataDocTypeOther     DocumentDataDocType = "other"
+	DocumentDataDocTypeReceipt   DocumentDataDocType = "receipt"
+	DocumentDataDocTypeStatement DocumentDataDocType = "statement"
+	DocumentDataDocTypeWarranty  DocumentDataDocType = "warranty"
 )
 
-// Valid indicates whether the value is a known member of the IngestReviewState enum.
-func (e IngestReviewState) Valid() bool {
+// Valid indicates whether the value is a known member of the DocumentDataDocType enum.
+func (e DocumentDataDocType) Valid() bool {
 	switch e {
-	case IngestReviewStateApproved:
+	case DocumentDataDocTypeAmc:
 		return true
-	case IngestReviewStatePending:
+	case DocumentDataDocTypeInvoice:
 		return true
-	case IngestReviewStateRejected:
+	case DocumentDataDocTypeOther:
+		return true
+	case DocumentDataDocTypeReceipt:
+		return true
+	case DocumentDataDocTypeStatement:
+		return true
+	case DocumentDataDocTypeWarranty:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DocumentStatus.
+const (
+	DocumentStatusAssetLess DocumentStatus = "asset_less"
+	DocumentStatusFailed    DocumentStatus = "failed"
+	DocumentStatusInReview  DocumentStatus = "in_review"
+	DocumentStatusProcessed DocumentStatus = "processed"
+)
+
+// Valid indicates whether the value is a known member of the DocumentStatus enum.
+func (e DocumentStatus) Valid() bool {
+	switch e {
+	case DocumentStatusAssetLess:
+		return true
+	case DocumentStatusFailed:
+		return true
+	case DocumentStatusInReview:
+		return true
+	case DocumentStatusProcessed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DuplicateReportCode.
+const (
+	DuplicateReportCodeDuplicate DuplicateReportCode = "duplicate"
+)
+
+// Valid indicates whether the value is a known member of the DuplicateReportCode enum.
+func (e DuplicateReportCode) Valid() bool {
+	switch e {
+	case DuplicateReportCodeDuplicate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IngestReviewDataState.
+const (
+	IngestReviewDataStateApproved IngestReviewDataState = "approved"
+	IngestReviewDataStatePending  IngestReviewDataState = "pending"
+	IngestReviewDataStateRejected IngestReviewDataState = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the IngestReviewDataState enum.
+func (e IngestReviewDataState) Valid() bool {
+	switch e {
+	case IngestReviewDataStateApproved:
+		return true
+	case IngestReviewDataStatePending:
+		return true
+	case IngestReviewDataStateRejected:
 		return true
 	default:
 		return false
@@ -196,6 +235,30 @@ func (e SearchHitType) Valid() bool {
 	case SearchHitTypeImportBatch:
 		return true
 	case SearchHitTypeMovement:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListDocumentsParamsStatus.
+const (
+	ListDocumentsParamsStatusAssetLess ListDocumentsParamsStatus = "asset_less"
+	ListDocumentsParamsStatusFailed    ListDocumentsParamsStatus = "failed"
+	ListDocumentsParamsStatusInReview  ListDocumentsParamsStatus = "in_review"
+	ListDocumentsParamsStatusProcessed ListDocumentsParamsStatus = "processed"
+)
+
+// Valid indicates whether the value is a known member of the ListDocumentsParamsStatus enum.
+func (e ListDocumentsParamsStatus) Valid() bool {
+	switch e {
+	case ListDocumentsParamsStatusAssetLess:
+		return true
+	case ListDocumentsParamsStatusFailed:
+		return true
+	case ListDocumentsParamsStatusInReview:
+		return true
+	case ListDocumentsParamsStatusProcessed:
 		return true
 	default:
 		return false
@@ -285,15 +348,20 @@ func (e QuickSearchParamsDocClassification) Valid() bool {
 
 // Account A financial account with its derived balance.
 type Account struct {
-	Balance            string    `json:"balance"`
-	CreatedAt          time.Time `json:"created_at"`
-	Currency           string    `json:"currency"`
-	ExternalDescriptor *string   `json:"external_descriptor,omitempty"`
-	Id                 string    `json:"id"`
-	Institution        *string   `json:"institution,omitempty"`
-	Name               string    `json:"name"`
-	Type               string    `json:"type"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Data The account payload data (stored shape).
+	Data struct {
+		AccountType        string  `json:"account_type"`
+		Balance            string  `json:"balance"`
+		Currency           string  `json:"currency"`
+		ExternalDescriptor *string `json:"external_descriptor,omitempty"`
+		Institution        *string `json:"institution,omitempty"`
+		Name               string  `json:"name"`
+	} `json:"data"`
+	Id               string    `json:"id"`
+	OwnerHouseholdId *string   `json:"owner_household_id,omitempty"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // AddItemOutcome The uniform per-item outcome of a unified add request.
@@ -311,8 +379,10 @@ type AddItemOutcome struct {
 	DuplicateDocumentId *string `json:"duplicate_document_id,omitempty"`
 
 	// ImportBatchId Set when kind is statement_preview
-	ImportBatchId *string            `json:"import_batch_id,omitempty"`
-	Kind          AddItemOutcomeKind `json:"kind"`
+	ImportBatchId *string `json:"import_batch_id,omitempty"`
+
+	// Kind The outcome kind for one add item.
+	Kind AddItemOutcomeKind `json:"kind"`
 
 	// Reason Set when kind is failed
 	Reason *string `json:"reason,omitempty"`
@@ -321,7 +391,7 @@ type AddItemOutcome struct {
 	ReviewId *string `json:"review_id,omitempty"`
 }
 
-// AddItemOutcomeKind defines model for AddItemOutcome.Kind.
+// AddItemOutcomeKind The outcome kind for one add item.
 type AddItemOutcomeKind string
 
 // AddMemberRequest Request body to add a member to a household.
@@ -340,46 +410,53 @@ type ApproveReviewResponse struct {
 
 // Asset A user asset derived from an ingested document.
 type Asset struct {
-	// AssetCategory Intrinsic category of the asset
-	AssetCategory *AssetAssetCategory `json:"asset_category,omitempty"`
-	Brand         *string             `json:"brand,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 
-	// CategoryConfidence Confidence in the category assignment [0.0, 1.0]
-	CategoryConfidence *float32  `json:"category_confidence,omitempty"`
-	Confidence         *float32  `json:"confidence,omitempty"`
-	CreatedAt          time.Time `json:"created_at"`
-	Currency           *string   `json:"currency,omitempty"`
+	// Data The asset payload data (stored shape).
+	Data struct {
+		// AssetCategory Intrinsic category of the asset
+		AssetCategory *AssetDataAssetCategory `json:"asset_category,omitempty"`
+		Brand         *string                 `json:"brand,omitempty"`
 
-	// DeletedAt Set when the asset is soft-deleted
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
-	Id        string     `json:"id"`
+		// CategoryConfidence Confidence in the category assignment [0.0, 1.0]
+		CategoryConfidence *float32 `json:"category_confidence,omitempty"`
 
-	// MergedAssets Assets that were merged into this asset (survivor view)
-	MergedAssets *[]struct {
-		AssetId  string    `json:"asset_id"`
-		MergedAt time.Time `json:"merged_at"`
-	} `json:"merged_assets,omitempty"`
+		// CategoryUserSet True when the user has manually set the category (sticky).
+		CategoryUserSet *bool    `json:"category_user_set,omitempty"`
+		Confidence      *float32 `json:"confidence,omitempty"`
+		Currency        *string  `json:"currency,omitempty"`
 
-	// MergedAt Timestamp of the merge
-	MergedAt *time.Time `json:"merged_at,omitempty"`
+		// DeletedAt Set when the asset is soft-deleted
+		DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	// MergedInto Id of the survivor asset if this asset was merged
-	MergedInto *string                `json:"merged_into,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata"`
-	Model      *string                `json:"model,omitempty"`
+		// MergedAssets Assets that were merged into this asset (survivor view)
+		MergedAssets *[]struct {
+			AssetId  string    `json:"asset_id"`
+			MergedAt time.Time `json:"merged_at"`
+		} `json:"merged_assets,omitempty"`
 
-	// Name Canonical product name (e.g. "Microwave Oven")
-	Name             *string    `json:"name,omitempty"`
-	OwnerHouseholdId *string    `json:"owner_household_id,omitempty"`
-	Price            *string    `json:"price,omitempty"`
-	PurchaseDate     *time.Time `json:"purchase_date,omitempty"`
-	SerialNumber     *string    `json:"serial_number,omitempty"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	WarrantyEnd      *time.Time `json:"warranty_end,omitempty"`
+		// MergedAt Timestamp of the merge
+		MergedAt *time.Time `json:"merged_at,omitempty"`
+
+		// MergedInto Id of the survivor asset if this asset was merged
+		MergedInto *string                `json:"merged_into,omitempty"`
+		Metadata   map[string]interface{} `json:"metadata"`
+		Model      *string                `json:"model,omitempty"`
+
+		// Name Canonical product name (e.g. "Microwave Oven")
+		Name         *string             `json:"name,omitempty"`
+		Price        *string             `json:"price,omitempty"`
+		PurchaseDate *openapi_types.Date `json:"purchase_date,omitempty"`
+		SerialNumber *string             `json:"serial_number,omitempty"`
+		WarrantyEnd  *openapi_types.Date `json:"warranty_end,omitempty"`
+	} `json:"data"`
+	Id               string    `json:"id"`
+	OwnerHouseholdId *string   `json:"owner_household_id,omitempty"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-// AssetAssetCategory Intrinsic category of the asset
-type AssetAssetCategory string
+// AssetDataAssetCategory Intrinsic category of the asset
+type AssetDataAssetCategory string
 
 // CommitSummary The result of committing an import batch.
 type CommitSummary struct {
@@ -414,17 +491,58 @@ type CreateMovementRequest struct {
 
 // Document A document attached to an asset, with its source metadata.
 type Document struct {
-	Confidence       *float32        `json:"confidence,omitempty"`
-	CreatedAt        time.Time       `json:"created_at"`
-	DocType          DocumentDocType `json:"doc_type"`
-	Id               string          `json:"id"`
-	OwnerHouseholdId *string         `json:"owner_household_id,omitempty"`
-	SourceFilename   string          `json:"source_filename"`
-	SourceUploadedAt time.Time       `json:"source_uploaded_at"`
+	// AssetId The asset this document is linked to (null when detached).
+	AssetId   *string   `json:"asset_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Data The document payload data (stored shape).
+	Data struct {
+		Confidence      *float32                `json:"confidence,omitempty"`
+		DocType         DocumentDataDocType     `json:"doc_type"`
+		ExtractedFields *map[string]interface{} `json:"extracted_fields,omitempty"`
+		RawExtraction   *string                 `json:"raw_extraction,omitempty"`
+		UserDirective   *string                 `json:"user_directive,omitempty"`
+	} `json:"data"`
+	Id               string    `json:"id"`
+	OwnerHouseholdId *string   `json:"owner_household_id,omitempty"`
+	SourceFilename   string    `json:"source_filename"`
+	SourceId         string    `json:"source_id"`
+	SourceUploadedAt time.Time `json:"source_uploaded_at"`
+
+	// Status Processing status: processed (asset linked), in_review (pending
+	// review), failed (extraction failed), asset_less (no matching asset).
+	Status    DocumentStatus `json:"status"`
+	UpdatedAt time.Time      `json:"updated_at"`
 }
 
-// DocumentDocType defines model for Document.DocType.
-type DocumentDocType string
+// DocumentDataDocType defines model for Document.Data.DocType.
+type DocumentDataDocType string
+
+// DocumentStatus Processing status: processed (asset linked), in_review (pending
+// review), failed (extraction failed), asset_less (no matching asset).
+type DocumentStatus string
+
+// DuplicateReport The structured 409 response when a duplicate document upload is detected.
+type DuplicateReport struct {
+	Code            DuplicateReportCode `json:"code"`
+	ExistingAssetId *string             `json:"existing_asset_id,omitempty"`
+
+	// ExistingDocumentId The existing document id, or null when the duplicate source has no linked document (e.g. statement-classified sources).
+	ExistingDocumentId       *string   `json:"existing_document_id,omitempty"`
+	ExistingSourceFilename   string    `json:"existing_source_filename"`
+	ExistingSourceUploadedAt time.Time `json:"existing_source_uploaded_at"`
+
+	// Prompt The reprocess/keep prompt fields for the UI modal.
+	Prompt struct {
+		ExpiresAt    time.Time `json:"expires_at"`
+		KeepUri      string    `json:"keep_uri"`
+		ReprocessUri string    `json:"reprocess_uri"`
+		TimeoutToast string    `json:"timeout_toast"`
+	} `json:"prompt"`
+}
+
+// DuplicateReportCode defines model for DuplicateReport.Code.
+type DuplicateReportCode string
 
 // Error The standard error envelope for non-2xx responses.
 type Error struct {
@@ -433,11 +551,16 @@ type Error struct {
 
 // Household A household with its members.
 type Household struct {
-	CreatedAt   time.Time         `json:"created_at"`
-	DisplayName string            `json:"display_name"`
-	Id          string            `json:"id"`
-	Members     []HouseholdMember `json:"members"`
-	OwnerId     string            `json:"owner_id"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Data The household payload data (stored shape).
+	Data struct {
+		DisplayName string `json:"display_name"`
+	} `json:"data"`
+	Id        string            `json:"id"`
+	Members   []HouseholdMember `json:"members"`
+	OwnerId   string            `json:"owner_id"`
+	UpdatedAt time.Time         `json:"updated_at"`
 }
 
 // HouseholdMember A household member.
@@ -448,20 +571,24 @@ type HouseholdMember struct {
 
 // ImportBatch A statement import batch with its parsed lines.
 type ImportBatch struct {
-	AccountId            string       `json:"account_id"`
-	CreatedAt            time.Time    `json:"created_at"`
-	Filename             string       `json:"filename"`
-	Format               string       `json:"format"`
-	Id                   string       `json:"id"`
-	LineCountDuplicate   int          `json:"line_count_duplicate"`
-	LineCountError       int          `json:"line_count_error"`
-	LineCountPossibleDup int          `json:"line_count_possible_dup"`
-	LineCountValid       int          `json:"line_count_valid"`
-	Lines                []ImportLine `json:"lines"`
+	AccountId string    `json:"account_id"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Data The import batch payload data (stored shape).
+	Data struct {
+		Filename             string        `json:"filename"`
+		Format               string        `json:"format"`
+		LineCountDuplicate   int           `json:"line_count_duplicate"`
+		LineCountError       int           `json:"line_count_error"`
+		LineCountPossibleDup int           `json:"line_count_possible_dup"`
+		LineCountValid       int           `json:"line_count_valid"`
+		Lines                *[]ImportLine `json:"lines,omitempty"`
+		State                string        `json:"state"`
+	} `json:"data"`
+	Id string `json:"id"`
 
 	// Source Metadata about an uploaded statement's source.
 	Source    ImportSource `json:"source"`
-	State     string       `json:"state"`
 	UpdatedAt time.Time    `json:"updated_at"`
 }
 
@@ -490,21 +617,32 @@ type ImportSource struct {
 
 // IngestReview An ingest review candidate held for human approval.
 type IngestReview struct {
-	BestMatchedAssetId    *string                `json:"best_matched_asset_id,omitempty"`
-	BestMatchedAssetTitle *string                `json:"best_matched_asset_title,omitempty"`
-	CandidateFields       map[string]interface{} `json:"candidate_fields"`
-	Confidence            *float32               `json:"confidence,omitempty"`
-	CreatedAt             time.Time              `json:"created_at"`
-	DecidedAt             *time.Time             `json:"decided_at,omitempty"`
-	DocType               string                 `json:"doc_type"`
-	Id                    string                 `json:"id"`
-	SourceFilename        string                 `json:"source_filename"`
-	SourceUploadedAt      time.Time              `json:"source_uploaded_at"`
-	State                 IngestReviewState      `json:"state"`
+	BestMatchedAssetId    *string   `json:"best_matched_asset_id,omitempty"`
+	BestMatchedAssetTitle *string   `json:"best_matched_asset_title,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
+
+	// Data The ingest review payload data (stored shape).
+	Data struct {
+		BestMatchedAssetId *string                 `json:"best_matched_asset_id,omitempty"`
+		CandidateFields    map[string]interface{}  `json:"candidate_fields"`
+		Confidence         *float32                `json:"confidence,omitempty"`
+		DecidedAt          *time.Time              `json:"decided_at,omitempty"`
+		DecidedBy          *string                 `json:"decided_by,omitempty"`
+		DocType            string                  `json:"doc_type"`
+		Provenance         *map[string]interface{} `json:"provenance,omitempty"`
+		RawExtraction      *string                 `json:"raw_extraction,omitempty"`
+		State              IngestReviewDataState   `json:"state"`
+	} `json:"data"`
+	Id               string    `json:"id"`
+	OwnerHouseholdId *string   `json:"owner_household_id,omitempty"`
+	SourceFilename   string    `json:"source_filename"`
+	SourceId         string    `json:"source_id"`
+	SourceUploadedAt time.Time `json:"source_uploaded_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-// IngestReviewState defines model for IngestReview.State.
-type IngestReviewState string
+// IngestReviewDataState defines model for IngestReview.Data.State.
+type IngestReviewDataState string
 
 // LinkMovementRequest Request body to link a movement to a document.
 type LinkMovementRequest struct {
@@ -518,24 +656,29 @@ type MergeRequest struct {
 
 // Movement A money movement in the ledger.
 type Movement struct {
-	Amount               string             `json:"amount"`
-	CreatedAt            time.Time          `json:"created_at"`
-	Currency             string             `json:"currency"`
-	Description          string             `json:"description"`
-	DestinationAccountId *string            `json:"destination_account_id,omitempty"`
-	ExternalReference    *string            `json:"external_reference,omitempty"`
-	Id                   string             `json:"id"`
-	ImportBatchId        *string            `json:"import_batch_id,omitempty"`
-	ImportLine           *int               `json:"import_line,omitempty"`
-	Kind                 string             `json:"kind"`
-	LinkConflicting      bool               `json:"link_conflicting"`
-	LinkCreator          *string            `json:"link_creator,omitempty"`
-	LinkedDocumentId     *string            `json:"linked_document_id,omitempty"`
-	OccurredOn           openapi_types.Date `json:"occurred_on"`
-	Origin               string             `json:"origin"`
-	RecordedAt           time.Time          `json:"recorded_at"`
-	SourceAccountId      *string            `json:"source_account_id,omitempty"`
-	UpdatedAt            time.Time          `json:"updated_at"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Data The movement payload data (stored shape).
+	Data struct {
+		Amount            string             `json:"amount"`
+		Currency          string             `json:"currency"`
+		Description       string             `json:"description"`
+		ExternalReference *string            `json:"external_reference,omitempty"`
+		ImportLine        *int               `json:"import_line,omitempty"`
+		Kind              string             `json:"kind"`
+		LinkConflicting   bool               `json:"link_conflicting"`
+		LinkCreator       *string            `json:"link_creator,omitempty"`
+		OccurredOn        openapi_types.Date `json:"occurred_on"`
+		Origin            string             `json:"origin"`
+		RecordedAt        time.Time          `json:"recorded_at"`
+	} `json:"data"`
+	DestinationAccountId *string   `json:"destination_account_id,omitempty"`
+	Id                   string    `json:"id"`
+	ImportBatchId        *string   `json:"import_batch_id,omitempty"`
+	LinkedDocumentId     *string   `json:"linked_document_id,omitempty"`
+	OwnerHouseholdId     *string   `json:"owner_household_id,omitempty"`
+	SourceAccountId      *string   `json:"source_account_id,omitempty"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // PatchAssetRequest Request body to patch an asset with user corrections. All fields are
@@ -565,6 +708,12 @@ type PatchMovementRequest struct {
 	Kind                 string `json:"kind"`
 	OccurredOn           string `json:"occurred_on"`
 	SourceAccountId      string `json:"source_account_id"`
+}
+
+// ReprocessDocumentRequest Optional comment for the reprocess request.
+type ReprocessDocumentRequest struct {
+	// Comment Free-text comment passed as the extraction directive.
+	Comment *string `json:"comment,omitempty"`
 }
 
 // SearchHit A single search result hit.
@@ -612,10 +761,25 @@ type GetAssetParams struct {
 	IncludeDeleted *bool `form:"include_deleted,omitempty" json:"include_deleted,omitempty"`
 }
 
+// ListDocumentsParams defines parameters for ListDocuments.
+type ListDocumentsParams struct {
+	// Status Filter by processing status.
+	Status *ListDocumentsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// Q Case-insensitive substring match on source filename.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+}
+
+// ListDocumentsParamsStatus defines parameters for ListDocuments.
+type ListDocumentsParamsStatus string
+
 // UploadDocumentMultipartBody defines parameters for UploadDocument.
 type UploadDocumentMultipartBody struct {
-	File             openapi_types.File `json:"file"`
-	OwnerHouseholdId *string            `json:"owner_household_id,omitempty"`
+	File openapi_types.File `json:"file"`
+
+	// Note Optional free-text note (user directive) for the extraction.
+	Note             *string `json:"note,omitempty"`
+	OwnerHouseholdId *string `json:"owner_household_id,omitempty"`
 }
 
 // CreateImportBatchMultipartBody defines parameters for CreateImportBatch.
@@ -721,6 +885,9 @@ type MergeAssetJSONRequestBody = MergeRequest
 // UploadDocumentMultipartRequestBody defines body for UploadDocument for multipart/form-data ContentType.
 type UploadDocumentMultipartRequestBody UploadDocumentMultipartBody
 
+// ReprocessDocumentJSONRequestBody defines body for ReprocessDocument for application/json ContentType.
+type ReprocessDocumentJSONRequestBody = ReprocessDocumentRequest
+
 // CreateAccountJSONRequestBody defines body for CreateAccount for application/json ContentType.
 type CreateAccountJSONRequestBody = CreateAccountRequest
 
@@ -768,9 +935,21 @@ type ServerInterface interface {
 	// RestoreAsset Restore a soft-deleted asset
 	// (POST /api/users/{userId}/assets/{assetId}/restore)
 	RestoreAsset(w http.ResponseWriter, r *http.Request, userId string, assetId string)
+	// ListDocuments List documents
+	// (GET /api/users/{userId}/documents)
+	ListDocuments(w http.ResponseWriter, r *http.Request, userId string, params ListDocumentsParams)
 	// UploadDocument Upload a document
 	// (POST /api/users/{userId}/documents)
 	UploadDocument(w http.ResponseWriter, r *http.Request, userId string)
+	// DeleteDocument Delete a document
+	// (DELETE /api/users/{userId}/documents/{id})
+	DeleteDocument(w http.ResponseWriter, r *http.Request, userId string, id string)
+	// KeepDocument Keep existing (resolve pending choice)
+	// (POST /api/users/{userId}/documents/{id}/keep)
+	KeepDocument(w http.ResponseWriter, r *http.Request, userId string, id string)
+	// ReprocessDocument Reprocess a document
+	// (POST /api/users/{userId}/documents/{id}/reprocess)
+	ReprocessDocument(w http.ResponseWriter, r *http.Request, userId string, id string)
 	// ListAccounts List finance accounts
 	// (GET /api/users/{userId}/finance/accounts)
 	ListAccounts(w http.ResponseWriter, r *http.Request, userId string)
@@ -900,9 +1079,33 @@ func (_ Unimplemented) RestoreAsset(w http.ResponseWriter, r *http.Request, user
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ListDocuments List documents
+// (GET /api/users/{userId}/documents)
+func (_ Unimplemented) ListDocuments(w http.ResponseWriter, r *http.Request, userId string, params ListDocumentsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // UploadDocument Upload a document
 // (POST /api/users/{userId}/documents)
 func (_ Unimplemented) UploadDocument(w http.ResponseWriter, r *http.Request, userId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteDocument Delete a document
+// (DELETE /api/users/{userId}/documents/{id})
+func (_ Unimplemented) DeleteDocument(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// KeepDocument Keep existing (resolve pending choice)
+// (POST /api/users/{userId}/documents/{id}/keep)
+func (_ Unimplemented) KeepDocument(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ReprocessDocument Reprocess a document
+// (POST /api/users/{userId}/documents/{id}/reprocess)
+func (_ Unimplemented) ReprocessDocument(w http.ResponseWriter, r *http.Request, userId string, id string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1359,6 +1562,61 @@ func (siw *ServerInterfaceWrapper) RestoreAsset(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListDocuments operation middleware
+func (siw *ServerInterfaceWrapper) ListDocuments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDocumentsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDocuments(w, r, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // UploadDocument operation middleware
 func (siw *ServerInterfaceWrapper) UploadDocument(w http.ResponseWriter, r *http.Request) {
 
@@ -1376,6 +1634,111 @@ func (siw *ServerInterfaceWrapper) UploadDocument(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UploadDocument(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteDocument operation middleware
+func (siw *ServerInterfaceWrapper) DeleteDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteDocument(w, r, userId, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// KeepDocument operation middleware
+func (siw *ServerInterfaceWrapper) KeepDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.KeepDocument(w, r, userId, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReprocessDocument operation middleware
+func (siw *ServerInterfaceWrapper) ReprocessDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReprocessDocument(w, r, userId, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2586,7 +2949,19 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/users/{userId}/documents", wrapper.ListDocuments)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/users/{userId}/documents", wrapper.UploadDocument)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/users/{userId}/documents/{id}", wrapper.DeleteDocument)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/users/{userId}/documents/{id}/reprocess", wrapper.ReprocessDocument)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/users/{userId}/documents/{id}/keep", wrapper.KeepDocument)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/users/{userId}/add", wrapper.AddItems)
@@ -3180,6 +3555,43 @@ func (response RestoreAsset500JSONResponse) VisitRestoreAssetResponse(w http.Res
 	return err
 }
 
+type ListDocumentsRequestObject struct {
+	UserId string `json:"userId"`
+	Params ListDocumentsParams
+}
+
+type ListDocumentsResponseObject interface {
+	VisitListDocumentsResponse(w http.ResponseWriter) error
+}
+
+type ListDocuments200JSONResponse []Document
+
+func (response ListDocuments200JSONResponse) VisitListDocumentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDocuments500JSONResponse Error
+
+func (response ListDocuments500JSONResponse) VisitListDocumentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UploadDocumentRequestObject struct {
 	UserId string `json:"userId"`
 	Body   *multipart.Reader
@@ -3227,6 +3639,20 @@ func (response UploadDocument400JSONResponse) VisitUploadDocumentResponse(w http
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocument409JSONResponse DuplicateReport
+
+func (response UploadDocument409JSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3297,6 +3723,168 @@ func (response UploadDocument502JSONResponse) VisitUploadDocumentResponse(w http
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteDocumentRequestObject struct {
+	UserId string `json:"userId"`
+	Id     string `json:"id"`
+}
+
+type DeleteDocumentResponseObject interface {
+	VisitDeleteDocumentResponse(w http.ResponseWriter) error
+}
+
+type DeleteDocument204Response struct {
+}
+
+func (response DeleteDocument204Response) VisitDeleteDocumentResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteDocument404JSONResponse Error
+
+func (response DeleteDocument404JSONResponse) VisitDeleteDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteDocument500JSONResponse Error
+
+func (response DeleteDocument500JSONResponse) VisitDeleteDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type KeepDocumentRequestObject struct {
+	UserId string `json:"userId"`
+	Id     string `json:"id"`
+}
+
+type KeepDocumentResponseObject interface {
+	VisitKeepDocumentResponse(w http.ResponseWriter) error
+}
+
+type KeepDocument200JSONResponse Document
+
+func (response KeepDocument200JSONResponse) VisitKeepDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type KeepDocument404JSONResponse Error
+
+func (response KeepDocument404JSONResponse) VisitKeepDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type KeepDocument500JSONResponse Error
+
+func (response KeepDocument500JSONResponse) VisitKeepDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReprocessDocumentRequestObject struct {
+	UserId string `json:"userId"`
+	Id     string `json:"id"`
+	Body   *ReprocessDocumentJSONRequestBody
+}
+
+type ReprocessDocumentResponseObject interface {
+	VisitReprocessDocumentResponse(w http.ResponseWriter) error
+}
+
+type ReprocessDocument202JSONResponse Document
+
+func (response ReprocessDocument202JSONResponse) VisitReprocessDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReprocessDocument404JSONResponse Error
+
+func (response ReprocessDocument404JSONResponse) VisitReprocessDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReprocessDocument409JSONResponse Error
+
+func (response ReprocessDocument409JSONResponse) VisitReprocessDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReprocessDocument500JSONResponse Error
+
+func (response ReprocessDocument500JSONResponse) VisitReprocessDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5116,9 +5704,21 @@ type StrictServerInterface interface {
 	// RestoreAsset Restore a soft-deleted asset
 	// (POST /api/users/{userId}/assets/{assetId}/restore)
 	RestoreAsset(ctx context.Context, request RestoreAssetRequestObject) (RestoreAssetResponseObject, error)
+	// ListDocuments List documents
+	// (GET /api/users/{userId}/documents)
+	ListDocuments(ctx context.Context, request ListDocumentsRequestObject) (ListDocumentsResponseObject, error)
 	// UploadDocument Upload a document
 	// (POST /api/users/{userId}/documents)
 	UploadDocument(ctx context.Context, request UploadDocumentRequestObject) (UploadDocumentResponseObject, error)
+	// DeleteDocument Delete a document
+	// (DELETE /api/users/{userId}/documents/{id})
+	DeleteDocument(ctx context.Context, request DeleteDocumentRequestObject) (DeleteDocumentResponseObject, error)
+	// KeepDocument Keep existing (resolve pending choice)
+	// (POST /api/users/{userId}/documents/{id}/keep)
+	KeepDocument(ctx context.Context, request KeepDocumentRequestObject) (KeepDocumentResponseObject, error)
+	// ReprocessDocument Reprocess a document
+	// (POST /api/users/{userId}/documents/{id}/reprocess)
+	ReprocessDocument(ctx context.Context, request ReprocessDocumentRequestObject) (ReprocessDocumentResponseObject, error)
 	// ListAccounts List finance accounts
 	// (GET /api/users/{userId}/finance/accounts)
 	ListAccounts(ctx context.Context, request ListAccountsRequestObject) (ListAccountsResponseObject, error)
@@ -5478,6 +6078,33 @@ func (sh *strictHandler) RestoreAsset(w http.ResponseWriter, r *http.Request, us
 	}
 }
 
+// ListDocuments operation middleware
+func (sh *strictHandler) ListDocuments(w http.ResponseWriter, r *http.Request, userId string, params ListDocumentsParams) {
+	var request ListDocumentsRequestObject
+
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDocuments(ctx, request.(ListDocumentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDocuments")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDocumentsResponseObject); ok {
+		if err := validResponse.VisitListDocumentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // UploadDocument operation middleware
 func (sh *strictHandler) UploadDocument(w http.ResponseWriter, r *http.Request, userId string) {
 	var request UploadDocumentRequestObject
@@ -5504,6 +6131,97 @@ func (sh *strictHandler) UploadDocument(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UploadDocumentResponseObject); ok {
 		if err := validResponse.VisitUploadDocumentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteDocument operation middleware
+func (sh *strictHandler) DeleteDocument(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	var request DeleteDocumentRequestObject
+
+	request.UserId = userId
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteDocument(ctx, request.(DeleteDocumentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteDocument")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteDocumentResponseObject); ok {
+		if err := validResponse.VisitDeleteDocumentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// KeepDocument operation middleware
+func (sh *strictHandler) KeepDocument(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	var request KeepDocumentRequestObject
+
+	request.UserId = userId
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.KeepDocument(ctx, request.(KeepDocumentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "KeepDocument")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(KeepDocumentResponseObject); ok {
+		if err := validResponse.VisitKeepDocumentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReprocessDocument operation middleware
+func (sh *strictHandler) ReprocessDocument(w http.ResponseWriter, r *http.Request, userId string, id string) {
+	var request ReprocessDocumentRequestObject
+
+	request.UserId = userId
+	request.Id = id
+
+	var body ReprocessDocumentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReprocessDocument(ctx, request.(ReprocessDocumentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReprocessDocument")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReprocessDocumentResponseObject); ok {
+		if err := validResponse.VisitReprocessDocumentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

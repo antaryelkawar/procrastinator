@@ -42,4 +42,10 @@ type IngestReview struct {
 	// Provenance stores the per-worker extraction results and/or candidate set
 	// that produced this review row. Maps to ingest_reviews.provenance (jsonb).
 	Provenance map[string]any
+	UpdatedAt  time.Time
+	// DeletedAt is the soft-delete timestamp; nil means the review is active.
+	DeletedAt *time.Time
 }
+
+// GetID returns the entity's row identity.
+func (r IngestReview) GetID() string { return r.ID }

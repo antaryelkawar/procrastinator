@@ -214,6 +214,71 @@ func TestGenericAssetDelete(t *testing.T) {
 	}
 }
 
+// TestGenericDocumentUpdateClearsRealColumn pins the fix for a nil bare-column
+// repo.Set: `asset_id = NULL` must be emitted as a SQL literal (no bound
+// parameter). The stale implementation appended a nil arg for the NULL, which
+// shifted every later placeholder and left an untyped $N → SQLSTATE 42P18
+// "could not determine data type of parameter $N". The documents delete path
+// (soft-delete + detach) is the exact caller this regression guards.
+func TestGenericDocumentUpdateClearsRealColumn(t *testing.T) {
+	assets, sources, docs := genericRepos(t)
+	truncateGeneric(t)
+	ctx := context.Background()
+
+	asset, err := assets.Create(ctx, testAsset(), repo.Owner(userA))
+	if err != nil {
+		t.Fatalf("seed asset: %v", err)
+	}
+	src, err := sources.Create(ctx, testSource(), repo.Owner(userA))
+	if err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	created, err := docs.Create(ctx, entity.Document{
+		SourceID:        src.ID,
+		AssetID:         asset.ID,
+		DocType:         entity.DocTypeInvoice,
+		ExtractedFields: map[string]any{},
+		// 00001_init requires documents.raw_extraction NOT NULL.
+		RawExtraction: "raw extraction fixture",
+	}, repo.Owner(userA))
+	if err != nil {
+		t.Fatalf("Create document: %v", err)
+	}
+	if created.AssetID != asset.ID {
+		t.Fatalf("created.AssetID = %q, want %q", created.AssetID, asset.ID)
+	}
+
+	// The delete path: soft-delete (set deleted_at) + clear the nullable real
+	// column asset_id via repo.Set. This is exactly what the documents
+	// DeleteDocument handler does.
+	now := time.Now()
+	created.DeletedAt = &now
+	updated, err := docs.Update(ctx, created, repo.Owner(userA), repo.Set("asset_id", nil))
+	if err != nil {
+		t.Fatalf("Update (soft-delete + repo.Set(asset_id, nil)): %v", err)
+	}
+	if updated.AssetID != "" {
+		t.Errorf("updated.AssetID = %q, want \"\" (cleared to NULL)", updated.AssetID)
+	}
+	if updated.DeletedAt == nil {
+		t.Error("updated.DeletedAt is nil, want set (soft-delete persisted)")
+	}
+	// The payload merge must survive the real-column changes.
+	if updated.DocType != entity.DocTypeInvoice {
+		t.Errorf("updated.DocType = %q, want %q (payload preserved)", updated.DocType, entity.DocTypeInvoice)
+	}
+	got, err := docs.Get(ctx, created.ID, repo.Owner(userA))
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.AssetID != "" {
+		t.Errorf("re-fetched AssetID = %q, want \"\" (NULL)", got.AssetID)
+	}
+	if got.DeletedAt == nil {
+		t.Error("re-fetched DeletedAt is nil, want set (soft-delete persisted)")
+	}
+}
+
 func TestGenericSourceCreateGetRoundTrip(t *testing.T) {
 	_, sources, _ := genericRepos(t)
 	truncateGeneric(t)

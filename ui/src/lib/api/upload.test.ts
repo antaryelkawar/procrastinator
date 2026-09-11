@@ -144,6 +144,77 @@ describe('uploadDocument', () => {
     expect(result.kind).toBe('held');
     expect((result as { kind: 'held'; review: unknown }).review).toEqual(review);
   });
+
+  it('appends the `note` field to the multipart body when a note is provided', async () => {
+    installFakeXhr();
+    const file = makeFile('invoice.pdf', 'application/pdf');
+    const promise = uploadDocument(ALICE, file, () => {}, 'under warranty');
+    const xhr = lastXhr();
+
+    const form = xhr.sentForm;
+    expect(form).not.toBeNull();
+    expect(form?.get('file')).toBe(file);
+    expect(form?.get('note')).toBe('under warranty');
+
+    xhr.respond(201, JSON.stringify(ASSET_JSON));
+    const result = await promise;
+    expect(result.kind).toBe('committed');
+  });
+
+  it('omits the `note` field when no note is provided', async () => {
+    installFakeXhr();
+    const file = makeFile('invoice.pdf', 'application/pdf');
+    const promise = uploadDocument(ALICE, file, () => {});
+    const xhr = lastXhr();
+
+    const form = xhr.sentForm;
+    expect(form).not.toBeNull();
+    expect(form?.get('note')).toBeNull();
+
+    xhr.respond(201, JSON.stringify(ASSET_JSON));
+    const result = await promise;
+    expect(result.kind).toBe('committed');
+  });
+
+  it('omits the `note` field when the note is blank/whitespace-only', async () => {
+    installFakeXhr();
+    const file = makeFile('invoice.pdf', 'application/pdf');
+    const promise = uploadDocument(ALICE, file, () => {}, '   ');
+    const xhr = lastXhr();
+
+    const form = xhr.sentForm;
+    expect(form).not.toBeNull();
+    expect(form?.get('note')).toBeNull();
+
+    xhr.respond(201, JSON.stringify(ASSET_JSON));
+    const result = await promise;
+    expect(result.kind).toBe('committed');
+  });
+
+  it('resolves the structured DuplicateReport on 409 (does not reject)', async () => {
+    installFakeXhr();
+    const file = makeFile('invoice.pdf', 'application/pdf');
+    const promise = uploadDocument(ALICE, file, () => {});
+    const xhr = lastXhr();
+
+    const report = {
+      code: 'duplicate',
+      existing_document_id: 'doc-1',
+      existing_source_filename: 'existing.pdf',
+      existing_source_uploaded_at: '2026-09-01T10:00:00Z',
+      existing_asset_id: 'a1',
+      prompt: {
+        reprocess_uri: `/api/users/${ALICE}/documents/doc-1/reprocess`,
+        keep_uri: `/api/users/${ALICE}/documents/doc-1/keep`,
+        expires_at: '2026-09-01T10:10:00Z',
+        timeout_toast: 'no response — keeping existing document',
+      },
+    };
+    xhr.respond(409, JSON.stringify(report));
+    const result = await promise;
+    expect(result.kind).toBe('duplicate');
+    expect((result as { kind: 'duplicate'; report: unknown }).report).toEqual(report);
+  });
 });
 
 describe('uploadStatement', () => {

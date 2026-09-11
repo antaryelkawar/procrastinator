@@ -13,10 +13,26 @@ import (
 
 const migrateSchema = "p_migrate"
 
-// TestMigrate verifies that migration 00006 (asset-management-rework) applies
-// UP cleanly on top of 00001-00005, reverses cleanly back to version 5, and is
-// repeatable (UP again). It asserts the observable schema shape before and
-// after each phase rather than trusting the SQL by eye.
+// The uniform physical shape: every entity table carries key/FK/RLS/lifecycle
+// columns plus created_at + updated_at + payload jsonb. household_members is a
+// pure association table (the real FK pair is the tenancy predicate key) and is
+// exempt from the payload shape.
+var (
+	// entityTables all carry `payload jsonb NOT NULL DEFAULT '{}'`.
+	entityTables = []string{
+		"users", "households",
+		"sources", "assets", "documents",
+		"financial_accounts", "import_batches", "money_movements", "import_lines",
+		"ingest_reviews",
+	}
+	// allTables is the full set created by the fresh migration.
+	allTables = append(append([]string{}, entityTables...), "household_members")
+)
+
+// TestMigrate verifies the fresh uniform-jsonb migration (00001_schema) applies
+// UP cleanly, asserts the observable schema shape, reverses cleanly to version 0
+// (empty), and is repeatable (UP again). It asserts the schema by querying the
+// catalog rather than trusting the SQL by eye.
 func TestMigrate(t *testing.T) {
 	if os.Getenv("TESTPG_SKIP") == "1" {
 		t.Skip("no test database configured")
@@ -29,58 +45,152 @@ func TestMigrate(t *testing.T) {
 
 	ctx := context.Background()
 
-	// --- Phase 1: post-UP schema assertions (00001..00006 applied). ---
-	for _, col := range []string{
-		"name", "norm_name", "asset_category", "category_confidence",
-		"category_user_set", "deleted_at", "merged_into", "merged_at",
-	} {
-		assertColumnExists(t, ctx, pool, "assets", col, true)
-	}
-	assertColumnExists(t, ctx, pool, "assets", "doc_type", false)
+	// --- Phase 1: post-UP schema assertions. ---
 
+	// 1a. All 11 tables exist.
+	for _, tbl := range allTables {
+		assertTableExists(t, ctx, pool, tbl, true)
+	}
+
+	// 1b. Every entity table carries the uniform payload column (jsonb, NOT
+	// NULL, default '{}'). The association table does not.
+	for _, tbl := range entityTables {
+		assertPayloadColumn(t, ctx, pool, tbl)
+	}
+	assertColumnExists(t, ctx, pool, "household_members", "payload", false)
+
+	// 1c. The legacy column-based shape is gone. A representative set of the
+	// identity/data columns that moved into payload.data.* must no longer exist
+	// as real columns.
+	legacyColumns := map[string][]string{
+		"assets": {
+			"name", "brand", "model", "serial_number",
+			"norm_serial", "norm_brand", "norm_model", "norm_name",
+			"doc_type", "asset_category", "price", "currency",
+			"purchase_date", "warranty_end", "metadata",
+			"category_confidence", "category_user_set", "merged_into", "merged_at",
+		},
+		"sources": {
+			"filename", "content_type", "size", "path", "sha256", "uploaded_at",
+		},
+		"documents": {
+			"doc_type", "status", "filename",
+		},
+		"financial_accounts": {
+			"name", "account_type", "institution", "balance",
+		},
+		"ingest_reviews": {
+			"state", "doc_type", "provenance", "confidence",
+		},
+		"money_movements": {
+			"amount", "description", "external_reference", "occurred_at",
+		},
+	}
+	for tbl, cols := range legacyColumns {
+		for _, col := range cols {
+			assertColumnExists(t, ctx, pool, tbl, col, false)
+		}
+	}
+
+	// 1d. documents.asset_id is nullable (purge detaches rather than cascades)
+	// and its FK uses ON DELETE SET NULL.
 	if nullable := columnNullable(t, ctx, pool, "documents", "asset_id"); nullable != "YES" {
 		t.Errorf("documents.asset_id is_nullable = %q, want \"YES\"", nullable)
 	}
+	assertFKSetNull(t, ctx, pool, "documents", "asset_id")
 
-	if dt := columnDataType(t, ctx, pool, "ingest_reviews", "provenance"); dt != "jsonb" {
-		t.Errorf("ingest_reviews.provenance data_type = %q, want \"jsonb\"", dt)
+	// 1e. documents.source_id is unique (at most one document per source).
+	assertUniqueNonPK(t, ctx, pool, "documents")
+
+	// 1f. The norm-serial uniqueness index: a partial UNIQUE index whose
+	// definition references the COALESCE household key, the payload
+	// norm_serial expression, and the deleted_at IS NULL predicate.
+	def := indexDef(t, ctx, pool, "uniq_assets_owner_norm_serial")
+	for _, want := range []string{"COALESCE", "norm_serial", "deleted_at IS NULL"} {
+		if !strings.Contains(def, want) {
+			t.Errorf("uniq_assets_owner_norm_serial def = %q, want it to contain %q", def, want)
+		}
 	}
 
-	assertDocTypeCheckExpanded(t, ctx, pool, "documents", "documents_doc_type_check")
-	assertDocTypeCheckExpanded(t, ctx, pool, "ingest_reviews", "ingest_reviews_doc_type_check")
+	// 1g. The stage-1 resolver lookup index (non-unique expression composite)
+	// exists alongside the unique index.
+	assertIndexExists(t, ctx, pool, "idx_assets_owner_norm_serial")
 
-	assertIndexExists(t, ctx, pool, "idx_assets_owner_norm_brand_model")
-	assertIndexExists(t, ctx, pool, "idx_assets_owner_norm_name_model")
+	// 1h. The D2 jsonb-expression / trigram index list is present.
+	for _, idx := range []string{
+		"idx_assets_owner_norm_brand_model",
+		"idx_assets_owner_norm_name_model",
+		"idx_assets_data_name_trgm",
+		"idx_assets_data_brand_trgm",
+		"idx_assets_data_model_trgm",
+		"idx_assets_data_serial_trgm",
+		"idx_accounts_data_name_trgm",
+		"idx_accounts_data_type_trgm",
+		"idx_accounts_data_institution_trgm",
+		"idx_movements_data_description_trgm",
+		"idx_movements_data_reference_trgm",
+		"idx_sources_data_filename_trgm",
+		"idx_sources_owner_sha256",
+		"idx_documents_owner_status",
+		"idx_import_batches_owner_state",
+		"idx_ingest_reviews_owner_state",
+	} {
+		assertIndexExists(t, ctx, pool, idx)
+	}
 
-	// --- Phase 2: apply DOWN to version 5 (reverses 00006). ---
+	// 1i. pg_trgm is enabled (backs the trigram GIN indexes).
+	assertExtensionPresent(t, ctx, pool, "pg_trgm")
+
+	// --- Phase 2: apply DOWN to version 0 (reverses the whole fresh schema). ---
 	stdDB := stdlib.OpenDBFromPool(pool)
 	defer stdDB.Close()
 	if err := goose.SetDialect("postgres"); err != nil {
 		t.Fatalf("goose.SetDialect: %v", err)
 	}
 	goose.SetTableName(migrateSchema + ".goose_db_version")
-	if err := goose.DownTo(stdDB, migrationsDir, 5); err != nil {
-		t.Fatalf("goose.DownTo(5): %v", err)
+	if err := goose.DownTo(stdDB, migrationsDir, 0); err != nil {
+		t.Fatalf("goose.DownTo(0): %v", err)
 	}
 
 	// --- Phase 3: post-DOWN schema assertions. ---
-	assertColumnExists(t, ctx, pool, "assets", "doc_type", true)
-	for _, col := range []string{"name", "asset_category", "deleted_at", "merged_into"} {
-		assertColumnExists(t, ctx, pool, "assets", col, false)
+	// All 11 tables are gone (entity tables and the association table).
+	for _, tbl := range allTables {
+		assertTableExists(t, ctx, pool, tbl, false)
 	}
-	if nullable := columnNullable(t, ctx, pool, "documents", "asset_id"); nullable != "NO" {
-		t.Errorf("documents.asset_id is_nullable = %q, want \"NO\"", nullable)
-	}
-	assertColumnExists(t, ctx, pool, "ingest_reviews", "provenance", false)
-
-	assertDocTypeCheckRestored(t, ctx, pool, "documents", "documents_doc_type_check")
+	// pg_trgm is intentionally NOT dropped (cluster-level object).
+	assertExtensionPresent(t, ctx, pool, "pg_trgm")
 
 	// --- Phase 4: re-apply UP to prove repeatability. ---
 	if err := goose.Up(stdDB, migrationsDir); err != nil {
 		t.Fatalf("goose.Up (re-apply): %v", err)
 	}
-	assertColumnExists(t, ctx, pool, "assets", "name", true)
-	assertColumnExists(t, ctx, pool, "assets", "asset_category", true)
+	for _, tbl := range allTables {
+		assertTableExists(t, ctx, pool, tbl, true)
+	}
+	for _, tbl := range entityTables {
+		assertPayloadColumn(t, ctx, pool, tbl)
+	}
+}
+
+// assertTableExists fails the test if the table's presence does not match want.
+func assertTableExists(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string, want bool) {
+	t.Helper()
+	var count int
+	err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM pg_class c
+		 JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r','p')`,
+		migrateSchema, table).Scan(&count)
+	if err != nil {
+		t.Fatalf("check table %s: %v", table, err)
+	}
+	if got := count > 0; got != want {
+		wantStr := "be present"
+		if !want {
+			wantStr = "be absent"
+		}
+		t.Errorf("table %q should %s in schema %q (found %d rows)", table, wantStr, migrateSchema, count)
+	}
 }
 
 // assertColumnExists fails the test if the table's column presence does not match want.
@@ -100,6 +210,30 @@ func assertColumnExists(t *testing.T, ctx context.Context, pool *pgxpool.Pool, t
 			wantStr = "not have"
 		}
 		t.Errorf("table %q should %s column %q (found %d rows)", table, wantStr, column, count)
+	}
+}
+
+// assertPayloadColumn asserts the table carries a `payload` column that is
+// jsonb, NOT NULL, and defaults to '{}'.
+func assertPayloadColumn(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string) {
+	t.Helper()
+	assertColumnExists(t, ctx, pool, table, "payload", true)
+	if dt := columnDataType(t, ctx, pool, table, "payload"); dt != "jsonb" {
+		t.Errorf("%s.payload data_type = %q, want \"jsonb\"", table, dt)
+	}
+	if nullable := columnNullable(t, ctx, pool, table, "payload"); nullable != "NO" {
+		t.Errorf("%s.payload is_nullable = %q, want \"NO\"", table, nullable)
+	}
+	var def string
+	err := pool.QueryRow(ctx,
+		`SELECT column_default FROM information_schema.columns
+		 WHERE table_schema = $1 AND table_name = $2 AND column_name = 'payload'`,
+		migrateSchema, table).Scan(&def)
+	if err != nil {
+		t.Fatalf("column_default for %s.payload: %v", table, err)
+	}
+	if !strings.Contains(def, "'{}'") {
+		t.Errorf("%s.payload column_default = %q, want it to default to '{}'", table, def)
 	}
 }
 
@@ -131,8 +265,11 @@ func columnDataType(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table
 	return dt
 }
 
-// fetchDocTypeCheckDef returns pg_get_constraintdef for the named check constraint.
-func fetchDocTypeCheckDef(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table, constraint string) string {
+// assertFKSetNull asserts the table.column carries a foreign key whose delete
+// rule is ON DELETE SET NULL. It reads the authoritative pg_get_constraintdef
+// (the same source \d uses) rather than the raw confdeltype catalog byte, which
+// the human-readable definition renders reliably.
+func assertFKSetNull(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table, column string) {
 	t.Helper()
 	var def string
 	err := pool.QueryRow(ctx,
@@ -140,34 +277,54 @@ func fetchDocTypeCheckDef(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		 FROM pg_constraint c
 		 JOIN pg_class rel ON rel.oid = c.conrelid
 		 JOIN pg_namespace n ON n.oid = rel.relnamespace
-		 WHERE n.nspname = $1 AND rel.relname = $2 AND c.conname = $3`,
-		migrateSchema, table, constraint).Scan(&def)
+		 WHERE n.nspname = $1 AND rel.relname = $2 AND c.contype = 'f'
+		   AND pg_get_constraintdef(c.oid) LIKE ('FOREIGN KEY (' || $3 || ')%')`,
+		migrateSchema, table, column).Scan(&def)
 	if err != nil {
-		t.Fatalf("constraint def %s.%s: %v", table, constraint, err)
+		t.Fatalf("FK definition for %s.%s: %v", table, column, err)
+	}
+	if !strings.Contains(def, "ON DELETE SET NULL") {
+		t.Errorf("%s.%s FK def = %q, want it to contain \"ON DELETE SET NULL\"", table, column, def)
+	}
+}
+
+// assertUniqueNonPK asserts the table has at least one non-primary-key unique
+// index (i.e. a UNIQUE constraint distinct from the PK).
+func assertUniqueNonPK(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string) {
+	t.Helper()
+	var count int
+	err := pool.QueryRow(ctx,
+		`SELECT count(*)
+		 FROM pg_index i
+		 JOIN pg_class c ON c.oid = i.indrelid
+		 JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = $1 AND c.relname = $2 AND i.indisunique AND NOT i.indisprimary`,
+		migrateSchema, table).Scan(&count)
+	if err != nil {
+		t.Fatalf("check unique non-PK index on %s: %v", table, err)
+	}
+	if count == 0 {
+		t.Errorf("table %q has no non-PK unique index (expected a UNIQUE constraint)", table)
+	}
+}
+
+// indexDef returns pg_get_indexdef for the named index in the migrate schema.
+// It is schema-scoped so a stale same-named index left in another per-test
+// schema from a prior run is never picked up.
+func indexDef(t *testing.T, ctx context.Context, pool *pgxpool.Pool, index string) string {
+	t.Helper()
+	var def string
+	err := pool.QueryRow(ctx,
+		`SELECT pg_get_indexdef(i.indexrelid)
+		 FROM pg_index i
+		 JOIN pg_class c ON c.oid = i.indexrelid
+		 JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = $1 AND c.relname = $2`,
+		migrateSchema, index).Scan(&def)
+	if err != nil {
+		t.Fatalf("index def %s: %v", index, err)
 	}
 	return def
-}
-
-// assertDocTypeCheckExpanded asserts the check contains receipt AND statement (6-value set).
-func assertDocTypeCheckExpanded(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table, constraint string) {
-	t.Helper()
-	def := fetchDocTypeCheckDef(t, ctx, pool, table, constraint)
-	if !strings.Contains(def, "'receipt'") || !strings.Contains(def, "'statement'") {
-		t.Errorf("%s.%s check = %q, want it to contain 'receipt' and 'statement'", table, constraint, def)
-	}
-}
-
-// assertDocTypeCheckRestored asserts the check is back to the 4-value set:
-// contains invoice but NOT statement.
-func assertDocTypeCheckRestored(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table, constraint string) {
-	t.Helper()
-	def := fetchDocTypeCheckDef(t, ctx, pool, table, constraint)
-	if !strings.Contains(def, "'invoice'") {
-		t.Errorf("%s.%s check = %q, want it to contain 'invoice'", table, constraint, def)
-	}
-	if strings.Contains(def, "'statement'") {
-		t.Errorf("%s.%s check = %q, should NOT contain 'statement' (expected 4-value set)", table, constraint, def)
-	}
 }
 
 // assertIndexExists fails the test if the named index is not present in the schema.
@@ -182,5 +339,20 @@ func assertIndexExists(t *testing.T, ctx context.Context, pool *pgxpool.Pool, in
 	}
 	if count == 0 {
 		t.Errorf("index %q not found in schema %q", index, migrateSchema)
+	}
+}
+
+// assertExtensionPresent fails the test if the named extension is not installed.
+func assertExtensionPresent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ext string) {
+	t.Helper()
+	var count int
+	err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM pg_extension WHERE extname = $1`,
+		ext).Scan(&count)
+	if err != nil {
+		t.Fatalf("check extension %s: %v", ext, err)
+	}
+	if count == 0 {
+		t.Errorf("extension %q not installed", ext)
 	}
 }

@@ -42,6 +42,9 @@ func TestOpenAPIDocument(t *testing.T) {
 	// 4. All 16 path keys present (full key form: /api/users/{userId}/...:).
 	pathKeys := []string{
 		"/api/users/{userId}/documents:",
+		"/api/users/{userId}/documents/{id}:",
+		"/api/users/{userId}/documents/{id}/reprocess:",
+		"/api/users/{userId}/documents/{id}/keep:",
 		"/api/users/{userId}/assets:",
 		"/api/users/{userId}/assets/{assetId}:",
 		"/api/users/{userId}/assets/{assetId}/documents:",
@@ -89,6 +92,8 @@ func TestOpenAPIDocument(t *testing.T) {
 		"link_movement_request:",
 		"create_household_request:",
 		"add_member_request:",
+		"duplicate_report:",
+		"reprocess_document_request:",
 	}
 	for _, name := range schemaNames {
 		if !strings.Contains(content, name) {

@@ -43,6 +43,10 @@ type Input struct {
 	// Text is true for pasted free-text input; the service stores it via the
 	// text storage (as a text/plain source) instead of the document storage.
 	Text bool
+	// Directive is the user's free-text note for this upload (design D7). It
+	// is persisted as documents.payload.data.user_directive and appended to the
+	// extraction prompt. Empty for note-less uploads.
+	Directive string
 }
 
 // Service composes the standalone processing pipeline: dedupe, storage,
@@ -87,6 +91,31 @@ func New(factory *repo.Factory, extractor *Extractor, storage repo.FileStorage, 
 // SetTextStorage sets the storage used for pasted-text inputs (Input.Text).
 // When nil, a text input fails with ErrNoTextStorage.
 func (s *Service) SetTextStorage(ts repo.FileStorage) { s.textStorage = ts }
+
+// StoreSource stores the uploaded bytes via the configured FileStorage and
+// persists the Source row. It is used by the add handler for duplicate uploads
+// where the full pipeline is not run. Returns the persisted Source.
+func (s *Service) StoreSource(ctx context.Context, in Input) (entity.Source, error) {
+	tid, err := user.UserFrom(ctx)
+	if err != nil {
+		return entity.Source{}, err
+	}
+	var source entity.Source
+	if in.Text {
+		if s.textStorage == nil {
+			return entity.Source{}, ErrNoTextStorage
+		}
+		source, err = s.textStorage.Put(ctx, in.Payload)
+	} else {
+		source, err = s.storage.Put(ctx, in.Payload)
+	}
+	if err != nil {
+		return entity.Source{}, err
+	}
+	source.OwnerHouseholdID = in.OwnerHouseholdID
+	source, err = s.factory.Sources.Create(ctx, source, repo.Owner(tid))
+	return source, err
+}
 
 // Process runs the processing pipeline for one upload and returns a
 // discriminated Outcome:
@@ -153,8 +182,9 @@ func (s *Service) Process(ctx context.Context, in Input) (Outcome, error) {
 	pctx, cancel := context.WithTimeout(ctx, s.processTimeout)
 	defer cancel()
 
-	// 6. Extraction + consensus.
-	results := s.extractor.Run(pctx, in.ContentType, in.Payload)
+	// 6. Extraction + consensus. The user's directive (if any) is appended to
+	// the extraction prompt so the model can honor the note.
+	results := s.extractor.Run(pctx, in.ContentType, in.Payload, in.Directive)
 	ext, conf, unresolved := Consensus(results)
 	provenance := buildProvenance(results, unresolved, nil)
 
@@ -227,6 +257,7 @@ func (s *Service) Process(ctx context.Context, in Input) (Outcome, error) {
 				RawExtraction:    ext.RawPayload,
 				OwnerHouseholdID: in.OwnerHouseholdID,
 				Confidence:       ext.Confidence,
+				UserDirective:    in.Directive,
 			}
 			if _, err = repos.Documents.Create(ctx, doc, repo.Owner(tid)); err != nil {
 				return err
@@ -273,6 +304,120 @@ func (s *Service) Process(ctx context.Context, in Input) (Outcome, error) {
 		Confidence: ext.Confidence,
 		Provenance: provenance,
 	}, nil
+}
+
+// Reprocess re-runs the extraction pipeline for an existing source. It reads
+// the source bytes back from storage, runs the extractor with the supplied
+// directive, computes consensus, and returns a discriminated Outcome. It does
+// NOT re-store the source or re-dedupe (the source row already exists); the
+// caller (the documents reprocess handler) persists the document outcome.
+//
+// Unlike Process, Reprocess does not create a document row itself: on the
+// commit path it only resolves identity and returns the target asset so the
+// caller can point the existing document at it.
+func (s *Service) Reprocess(ctx context.Context, sourceID string, directive string, ownerHH *string) (Outcome, error) {
+	tid, err := user.UserFrom(ctx)
+	if err != nil {
+		return Outcome{}, err
+	}
+
+	// Look up the source row to get the storage path and content type.
+	sources, err := s.factory.Sources.List(ctx, repo.Owner(tid), repo.Where("id", "=", sourceID))
+	if err != nil {
+		return Outcome{}, err
+	}
+	if len(sources) == 0 {
+		return Outcome{}, errors.New("source not found")
+	}
+	source := sources[0]
+
+	// Read the stored bytes back from storage.
+	payload, err := s.storage.Get(ctx, source.Path)
+	if err != nil {
+		return Outcome{}, err
+	}
+
+	// End-to-end budget for the LLM extraction + decision work.
+	pctx, cancel := context.WithTimeout(ctx, s.processTimeout)
+	defer cancel()
+
+	// Extraction + consensus with the (possibly new) directive.
+	results := s.extractor.Run(pctx, source.ContentType, payload, directive)
+	ext, conf, unresolved := Consensus(results)
+	provenance := buildProvenance(results, unresolved, nil)
+
+	// Budget overrun: hold with the partial provenance (original ctx, pctx done).
+	if errors.Is(pctx.Err(), context.DeadlineExceeded) {
+		rev, err := s.reviewer.Hold(ctx, repo.HoldInput{
+			Extraction:       ext,
+			SourceID:         source.ID,
+			OwnerHouseholdID: ownerHH,
+			Provenance:       provenance,
+		})
+		if err != nil {
+			return Outcome{}, err
+		}
+		return Outcome{Kind: OutcomeHeldForReview, Review: &rev, Confidence: ptrConf(conf), Provenance: provenance}, nil
+	}
+
+	// All workers failed.
+	if allFailed(results) {
+		return Outcome{Kind: OutcomeFailed, Reason: "all extraction workers failed", Provenance: provenance}, nil
+	}
+
+	// Statement classification.
+	if ext.Classification == "statement" {
+		return Outcome{Kind: OutcomeStatement, Statement: &source, Confidence: ptrConf(conf), Provenance: provenance}, nil
+	}
+
+	// Warranty end + category inference.
+	if end, ok := commons.AddWarrantyEnd(ext.PurchaseDate, ext.WarrantyDuration, ext.WarrantyEnd); ok {
+		ext.WarrantyEnd = end
+	}
+	cat, catConf := InferCategory(derefStr(ext.Name), derefStr(ext.Brand), "", ext.AssetCategory)
+	ext.AssetCategory = &cat
+	ext.CategoryConfidence = &catConf
+
+	// Identity resolution + commit/hold decision.
+	confMet := ext.Confidence != nil && *ext.Confidence >= s.threshold
+	if confMet {
+		// Commit path: resolve identity (merge into or create the target asset).
+		// No document is created here — the caller owns the existing row.
+		var asset entity.Asset
+		err = s.factory.InTx(ctx, func(ctx context.Context, r *repo.Repos) error {
+			a, _, err := identity.Resolve(ctx, r.Assets, ext, ownerHH, s.candidateLimit)
+			if err != nil {
+				return err
+			}
+			asset = a
+			return nil
+		})
+		switch {
+		case err == nil:
+			return Outcome{Kind: OutcomeCommitted, Asset: &asset, Confidence: ext.Confidence, Provenance: provenance}, nil
+		case errors.Is(err, identity.ErrAmbiguous), errors.Is(err, identity.ErrSoftDeleted):
+			// Fall through to the hold path.
+		default:
+			return Outcome{}, err
+		}
+	}
+
+	// Hold path (below threshold, or commit path hit ErrAmbiguous / ErrSoftDeleted).
+	m, merr := identity.Match(ctx, s.factory.Assets, ext, ownerHH, s.candidateLimit)
+	if merr != nil {
+		return Outcome{}, merr
+	}
+	provenance = buildProvenance(results, unresolved, m.Candidates)
+	rev, err := s.reviewer.Hold(ctx, repo.HoldInput{
+		Extraction:       ext,
+		SourceID:         source.ID,
+		OwnerHouseholdID: ownerHH,
+		Provenance:       provenance,
+	})
+	if err != nil {
+		return Outcome{}, err
+	}
+	return Outcome{Kind: OutcomeHeldForReview, Review: &rev, Confidence: ext.Confidence, Provenance: provenance}, nil
 }
 
 // ptrConf returns a pointer to c.

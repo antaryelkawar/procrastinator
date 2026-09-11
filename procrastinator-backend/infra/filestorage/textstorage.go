@@ -63,3 +63,13 @@ func (s *TextStorage) Put(ctx context.Context, payload []byte) (entity.Source, e
 		UploadedAt:  time.Now(),
 	}, nil
 }
+
+// Get returns the stored bytes for the user-relative key (Source.Path), read
+// from dir/<key>.
+func (s *TextStorage) Get(_ context.Context, key string) ([]byte, error) {
+	data, err := os.ReadFile(filepath.Join(s.dir, key))
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	return data, nil
+}
