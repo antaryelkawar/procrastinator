@@ -1,4 +1,4 @@
-# Backend + UI containers for procrastinator
+# Backend + UI + Postgres containers for procrastinator
 
 resource "docker_container" "backend" {
   name    = "procrastinator-backend"
@@ -39,5 +39,39 @@ resource "docker_container" "ui" {
 
   networks_advanced {
     name = docker_network.procrastinator.id
+  }
+}
+
+resource "docker_container" "postgres" {
+  name    = "procrastinator-postgres"
+  image   = "postgres:18"
+  restart = "unless-stopped"
+
+  ports {
+    internal = 5432
+    external = var.postgres_host_port
+  }
+
+  env = [
+    "POSTGRES_USER=${var.postgres_user}",
+    "POSTGRES_PASSWORD=${var.postgres_password}",
+    "POSTGRES_DB=${var.postgres_db}",
+  ]
+
+  mounts {
+    type   = "volume"
+    source = docker_volume.postgres_data.name
+    target = "/var/lib/postgresql/data"
+  }
+
+  networks_advanced {
+    name = docker_network.procrastinator.id
+  }
+
+  healthcheck {
+    test     = ["CMD-SHELL", "pg_isready -U ${var.postgres_user} -d ${var.postgres_db}"]
+    interval = "5s"
+    timeout  = "5s"
+    retries  = 12
   }
 }

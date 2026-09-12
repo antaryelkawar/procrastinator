@@ -6,7 +6,7 @@ Declaratively runs the backend + UI containers on an Unraid host (the `docker` p
 
 1. **Terraform >= 1.5** (per `versions.tf` `required_version`).
 2. **SSH access to the Unraid host** — the docker provider reaches the daemon via `var.docker_host` (default `ssh://root@unraid-host`). `unix:///var/run/docker.sock` is valid when running Terraform on the Unraid itself.
-3. **A reachable Postgres instance** — the backend runs `postgres.Open` + `Migrate` before serving, so it cannot start without a reachable DB. This module does NOT create or migrate databases (a deliberate non-goal). Supply a connection URL to an existing instance via `TF_VAR_backend_database_url` (e.g. `postgres://user:pass@db-host:5432/procrastinator`); it is injected verbatim as `PROCRASTINATOR_DATABASE_URL`.
+3. **Postgres** — this module deploys `procrastinator-postgres` (Postgres 18) on the shared network. Set `TF_VAR_postgres_password` (required, sensitive). The backend connects via the container name: `postgresql://<postgres_user>:<postgres_password>@procrastinator-postgres:5432/<postgres_db>` (default: `postgresql://pgadmin:<password>@procrastinator-postgres:5432/procrastinator`). Supply this URL via `TF_VAR_backend_database_url` (sensitive, required).
 4. **Docker registry v2 pull-auth already configured on Unraid** — `registry.yelkawar.com` is private; the Unraid Docker daemon must already have pull auth (e.g. in `/etc/docker/daemon.json` or host-level `docker login`). This module does NOT manage daemon auth and declares no registry resource. If the daemon lacks auth, apply fails with a pull-auth error referencing `registry.yelkawar.com`.
 5. **A GitHub repo with Actions enabled** — the module creates `REGISTRY_URL`/`REGISTRY_USERNAME`/`REGISTRY_PASSWORD` secrets there. You need a token with repo admin scope and the `owner/name` repo.
 
@@ -40,6 +40,10 @@ A **pre-created, writable backend storage host path** (Unraid share or `mkdir`) 
 | `backend_llm_model` | string | — (required) | no | non-secret model name |
 | `backend_basic_auth_users` | string | — (required) | yes | `user:bcrypt-hash` CSV |
 | `backend_storage_host_path` | string | — (required) | no | host dir mounted at `/app/storage` |
+| `postgres_user` | string | `pgadmin` | no | Postgres superuser; via `TF_VAR_postgres_user` |
+| `postgres_password` | string | — (required) | yes | via `TF_VAR_postgres_password` |
+| `postgres_db` | string | `procrastinator` | no | Postgres database name |
+| `postgres_host_port` | number | `5432` | no | host port (container 5432) |
 
 ## Verification
 
@@ -91,8 +95,8 @@ This is a documented manual verification — the Terraform module never invokes 
 
 ## Destroy
 
-`terraform destroy` removes the two containers, the `procrastinator-net` network, and the three GitHub secrets **the module created** (tracked in state). It does NOT touch the registry v2, the daemon auth, or the backend storage host path/share (data is left intact). It does not assert absence of same-named secrets created by other tools.
+`terraform destroy` removes the three containers, the `procrastinator-pgdata` volume, the `procrastinator-net` network, and the three GitHub secrets **the module created** (tracked in state). It does NOT touch the registry v2, the daemon auth, or the backend storage host path/share (data is left intact). It does not assert absence of same-named secrets created by other tools.
 
 ## Repeat apply
 
-`terraform apply` is idempotent: a second apply (or `terraform plan`) with unchanged inputs reports `No changes` / "no changes" (Terraform tracks all six resources — one network, two containers, three secrets; no `count`/`for_each`).
+`terraform apply` is idempotent: a second apply (or `terraform plan`) with unchanged inputs reports `No changes` / "no changes" (Terraform tracks all seven resources — one network, three containers, one volume, three secrets; no `count`/`for_each`).

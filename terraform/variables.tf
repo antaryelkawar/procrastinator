@@ -89,3 +89,27 @@ variable "backend_storage_host_path" {
   description = "Host filesystem path for backend storage volume (pre-created Unraid share or directory; mounted at /app/storage)"
   type        = string
 }
+
+variable "postgres_user" {
+  description = "Postgres superuser name for the procrastinator-postgres container (set via TF_VAR_postgres_user)"
+  type        = string
+  default     = "pgadmin"
+}
+
+variable "postgres_password" {
+  description = "Postgres password for the procrastinator-postgres container (set via TF_VAR_postgres_password)"
+  type        = string
+  sensitive   = true
+}
+
+variable "postgres_db" {
+  description = "Postgres database name for the procrastinator-postgres container"
+  type        = string
+  default     = "procrastinator"
+}
+
+variable "postgres_host_port" {
+  description = "Host port to publish for the Postgres container (container port 5432)"
+  type        = number
+  default     = 5432
+}

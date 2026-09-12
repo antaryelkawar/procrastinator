@@ -41,3 +41,13 @@ output "network_id" {
   description = "Docker network ID for procrastinator-net"
   value       = docker_network.procrastinator.id
 }
+
+output "postgres_container_id" {
+  description = "Docker container ID for procrastinator-postgres"
+  value       = docker_container.postgres.id
+}
+
+output "postgres_port" {
+  description = "Host port published for the Postgres container (container port 5432)"
+  value       = var.postgres_host_port
+}
