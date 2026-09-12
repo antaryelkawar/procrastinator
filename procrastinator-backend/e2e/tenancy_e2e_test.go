@@ -194,6 +194,15 @@ func strVal(m map[string]any, k string) string {
 	return ""
 }
 
+// dataMap returns the nested "data" object of an IngestReview JSON body, or an
+// empty map when absent (the review payload fields live under data.*).
+func dataMap(m map[string]any) map[string]any {
+	if d, ok := m["data"].(map[string]any); ok {
+		return d
+	}
+	return map[string]any{}
+}
+
 // idsOf returns the "id" of each asset map, for readable failure messages.
 func idsOf(assets []map[string]any) []string {
 	out := make([]string, 0, len(assets))
@@ -712,11 +721,11 @@ func TestConfidenceReviewE2E(t *testing.T) {
 		if reviewID == "" {
 			t.Fatalf("review id is empty (body: %s)", body)
 		}
-		if state := strVal(rev, "state"); state != "pending" {
+		if state := strVal(dataMap(rev), "state"); state != "pending" {
 			t.Errorf("review state = %q, want pending (body: %s)", state, body)
 		}
-		if conf, ok := rev["confidence"].(float64); !ok || conf < 0.6 || conf > 0.61 {
-			t.Errorf("review confidence = %v, want ~0.6 (body: %s)", rev["confidence"], body)
+		if conf, ok := dataMap(rev)["confidence"].(float64); !ok || conf < 0.6 || conf > 0.61 {
+			t.Errorf("review confidence = %v, want ~0.6 (body: %s)", dataMap(rev)["confidence"], body)
 		}
 	})
 
@@ -756,10 +765,10 @@ func TestConfidenceReviewE2E(t *testing.T) {
 		if approvedAssetID == "" {
 			t.Fatalf("approved asset id is empty (body: %s)", body)
 		}
-		if state := strVal(resp.Review, "state"); state != "approved" {
+		if state := strVal(dataMap(resp.Review), "state"); state != "approved" {
 			t.Errorf("review state after approve = %q, want approved (body: %s)", state, body)
 		}
-		if resp.Review["decided_at"] == nil {
+		if dataMap(resp.Review)["decided_at"] == nil {
 			t.Error("decided_at is nil after approve, want set")
 		}
 	})
@@ -847,10 +856,10 @@ func TestConfidenceReviewE2E(t *testing.T) {
 		if err := json.Unmarshal(body, &updated); err != nil {
 			t.Fatalf("unmarshal reject response: %v (body: %s)", err, body)
 		}
-		if state := strVal(updated, "state"); state != "rejected" {
+		if state := strVal(dataMap(updated), "state"); state != "rejected" {
 			t.Errorf("review state after reject = %q, want rejected (body: %s)", state, body)
 		}
-		if updated["decided_at"] == nil {
+		if dataMap(updated)["decided_at"] == nil {
 			t.Error("decided_at is nil after reject, want set")
 		}
 	})

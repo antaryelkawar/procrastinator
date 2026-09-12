@@ -207,6 +207,130 @@ func TestDocumentsReprocess(t *testing.T) {
 		}
 		assertErrorEnvelope(t, rec3)
 	})
+
+	t.Run("PendingReviewBlocksReprocess", func(t *testing.T) {
+		// Single-worker caps consensus confidence at 0.6 (< 0.7), so the upload
+		// is held for review rather than auto-committing.
+		e := newEnv(t, envOpts{singleWorker: true})
+		seedUser(t, e.pool, "alice")
+
+		// Point the LLM at a serial-bearing payload; single-worker consensus still
+		// caps confidence at 0.6, so the upload is held for review.
+		e.llm.setPayload(`{"classification":"invoice","brand":"TestBrand","model":"M1","serial_number":"SN-PEND-1"}`)
+
+		// Upload the held document → 202.
+		body, ct := buildMultipart(t, "file", "held.pdf", "application/pdf", pdfBytes(16))
+		rec := do(t, e.handler, http.MethodPost, "/api/users/alice/documents", "", body, ct)
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("upload status = %d, want 202 (body: %s)", rec.Code, rec.Body.String())
+		}
+		var held struct {
+			Id string `json:"id"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &held); err != nil {
+			t.Fatalf("unmarshal held review: %v (body: %s)", err, rec.Body.String())
+		}
+		if held.Id == "" {
+			t.Fatal("held review id is empty")
+		}
+
+		// Approve the held review → 200 (commits the asset + creates a Document).
+		approvRec := do(t, e.handler, http.MethodPost, "/api/users/alice/ingest/reviews/"+held.Id+"/approve", "", nil, "")
+		if approvRec.Code != http.StatusOK {
+			t.Fatalf("approve status = %d, want 200 (body: %s)", approvRec.Code, approvRec.Body.String())
+		}
+
+		// Get the document id from the list.
+		listRec := do(t, e.handler, http.MethodGet, "/api/users/alice/documents", "", nil, "")
+		var docs []map[string]any
+		if err := json.Unmarshal(listRec.Body.Bytes(), &docs); err != nil {
+			t.Fatalf("unmarshal list: %v (body: %s)", err, listRec.Body.String())
+		}
+		if len(docs) != 1 {
+			t.Fatalf("len(docs) = %d, want 1 (body: %s)", len(docs), listRec.Body.String())
+		}
+		docID, _ := docs[0]["id"].(string)
+		if docID == "" {
+			t.Fatal("document id is empty")
+		}
+
+		// First reprocess → 202 (creates a NEW pending review for the source).
+		rec2 := do(t, e.handler, http.MethodPost, "/api/users/alice/documents/"+docID+"/reprocess", "", bytes.NewBufferString("{}"), "application/json")
+		if rec2.Code != http.StatusAccepted {
+			t.Fatalf("first reprocess status = %d, want 202 (body: %s)", rec2.Code, rec2.Body.String())
+		}
+
+		// Second reprocess → 409 (a pending review now blocks reprocess).
+		rec3 := do(t, e.handler, http.MethodPost, "/api/users/alice/documents/"+docID+"/reprocess", "", bytes.NewBufferString("{}"), "application/json")
+		if rec3.Code != http.StatusConflict {
+			t.Fatalf("second reprocess status = %d, want 409 (body: %s)", rec3.Code, rec3.Body.String())
+		}
+		assertErrorEnvelope(t, rec3)
+	})
+
+	t.Run("ReprocessDoesNotDuplicateAssets", func(t *testing.T) {
+		// Default two-worker env: reprocess takes the commit path (high confidence).
+		e := newEnv(t, envOpts{})
+
+		// Upload a high-confidence document → 201.
+		rec, asset := e.uploadFile(t, "test-user", "invoice.pdf", "application/pdf", pdfBytes(10))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("upload status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
+		}
+		assetID := strVal(asset, "id")
+		if assetID == "" {
+			t.Fatal("asset id is empty")
+		}
+
+		// Get the document id from the list.
+		listRec := do(t, e.handler, http.MethodGet, "/api/users/test-user/documents", "", nil, "")
+		var docs []map[string]any
+		if err := json.Unmarshal(listRec.Body.Bytes(), &docs); err != nil {
+			t.Fatalf("unmarshal list: %v (body: %s)", err, listRec.Body.String())
+		}
+		if len(docs) != 1 {
+			t.Fatalf("len(docs) = %d, want 1 (body: %s)", len(docs), listRec.Body.String())
+		}
+		docID, _ := docs[0]["id"].(string)
+		if docID == "" {
+			t.Fatal("document id is empty")
+		}
+
+		// Reprocess the document → 202 (commit path re-resolves to the same asset).
+		rec2 := do(t, e.handler, http.MethodPost, "/api/users/test-user/documents/"+docID+"/reprocess", "", bytes.NewBufferString("{}"), "application/json")
+		if rec2.Code != http.StatusAccepted {
+			t.Fatalf("reprocess status = %d, want 202 (body: %s)", rec2.Code, rec2.Body.String())
+		}
+
+		// No duplicate asset: the list must contain exactly one asset, the same one.
+		assetsRec := do(t, e.handler, http.MethodGet, "/api/users/test-user/assets", "", nil, "")
+		if assetsRec.Code != http.StatusOK {
+			t.Fatalf("list assets status = %d, want 200 (body: %s)", assetsRec.Code, assetsRec.Body.String())
+		}
+		var assets []map[string]any
+		if err := json.Unmarshal(assetsRec.Body.Bytes(), &assets); err != nil {
+			t.Fatalf("unmarshal assets: %v (body: %s)", err, assetsRec.Body.String())
+		}
+		if len(assets) != 1 {
+			t.Fatalf("len(assets) = %d, want 1 (body: %s)", len(assets), assetsRec.Body.String())
+		}
+		if got := strVal(assets[0], "id"); got != assetID {
+			t.Fatalf("assets[0].id = %q, want %q (body: %s)", got, assetID, assetsRec.Body.String())
+		}
+
+		// The document resolves to exactly one asset (no orphan asset row).
+		docForAssetRec := do(t, e.handler, http.MethodGet, "/api/users/test-user/assets/"+assetID+"/documents", "", nil, "")
+		if docForAssetRec.Code != http.StatusOK {
+			t.Fatalf("asset documents status = %d, want 200 (body: %s)", docForAssetRec.Code, docForAssetRec.Body.String())
+		}
+		var docsForAsset []map[string]any
+		if err := json.Unmarshal(docForAssetRec.Body.Bytes(), &docsForAsset); err != nil {
+			t.Fatalf("unmarshal asset documents: %v (body: %s)", err, docForAssetRec.Body.String())
+		}
+		if len(docsForAsset) != 1 {
+			t.Fatalf("len(docs) for asset = %d, want 1 (body: %s)", len(docsForAsset), docForAssetRec.Body.String())
+		}
+	})
 }
 
 // --- POST /api/users/{userId}/documents/{id}/keep ---
@@ -432,6 +556,59 @@ func TestSweeperRestartRecovery(t *testing.T) {
 	}
 	if pc.State != "resolved" || pc.Outcome != "keep_existing" {
 		t.Errorf("pending_choice = {%q, %q}, want {resolved, keep_existing}", pc.State, pc.Outcome)
+	}
+}
+
+// TestUploadOutageNoPartialWrites covers spec scenario S12: during an LLM
+// outage the upload response is 502 Bad Gateway, the uploaded Source is
+// retained, and no Asset, Document, or review is created (no partial writes).
+// The fake LLM's non-200 status (500 here) drives the outage path: every
+// extraction worker fails, so nothing beyond the raw source is produced.
+func TestUploadOutageNoPartialWrites(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{llmStatus: http.StatusInternalServerError})
+	seedUser(t, e.pool, "test-user")
+
+	rec, _ := e.uploadFile(t, "test-user", "outage.pdf", "application/pdf", pdfBytes(16))
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d (body: %s)", rec.Code, http.StatusBadGateway, rec.Body.String())
+	}
+	assertErrorEnvelope(t, rec)
+
+	ctx := context.Background()
+
+	srcs, err := e.factory.Sources.List(ctx, repo.Owner("test-user"))
+	if err != nil {
+		t.Fatalf("list sources: %v", err)
+	}
+	if len(srcs) != 1 {
+		t.Errorf("len(sources) = %d, want 1 (uploaded source is retained)", len(srcs))
+	}
+
+	assets, err := e.factory.Assets.List(ctx, repo.Owner("test-user"))
+	if err != nil {
+		t.Fatalf("list assets: %v", err)
+	}
+	if len(assets) != 0 {
+		t.Errorf("len(assets) = %d, want 0", len(assets))
+	}
+
+	docs, err := e.factory.Documents.List(ctx, repo.Owner("test-user"))
+	if err != nil {
+		t.Fatalf("list documents: %v", err)
+	}
+	if len(docs) != 0 {
+		t.Errorf("len(docs) = %d, want 0", len(docs))
+	}
+
+	reviews, err := e.factory.Reviews.List(ctx, repo.Owner("test-user"))
+	if err != nil {
+		t.Fatalf("list reviews: %v", err)
+	}
+	if len(reviews) != 0 {
+		t.Errorf("len(reviews) = %d, want 0", len(reviews))
 	}
 }
 

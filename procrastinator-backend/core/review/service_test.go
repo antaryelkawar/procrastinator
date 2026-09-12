@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sort"
 	"strconv"
 	"sync"
@@ -900,10 +901,10 @@ func TestApprove(t *testing.T) {
 		t.Parallel()
 		seedReviews := []entity.IngestReview{
 			{
-				ID:            "rev-1",
-				OwnerID:       testUser,
-				SourceID:      "src-30",
-				DocType:       "invoice",
+				ID:              "rev-1",
+				OwnerID:         testUser,
+				SourceID:        "src-30",
+				DocType:         "invoice",
 				CandidateFields: map[string]any{"classification": "invoice"},
 				RawExtraction:   defaultRaw,
 				State:           entity.ReviewStateApproved,
@@ -990,6 +991,59 @@ func TestApprove(t *testing.T) {
 		// No document should exist.
 		if h.factory.docRepo.count() != 0 {
 			t.Fatalf("document count = %d, want 0 (rolled back)", h.factory.docRepo.count())
+		}
+	})
+
+	t.Run("terminal: further decision refused and state and DecidedAt immutable", func(t *testing.T) {
+		t.Parallel()
+		seedReviews := []entity.IngestReview{
+			{
+				ID:                 "rev-1",
+				OwnerID:            testUser,
+				SourceID:           "src-90",
+				DocType:            "invoice",
+				CandidateFields:    map[string]any{"classification": "invoice", "serial_number": "SN-123"},
+				RawExtraction:      defaultRaw,
+				State:              entity.ReviewStatePending,
+				BestMatchedAssetID: nil,
+			},
+		}
+		h := newHarness(t, nil, seedReviews)
+		ctx := testCtx()
+
+		if _, _, err := h.svc.Approve(ctx, "rev-1"); err != nil {
+			t.Fatalf("Approve returned error %v, want nil", err)
+		}
+		snap, ok := h.factory.reviewRepo.get("rev-1")
+		if !ok {
+			t.Fatalf("rev-1 not found after Approve")
+		}
+		if snap.DecidedAt == nil {
+			t.Fatalf("DecidedAt = nil after Approve, want set")
+		}
+		if snap.State != entity.ReviewStateApproved {
+			t.Fatalf("State = %q, want approved after Approve", snap.State)
+		}
+
+		if _, _, err := h.svc.Approve(ctx, "rev-1"); !errors.Is(err, ErrConflict) {
+			t.Fatalf("re-Approve error = %v, want errors.Is ErrConflict", err)
+		}
+		if _, err := h.svc.Reject(ctx, "rev-1"); !errors.Is(err, ErrConflict) {
+			t.Fatalf("Reject-after-Approve error = %v, want errors.Is ErrConflict", err)
+		}
+
+		after, ok := h.factory.reviewRepo.get("rev-1")
+		if !ok {
+			t.Fatalf("rev-1 not found after refused mutations")
+		}
+		if after.State != snap.State {
+			t.Fatalf("State = %q, want %q (byte-equal, unchanged)", after.State, snap.State)
+		}
+		if !reflect.DeepEqual(after.DecidedAt, snap.DecidedAt) {
+			t.Fatalf("DecidedAt = %v, want %v (byte-equal, unchanged)", after.DecidedAt, snap.DecidedAt)
+		}
+		if after.DecidedAt == nil {
+			t.Fatalf("DecidedAt = nil, want set (unchanged)")
 		}
 	})
 }
@@ -1095,6 +1149,130 @@ func TestReject(t *testing.T) {
 		// No asset modified or created.
 		if h.factory.assetRepo.count() != 0 {
 			t.Fatalf("asset count = %d, want 0 (no asset touched)", h.factory.assetRepo.count())
+		}
+	})
+
+	t.Run("terminal: further decision refused and state and DecidedAt immutable", func(t *testing.T) {
+		t.Parallel()
+		seedReviews := []entity.IngestReview{
+			{
+				ID:                 "rev-1",
+				OwnerID:            testUser,
+				SourceID:           "src-95",
+				DocType:            "invoice",
+				CandidateFields:    map[string]any{"classification": "invoice", "serial_number": "SN-123"},
+				RawExtraction:      defaultRaw,
+				State:              entity.ReviewStatePending,
+				BestMatchedAssetID: nil,
+			},
+		}
+		h := newHarness(t, nil, seedReviews)
+		ctx := testCtx()
+
+		if _, err := h.svc.Reject(ctx, "rev-1"); err != nil {
+			t.Fatalf("Reject returned error %v, want nil", err)
+		}
+		snap, ok := h.factory.reviewRepo.get("rev-1")
+		if !ok {
+			t.Fatalf("rev-1 not found after Reject")
+		}
+		if snap.DecidedAt == nil {
+			t.Fatalf("DecidedAt = nil after Reject, want set")
+		}
+		if snap.State != entity.ReviewStateRejected {
+			t.Fatalf("State = %q, want rejected after Reject", snap.State)
+		}
+
+		if _, err := h.svc.Reject(ctx, "rev-1"); !errors.Is(err, ErrConflict) {
+			t.Fatalf("re-Reject error = %v, want errors.Is ErrConflict", err)
+		}
+		if _, _, err := h.svc.Approve(ctx, "rev-1"); !errors.Is(err, ErrConflict) {
+			t.Fatalf("Approve-after-Reject error = %v, want errors.Is ErrConflict", err)
+		}
+
+		after, ok := h.factory.reviewRepo.get("rev-1")
+		if !ok {
+			t.Fatalf("rev-1 not found after refused mutations")
+		}
+		if after.State != snap.State {
+			t.Fatalf("State = %q, want %q (byte-equal, unchanged)", after.State, snap.State)
+		}
+		if !reflect.DeepEqual(after.DecidedAt, snap.DecidedAt) {
+			t.Fatalf("DecidedAt = %v, want %v (byte-equal, unchanged)", after.DecidedAt, snap.DecidedAt)
+		}
+		if after.DecidedAt == nil {
+			t.Fatalf("DecidedAt = nil, want set (unchanged)")
+		}
+		if h.factory.assetRepo.count() != 0 {
+			t.Fatalf("asset count = %d, want 0 (refused approve creates nothing)", h.factory.assetRepo.count())
+		}
+		if h.factory.docRepo.count() != 0 {
+			t.Fatalf("document count = %d, want 0 (refused approve creates nothing)", h.factory.docRepo.count())
+		}
+	})
+
+	t.Run("terminalizes without creating an asset and reprocess restores exactly one", func(t *testing.T) {
+		t.Parallel()
+		seedReviews := []entity.IngestReview{
+			{
+				ID:                 "rev-1",
+				OwnerID:            testUser,
+				SourceID:           "src-80",
+				DocType:            "warranty",
+				CandidateFields:    map[string]any{"classification": "warranty", "serial_number": "SN-NEW"},
+				RawExtraction:      defaultRaw,
+				State:              entity.ReviewStatePending,
+				BestMatchedAssetID: nil,
+			},
+		}
+		h := newHarness(t, nil, seedReviews)
+		ctx := testCtx()
+
+		updated, err := h.svc.Reject(ctx, "rev-1")
+		if err != nil {
+			t.Fatalf("Reject returned error %v, want nil", err)
+		}
+		if updated.State != entity.ReviewStateRejected {
+			t.Fatalf("updated.State = %q, want rejected", updated.State)
+		}
+		if updated.DecidedAt == nil {
+			t.Fatalf("updated.DecidedAt = nil, want set")
+		}
+
+		if got := h.factory.assetRepo.count(); got != 0 {
+			t.Fatalf("asset count after reject = %d, want 0 (reject terminalizes without creating an Asset)", got)
+		}
+		if got := h.factory.docRepo.count(); got != 0 {
+			t.Fatalf("document count after reject = %d, want 0 (no document committed on reject)", got)
+		}
+
+		if _, _, err := h.svc.Approve(ctx, "rev-1"); !errors.Is(err, ErrConflict) {
+			t.Fatalf("Approve-after-reject error = %v, want errors.Is ErrConflict (rejected is terminal)", err)
+		}
+
+		reprocessed, err := h.svc.Hold(ctx, repo.HoldInput{
+			Extraction: entity.Extraction{
+				Classification: "warranty",
+				SerialNumber:   ptr("SN-NEW"),
+				RawPayload:     defaultRaw,
+			},
+			SourceID: "src-80",
+		})
+		if err != nil {
+			t.Fatalf("Hold (reprocess) returned error %v, want nil (document is reprocessable)", err)
+		}
+		if reprocessed.State != entity.ReviewStatePending {
+			t.Fatalf("reprocessed.State = %q, want pending", reprocessed.State)
+		}
+
+		if _, _, err := h.svc.Approve(ctx, reprocessed.ID); err != nil {
+			t.Fatalf("Approve (reprocess) returned error %v, want nil", err)
+		}
+		if got := h.factory.assetRepo.count(); got != 1 {
+			t.Fatalf("asset count after reprocess = %d, want exactly 1 (restored, not duplicated)", got)
+		}
+		if got := h.factory.docRepo.count(); got != 1 {
+			t.Fatalf("document count after reprocess = %d, want exactly 1 (reprocessed document committed)", got)
 		}
 	})
 }

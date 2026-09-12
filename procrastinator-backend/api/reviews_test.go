@@ -66,7 +66,10 @@ func TestRejectReview_NotFound(t *testing.T) {
 
 // TestReview_Hold_Approve_Flow exercises the full hold → list → approve cycle.
 func TestReview_Hold_Approve_Flow(t *testing.T) {
-	e := newEnv(t, envOpts{})
+	// Single-worker consensus caps confidence at 0.6 (< 0.7 threshold), so the
+	// upload is held for review (202) regardless of the payload's stated
+	// confidence — the two-worker default would commit at 0.9.
+	e := newEnv(t, envOpts{singleWorker: true})
 	seedUser(t, e.pool, "alice")
 
 	// Upload with low confidence → 202
@@ -167,7 +170,10 @@ func TestReview_Hold_Approve_Flow(t *testing.T) {
 
 // TestReview_Hold_Reject_Flow exercises the full hold → reject cycle.
 func TestReview_Hold_Reject_Flow(t *testing.T) {
-	e := newEnv(t, envOpts{})
+	// Single-worker consensus caps confidence at 0.6 (< 0.7 threshold), so the
+	// upload is held for review (202) regardless of the payload's stated
+	// confidence — the two-worker default would commit at 0.9.
+	e := newEnv(t, envOpts{singleWorker: true})
 	seedUser(t, e.pool, "alice")
 
 	// Upload with low confidence → 202
