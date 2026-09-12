@@ -1,0 +1,11 @@
+# Local build/runtime artifacts — keep the build context lean and stop
+# credentials (.env) from entering image layers.
+*.exe
+*.exe~
+*.log
+.run*
+server.pid
+.env
+storage/
+.tmp/
+infra/postgres/dev*
