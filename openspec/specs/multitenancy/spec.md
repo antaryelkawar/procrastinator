@@ -3,9 +3,7 @@
 ## Purpose
 
 This specification describes the owner-model multi-tenancy capability: how a user is identified per request, how data rows are owned (per user and optionally per household), the single visibility rule enforced identically at the application, RLS, and membership-trigger layers, and the household management routes.
-
 ## Requirements
-
 ### Requirement: User identification via the URL path parameter
 
 All API routes SHALL live under a single `/api/users/{userId}` group. The `{userId}` URL path parameter SHALL be the sole means of identifying the active user on every request; no header-based identity mechanism SHALL exist. Middleware SHALL extract `{userId}` from the request path (e.g. via `chi.URLParam`), SHALL validate its format (non-empty, at most 64 characters drawn from `[A-Za-z0-9_-]`), and SHALL validate that it names a user present in the `users` registry (see "User registry").
@@ -177,3 +175,18 @@ Stored file content SHALL be laid out under a per-user key prefix of the form `{
 
 - **WHEN** a document is uploaded in a context carrying user `alice`
 - **THEN** the file bytes are stored under a key beginning with `alice/`
+
+### Requirement: Authentication precedes tenancy resolution
+
+User identification via the `{userId}` path parameter SHALL only run for requests that first passed backend transport authentication (HTTP Basic Auth, see the `api-basic-auth` capability). A request failing transport authentication SHALL be rejected (`401`) before the user-identification middleware and SHALL NOT trigger user-registry lookup, visibility evaluation, or any owned-data query. The `Authorization` credentials are transport-level authentication only and SHALL NOT be treated as a user identity source: the `{userId}` path parameter remains the sole means of identifying the active user for domain purposes.
+
+#### Scenario: Failed transport auth never reaches user middleware
+
+- **WHEN** a request with invalid Basic Auth credentials targets `/api/users/<registered-user-id>/assets`
+- **THEN** the response is `401` and the `users` registry is not consulted
+
+#### Scenario: Tenant resolution behavior unchanged for authenticated requests
+
+- **WHEN** a request with valid Basic Auth credentials sends a well-formed but unregistered `{userId}`
+- **THEN** the response is `404` exactly as specified by the multitenancy user-identification requirement
+
