@@ -52,3 +52,5 @@ procrastinator-backend/storage/
 
 # Local build artifacts
 *.exe
+/procrastinator-backend/server.pid
+/.playwright-mcp/
