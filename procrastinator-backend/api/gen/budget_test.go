@@ -58,7 +58,7 @@ func budgetResolvePaths(t *testing.T) (doc, uiRoot, tsCLI, redocCLI, backendDir 
 	redocCLI = filepath.Join(uiRoot, "node_modules", "redoc-cli", "index.js")
 	for _, p := range []string{doc, tsCLI, redocCLI} {
 		if _, err := os.Stat(p); err != nil {
-			t.Fatalf("required codegen input not found at %s: %v", p, err)
+			t.Skipf("codegen inputs not found at %s (run npm ci in ui/ first); skipping budget test", p)
 		}
 	}
 	return
