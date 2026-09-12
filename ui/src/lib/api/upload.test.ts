@@ -1,10 +1,19 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { uploadDocument, uploadStatement } from './upload';
+import { ApiError, errorCopy } from './errors';
 import { API_BASE } from './config';
 
 const ALICE = 'alice';
 const ACCOUNT_ID = 'acc1';
 const USER_BASE = `${API_BASE}/users`;
+
+// Basic Auth env vars are required by ui/src/lib/api/auth.ts (basicAuthHeader),
+// which upload.ts merges into every XHR request. Stub them for the whole file
+// so the module-level import works and every request carries the header.
+const AUTH_USER = 'app';
+const AUTH_PASS = 'secret';
+// base64("app:secret") — hard-coded, independent of the implementation.
+const AUTH_HEADER = 'Basic YXBwOnNlY3JldA==';
 
 const ASSET_JSON = {
   id: 'a1',
@@ -105,9 +114,15 @@ function lastXhr(): FakeXHR {
   return xhr;
 }
 
+beforeEach(() => {
+  vi.stubEnv('VITE_API_BASIC_AUTH_USER', AUTH_USER);
+  vi.stubEnv('VITE_API_BASIC_AUTH_PASSWORD', AUTH_PASS);
+});
+
 afterEach(() => {
   FakeXHR.instances = [];
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('uploadDocument', () => {
@@ -123,6 +138,10 @@ describe('uploadDocument', () => {
     const form = xhr.sentForm;
     expect(form).not.toBeNull();
     expect(form?.get('file')).toBe(file);
+    // Every XHR upload carries the shared Basic Auth header (spec scenario
+    // "Multipart upload carries authorization header"); value is the fixed
+    // known-answer base64 of "app:secret", independent of the implementation.
+    expect(xhr.requestHeaders['Authorization']).toBe(AUTH_HEADER);
     expect('X-Tenant-ID' in xhr.requestHeaders).toBe(false);
     expect('Content-Type' in xhr.requestHeaders).toBe(false);
 
@@ -217,6 +236,22 @@ describe('uploadDocument', () => {
   });
 });
 
+describe('error handling (401)', () => {
+  it('surfaces a 401 (Basic Auth rejected) as an ApiError, not a crash or hang', async () => {
+    installFakeXhr();
+    const file = makeFile('x.pdf', 'application/pdf');
+    const promise = uploadDocument(ALICE, file, () => {});
+    const xhr = lastXhr();
+
+    xhr.respond(401, JSON.stringify({ error: 'unauthorized' }));
+    const err = (await promise.catch((e) => e)) as ApiError;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(401);
+    expect(err.message).toBe(errorCopy(401));
+    expect(err.detail).toBe('unauthorized');
+  });
+});
+
 describe('uploadStatement', () => {
   it('POSTs fields `file` and `account_id` and resolves the 201 batch', async () => {
     installFakeXhr();
@@ -231,6 +266,8 @@ describe('uploadStatement', () => {
     expect(form).not.toBeNull();
     expect(form?.get('file')).toBe(file);
     expect(form?.get('account_id')).toBe(ACCOUNT_ID);
+    // The import-batch XHR path shares the same header merge as uploads.
+    expect(xhr.requestHeaders['Authorization']).toBe(AUTH_HEADER);
     expect(xhr.requestHeaders['X-Tenant-ID']).toBeUndefined();
     expect('Content-Type' in xhr.requestHeaders).toBe(false);
 

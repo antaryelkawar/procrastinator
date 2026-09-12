@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Config holds the server configuration.
@@ -42,6 +43,15 @@ type Config struct {
 	// BrandLexicon is the brand list loaded from the PROCRASTINATOR_BRAND_LEXICON
 	// JSON path (nil when unset: the embedded canonical list is used).
 	BrandLexicon []string
+	// BasicAuthUsers holds the configured Basic Auth credential pairs,
+	// parsed from PROCRASTINATOR_BASIC_AUTH_USERS (required).
+	BasicAuthUsers []Credential
+}
+
+// Credential holds a Basic Auth username and password pair.
+type Credential struct {
+	User string
+	Pass string
 }
 
 // Worker describes one configured extraction worker (a model at a base URL
@@ -70,6 +80,7 @@ func Load(src map[string]string) (*Config, error) {
 			"PROCRASTINATOR_MAX_STATEMENT_LINES",
 			"PROCRASTINATOR_LLM_TIMEOUT",
 			"PROCRASTINATOR_INGEST_REVIEW_THRESHOLD",
+			"PROCRASTINATOR_BASIC_AUTH_USERS",
 		}
 		for _, v := range vars {
 			if val, ok := os.LookupEnv(v); ok {
@@ -83,6 +94,7 @@ func Load(src map[string]string) (*Config, error) {
 		"PROCRASTINATOR_DATABASE_URL",
 		"PROCRASTINATOR_LLM_API_KEY",
 		"PROCRASTINATOR_LLM_MODEL",
+		"PROCRASTINATOR_BASIC_AUTH_USERS",
 	}
 	for _, name := range required {
 		if src[name] == "" {
@@ -190,6 +202,33 @@ func Load(src map[string]string) (*Config, error) {
 		}
 		cfg.LLMWorkers = workers
 	}
+
+	raw := src["PROCRASTINATOR_BASIC_AUTH_USERS"]
+	var entries []struct {
+		User string `json:"user"`
+		Pass string `json:"pass"`
+	}
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&entries); err != nil {
+		return nil, fmt.Errorf("config: PROCRASTINATOR_BASIC_AUTH_USERS must be a JSON array of {\"user\",\"pass\"} objects: %w", err)
+	}
+	if len(entries) < 1 || len(entries) > 16 {
+		return nil, fmt.Errorf("config: PROCRASTINATOR_BASIC_AUTH_USERS must contain 1-16 credential pairs, got %d", len(entries))
+	}
+	creds := make([]Credential, 0, len(entries))
+	for i, e := range entries {
+		ulen := utf8.RuneCountInString(e.User)
+		if ulen < 1 || ulen > 64 {
+			return nil, fmt.Errorf("config: PROCRASTINATOR_BASIC_AUTH_USERS pair %d: user must be 1-64 chars, got %d", i+1, ulen)
+		}
+		plen := utf8.RuneCountInString(e.Pass)
+		if plen < 8 || plen > 128 {
+			return nil, fmt.Errorf("config: PROCRASTINATOR_BASIC_AUTH_USERS pair %d: pass must be 8-128 chars, got %d", i+1, plen)
+		}
+		creds = append(creds, Credential{User: e.User, Pass: e.Pass})
+	}
+	cfg.BasicAuthUsers = creds
 
 	return cfg, nil
 }

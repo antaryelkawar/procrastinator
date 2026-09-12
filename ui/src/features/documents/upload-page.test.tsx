@@ -4,7 +4,7 @@ import { UploadPage } from './upload-page';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { uploadDocument } from '@/lib/api/upload';
-import { ApiError } from '@/lib/api/errors';
+import { ApiError, errorCopy } from '@/lib/api/errors';
 import { ActiveUserProvider } from '@/context/active-user';
 
 vi.mock('@/lib/api/upload', async () => {
@@ -78,5 +78,22 @@ describe('UploadPage', () => {
     // retryable error is displayed again (retry wiring works end-to-end)
     await waitFor(() => expect(screen.getByText(/The document processor hiccuped/i)).toBeInTheDocument());
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+  });
+
+  it('handles 401 error — shows non-retryable copy and detail, no Retry button', async () => {
+    vi.mocked(uploadDocument).mockRejectedValue(new ApiError(401, errorCopy(401), 'unauthorized'));
+
+    renderWithProviders();
+    const file = new File(['hello'], 'denied.pdf', { type: 'application/pdf' });
+    const input = screen.getByLabelText('file upload', { selector: 'input' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByText('denied.pdf')).toBeInTheDocument());
+    // The 401 copy is surfaced (stable unique substring, case-insensitive).
+    await waitFor(() => expect(screen.getByText(/rejected the app/i)).toBeInTheDocument());
+    // The verbatim backend detail is shown.
+    expect(screen.getByText('Details: unauthorized')).toBeInTheDocument();
+    // A 401 is deterministic — no Retry button is offered.
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
   });
 });

@@ -150,8 +150,7 @@ func TestMergeAsset(t *testing.T) {
 
 		// Merge a2 into a1.
 		body := `{"duplicate_asset_id":"` + a2.ID + `"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/users/test-user/assets/"+a1.ID+"/merge", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+		req := newAuthedRequest(t, http.MethodPost, "/api/users/test-user/assets/"+a1.ID+"/merge", strings.NewReader(body), "application/json")
 		rec := httptest.NewRecorder()
 		e.handler.ServeHTTP(rec, req)
 
@@ -181,8 +180,7 @@ func TestMergeAsset(t *testing.T) {
 			t.Fatalf("create asset: %v", err)
 		}
 		body := `{"duplicate_asset_id":"` + a1.ID + `"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/users/test-user/assets/"+a1.ID+"/merge", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+		req := newAuthedRequest(t, http.MethodPost, "/api/users/test-user/assets/"+a1.ID+"/merge", strings.NewReader(body), "application/json")
 		rec := httptest.NewRecorder()
 		e.handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
@@ -194,8 +192,7 @@ func TestMergeAsset(t *testing.T) {
 	t.Run("UnknownAsset", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
 		body := `{"duplicate_asset_id":"00000000-0000-4000-8000-000000000001"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/users/test-user/assets/00000000-0000-4000-8000-000000000000/merge", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+		req := newAuthedRequest(t, http.MethodPost, "/api/users/test-user/assets/00000000-0000-4000-8000-000000000000/merge", strings.NewReader(body), "application/json")
 		rec := httptest.NewRecorder()
 		e.handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
@@ -218,8 +215,7 @@ func TestPatchAsset(t *testing.T) {
 		id := strVal(asset, "id")
 
 		body := `{"asset_category":"appliance"}`
-		req := httptest.NewRequest(http.MethodPatch, "/api/users/test-user/assets/"+id, strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+		req := newAuthedRequest(t, http.MethodPatch, "/api/users/test-user/assets/"+id, strings.NewReader(body), "application/json")
 		rec := httptest.NewRecorder()
 		e.handler.ServeHTTP(rec, req)
 
@@ -244,8 +240,7 @@ func TestPatchAsset(t *testing.T) {
 		id := strVal(asset, "id")
 
 		body := `{"brand":"NewBrand"}`
-		req := httptest.NewRequest(http.MethodPatch, "/api/users/test-user/assets/"+id, strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+		req := newAuthedRequest(t, http.MethodPatch, "/api/users/test-user/assets/"+id, strings.NewReader(body), "application/json")
 		rec := httptest.NewRecorder()
 		e.handler.ServeHTTP(rec, req)
 
@@ -264,8 +259,7 @@ func TestPatchAsset(t *testing.T) {
 	t.Run("UnknownAsset", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
 		body := `{"brand":"X"}`
-		req := httptest.NewRequest(http.MethodPatch, "/api/users/test-user/assets/00000000-0000-4000-8000-000000000000", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+		req := newAuthedRequest(t, http.MethodPatch, "/api/users/test-user/assets/00000000-0000-4000-8000-000000000000", strings.NewReader(body), "application/json")
 		rec := httptest.NewRecorder()
 		e.handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {

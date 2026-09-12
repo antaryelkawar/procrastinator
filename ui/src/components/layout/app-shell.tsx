@@ -4,7 +4,7 @@
  *
  * No top bar. The sole chrome element is a fixed top-left floating ☰
  * hamburger (≥44px) on every view, including the landing page. It opens the
- * shared navigation sheet (right side) — the ONLY navigation mechanism in the
+ * shared navigation sheet (left side) — the ONLY navigation mechanism in the
  * app. There is no sidebar and no permanent nav list anywhere.
  *
  * Profile + theme live inside the nav sheet (task 13.3), not in the shell.

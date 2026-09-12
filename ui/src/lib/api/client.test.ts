@@ -1,20 +1,55 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as client from './client';
+import { customFetch } from './generated/mutator';
 import { ApiError, errorCopy } from './errors';
 import { API_BASE } from './config';
 
 const ALICE = 'alice';
 const USER_BASE = `${API_BASE}/users`;
 
+// Basic Auth env vars are required by ui/src/lib/api/auth.ts (basicAuthHeader),
+// which the mutator merges into every request. Stub them for the whole file so
+// every recorded call carries the header.
+const AUTH_USER = 'app';
+const AUTH_PASS = 'secret';
+// base64("app:secret") — hard-coded, independent of the implementation.
+const AUTH_HEADER = 'Basic YXBwOnNlY3JldA==';
+
 interface RecordedCall {
   url: string;
   init: RequestInit | undefined;
 }
 
+/** Every call recorded during the current test, across all fetch stubs. */
+const allCalls: RecordedCall[] = [];
+
+function record(call: RecordedCall): void {
+  allCalls.push(call);
+}
+
+/**
+ * Case-insensitive header lookup over any RequestInit headers shape
+ * (Headers / tuple array / plain object) — used to assert the merged
+ * outgoing headers without depending on the mutator's normalization choice.
+ */
+function headerOf(init: RequestInit | undefined, name: string): string | undefined {
+  const headers = init?.headers;
+  if (!headers) return undefined;
+  const want = name.toLowerCase();
+  if (headers instanceof Headers) return headers.get(name) ?? undefined;
+  if (Array.isArray(headers)) {
+    return headers.find(([key]) => key.toLowerCase() === want)?.[1];
+  }
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === want);
+  return key === undefined ? undefined : headers[key];
+}
+
 function stubFetch(response: Response): RecordedCall[] {
   const calls: RecordedCall[] = [];
   const mock = vi.fn(async (url: string, init: RequestInit) => {
-    calls.push({ url, init });
+    const entry = { url, init };
+    calls.push(entry);
+    record(entry);
     return response;
   });
   vi.stubGlobal('fetch', mock);
@@ -23,8 +58,10 @@ function stubFetch(response: Response): RecordedCall[] {
 
 function stubFetchThatFails(): RecordedCall[] {
   const calls: RecordedCall[] = [];
-  const mock = vi.fn(async (_url: string, _init: RequestInit) => {
-    calls.push({ url: '', init: undefined });
+  const mock = vi.fn(async (_url: string, init: RequestInit) => {
+    const entry = { url: '', init };
+    calls.push(entry);
+    record(entry);
     throw new TypeError('fetch failed');
   });
   vi.stubGlobal('fetch', mock);
@@ -42,8 +79,21 @@ function errorResponse(status: number, body: string): Response {
   return new Response(body, { status, headers: { 'Content-Type': 'application/json' } });
 }
 
+beforeEach(() => {
+  vi.stubEnv('VITE_API_BASIC_AUTH_USER', AUTH_USER);
+  vi.stubEnv('VITE_API_BASIC_AUTH_PASSWORD', AUTH_PASS);
+});
+
 afterEach(() => {
+  // Sweep: every request this file made must have carried the header. The
+  // mutator's contract (task 4.2) is "present on every request", so a single
+  // call without it fails the test that made it, not just a dedicated case.
+  for (const call of allCalls) {
+    expect(headerOf(call.init, 'Authorization'), `missing Authorization on ${call.init?.method ?? 'GET'} ${call.url}`).toBe(AUTH_HEADER);
+  }
+  allCalls.length = 0;
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('URL construction', () => {
@@ -52,6 +102,8 @@ describe('URL construction', () => {
     const assets = await client.listAssets(ALICE);
     expect(assets).toEqual([]);
     expect(calls[0]?.url).toBe(`${USER_BASE}/${ALICE}/assets`);
+    // Every request carries the shared Basic Auth header (task 4.2 merge).
+    expect(headerOf(calls[0]?.init, 'Authorization')).toBe(AUTH_HEADER);
   });
 
   it('targets user-scoped paths for finance routes', async () => {
@@ -260,6 +312,75 @@ describe('document reprocess / keep (duplicate resolution)', () => {
   });
 });
 
+describe('Basic Auth header merge (mutator task 4.2)', () => {
+  it('attaches the Authorization header to a GET that sends no headers', async () => {
+    const calls = stubFetch(jsonResponse([]));
+    await client.listAssets(ALICE);
+    const init = calls[0]?.init;
+    expect(headerOf(init, 'Authorization')).toBe(AUTH_HEADER);
+    // Augment, don't replace: nothing else is dropped or invented.
+    expect(headerOf(init, 'Content-Type')).toBeUndefined();
+  });
+
+  it('preserves the generated Content-Type while adding Authorization on POST', async () => {
+    const calls = stubFetch(jsonResponse({ id: 'acc1' }, 201));
+    await client.createAccount(ALICE, { name: 'Main', type: 'bank', currency: 'EUR' });
+    const init = calls[0]?.init;
+    expect(headerOf(init, 'Content-Type')).toBe('application/json');
+    expect(headerOf(init, 'Authorization')).toBe(AUTH_HEADER);
+  });
+
+  it('preserves caller-supplied headers passed through options', async () => {
+    const calls = stubFetch(jsonResponse([]));
+    // Exercise the mutator's options-passthrough path directly: the generated
+    // client spreads `options` into init, so a caller header must survive the merge.
+    await customFetch('/api/users/alice/assets?probe=1', {
+      method: 'GET',
+      headers: { 'X-Probe': 'yes' },
+    });
+    const init = calls[0]?.init;
+    expect(headerOf(init, 'X-Probe')).toBe('yes');
+    expect(headerOf(init, 'Authorization')).toBe(AUTH_HEADER);
+  });
+
+  it('merges into a Headers-instance init.headers without dropping its entries', async () => {
+    const calls = stubFetch(jsonResponse([]));
+    await customFetch('/api/users/alice/assets?hdrs=1', {
+      method: 'GET',
+      headers: new Headers({ 'X-Probe': 'headers-instance' }),
+    });
+    const init = calls[0]?.init;
+    expect(headerOf(init, 'X-Probe')).toBe('headers-instance');
+    expect(headerOf(init, 'Authorization')).toBe(AUTH_HEADER);
+  });
+
+  it('merges into a tuple-array init.headers without dropping its entries', async () => {
+    const calls = stubFetch(jsonResponse([]));
+    await customFetch('/api/users/alice/assets?arr=1', {
+      method: 'GET',
+      headers: [['X-Probe', 'array-form']],
+    });
+    const init = calls[0]?.init;
+    expect(headerOf(init, 'X-Probe')).toBe('array-form');
+    expect(headerOf(init, 'Authorization')).toBe(AUTH_HEADER);
+  });
+
+  it('throws naming the missing var and sends nothing when credentials are absent', async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv('VITE_API_BASIC_AUTH_PASSWORD', '');
+    const calls = stubFetch(jsonResponse([]));
+    const err = await client.listAssets(ALICE).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('VITE_API_BASIC_AUTH_PASSWORD');
+    // Fail-fast: no request hits the wire with empty credentials.
+    expect(calls).toHaveLength(0);
+    // Re-stub so this test's (empty) sweep sees no recorded calls, and the
+    // remaining tests run with credentials present.
+    vi.stubEnv('VITE_API_BASIC_AUTH_USER', AUTH_USER);
+    vi.stubEnv('VITE_API_BASIC_AUTH_PASSWORD', AUTH_PASS);
+  });
+});
+
 describe('error envelope → ApiError', () => {
   it('throws ApiError with status and the verbatim backend detail', async () => {
     stubFetch(errorResponse(404, JSON.stringify({ error: 'unknown user' })));
@@ -279,6 +400,16 @@ describe('error envelope → ApiError', () => {
     expect(apiError.status).toBe(status);
     expect(apiError.message).toBe(errorCopy(status));
     expect(apiError.detail).toBe('boom');
+  });
+
+  it('surfaces a 401 (Basic Auth rejected) as an ApiError, not a crash or hang', async () => {
+    stubFetch(errorResponse(401, JSON.stringify({ error: 'unauthorized' })));
+    const err = await client.listAccounts(ALICE).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    const apiError = err as ApiError;
+    expect(apiError.status).toBe(401);
+    expect(apiError.message).toBe(errorCopy(401));
+    expect(apiError.detail).toBe('unauthorized');
   });
 
   it('falls back to the raw body as detail when it is not JSON', async () => {

@@ -1472,7 +1472,7 @@ export interface operations {
                     "application/json": components["schemas"]["error"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1863,7 +1863,7 @@ export interface operations {
                     "application/json": components["schemas"]["account"][];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1917,7 +1917,7 @@ export interface operations {
                     "application/json": components["schemas"]["error"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1968,7 +1968,7 @@ export interface operations {
                     "application/json": components["schemas"]["account"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2031,7 +2031,7 @@ export interface operations {
                     "application/json": components["schemas"]["error"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2085,7 +2085,7 @@ export interface operations {
                     "application/json": components["schemas"]["error"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2136,7 +2136,7 @@ export interface operations {
                     "application/json": components["schemas"]["movement"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2185,7 +2185,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2258,7 +2258,7 @@ export interface operations {
                     "application/json": components["schemas"]["error"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2322,7 +2322,7 @@ export interface operations {
                     "application/json": components["schemas"]["error"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2380,7 +2380,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2439,7 +2439,7 @@ export interface operations {
                     "application/json": components["schemas"]["import_batch"][];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2497,7 +2497,7 @@ export interface operations {
                     "application/json": components["schemas"]["error"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2575,7 +2575,7 @@ export interface operations {
                     "application/json": components["schemas"]["import_batch"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2626,7 +2626,7 @@ export interface operations {
                     "application/json": components["schemas"]["commit_summary"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2686,7 +2686,7 @@ export interface operations {
                     "application/json": components["schemas"]["import_batch"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2745,7 +2745,7 @@ export interface operations {
                     "application/json": components["schemas"]["household"][];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2799,7 +2799,7 @@ export interface operations {
                     "application/json": components["schemas"]["error"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2859,7 +2859,7 @@ export interface operations {
                     "application/json": components["schemas"]["household"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2921,7 +2921,7 @@ export interface operations {
                     "application/json": components["schemas"]["error"];
                 };
             };
-            /** @description Missing or invalid user identity */
+            /** @description Missing or invalid Basic Auth credentials, or missing or invalid user identity */
             401: {
                 headers: {
                     [name: string]: unknown;

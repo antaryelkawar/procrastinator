@@ -1,0 +1,48 @@
+# Design: add-basic-auth
+
+Status: proposed
+
+## Context
+
+The backend (`procrastinator-backend`) serves every route under `/api/users/{userId}` via a chi router built in `api.Server.Routes()` (`procrastinator-backend/api/server.go`). Middleware currently runs as generated `Strict` middlewares: `httpx.UserMiddleware` (tenancy) then `httpx.MaxBodyMiddleware`. Errors use the centralized `{"error": string}` envelope (`httpx.WriteErrorEnvelope`). Note on wrap order: `api/gen/openapi.gen.go` builds the chain as `for _, middleware := range siw.HandlerMiddlewares { handler = middleware(handler) }` — the **last** slice element wraps outermost and therefore **executes first**. Configuration loads from `PROCRASTINATOR_*` env vars in `config.Load` (`procrastinator-backend/config/config.go`). The UI (`ui/`) calls the API through an orval-generated client with a custom fetch mutator (`ui/src/lib/api/generated/mutator.ts`) and a raw-XHR multipart helper (`ui/src/lib/api/upload.ts`); the OpenAPI contract is `procrastinator-backend/api/openapi.yaml`, with generated artifacts in `procrastinator-backend/api/gen` and `ui/src/lib/api/generated`. Regeneration commands are version-pinned in the root `Makefile`: `codegen-go`, `codegen-ts`, `codegen-ts-client`, `codegen-drift-check`; the Go `//go:generate` directive lives in `api/gen.go` writing `gen/openapi.gen.go`; the orval config is `ui/orval.config.ts`. Committed-artifact drift is enforced by `api/gen/drift_test.go` and `ui/.../codegen.client.drift.test.ts`.
+
+Constraints: Go stdlib only for auth parsing; constant-time credential comparison required; auth must run before tenancy resolution (the user registry must not be consulted on auth rejection); no CORS middleware exists and none is added.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Mandate Basic Auth on all registered API routes, before tenancy resolution.
+- Configure credentials via required env var `PROCRASTINATOR_BASIC_AUTH_USERS` (JSON array of `{"user","pass"}`), with fail-fast validation (1–16 pairs, user 1–64 chars, pass 8–128 chars).
+- Send credentials from the UI in one central point (mutator + upload helper) sourced from `VITE_API_BASIC_AUTH_USER` / `VITE_API_BASIC_AUTH_PASSWORD`, failing fast at startup when missing.
+- Document the `basicAuth` security scheme in the OpenAPI contract; 401 responses reuse the error envelope.
+- 401 responses carry `WWW-Authenticate: Basic` and the JSON error envelope.
+
+**Non-Goals:**
+- Rate limiting / lockout; hashed or vault credential storage; TLS termination in backend code; sessions/tokens/per-user accounts; CORS.
+
+## Decisions
+
+1. **Auth middleware as a Go package, parsed config injected.** New package `procrastinator-backend/api/auth`. Exposes `Middleware(pairs []config.Credential) func(http.Handler) http.Handler`, where `Credential{User, Pass string}` is **defined in the `config` package** (owner of the shared type, consistent with D4); `api/auth` imports `config` for the type — one-directional, cycle-free. Parsing of the env var stays in `config`; the middleware is pure logic over parsed pairs. Alternative considered: define `Credential` in `api/auth` and have `config` import it — rejected; configuration types belong to the configuration package. Parsing inside the middleware was considered and rejected to keep the middleware testable without env coupling and keep `config.Load` the single configuration entry point.
+2. **Constant-time comparison.** On request, base64-decode the `Basic` token, split on the first `:`, and compare user and password fields separately with `subtle.ConstantTimeCompare` padded to a fixed maximum length (pad both inputs and every configured value with zeros to the same fixed size before comparing; combine results with a constant-time AND). Implementation note: `subtle.ConstantTimeCompare` short-circuits on length mismatch, hence the fixed-size padding; the timing-parity test must use equal-length inputs for exact-match vs off-by-one-mismatch comparisons. Alternatives: hashing — overkill, no persistent storage exists; `bcrypt` per pair — unnecessary dependency.
+3. **Ordering: auth outermost, so it executes before tenancy.** In `api.Server.Routes()`, the auth middleware is appended **last** in the `Middlewares` slice of `gen.ChiServerOptions` — `Middlewares: []gen.MiddlewareFunc{httpx.UserMiddleware(...), httpx.MaxBodyMiddleware(...), auth.Middleware(...)}` — because `gen.HandlerWithOptions` folds the slice forward (`handler = middleware(handler)`), making the last element the outermost wrapper and the first to execute. Placing it first would make it the innermost layer, executing after tenancy lookup — violating the "auth runs before tenancy resolution" MUST. Alternative considered: registering it on the base chi router with `r.Use(...)` before `gen.HandlerWithOptions` (equivalent ordering) — rejected to keep all transport middleware in one, explicit chain. Rejection path uses `httpx.WriteErrorEnvelope`; `api/auth` imports `httpx` for envelope writing (one-directional dependency, no cycle). Add an order-pinning test: bad creds + a valid registered `{userId}` → 401 and zero registry lookups.
+4. **Env var grammar and injection path, exact:** value must parse as a JSON array of 1–16 objects each with string `user` (UTF-8 length 1–64) and `pass` (UTF-8 length 8–128); extra unknown keys within an object are errors; a missing value is an error. Implemented in `config.Load` as `BasicAuthUsers []config.Credential` (type owned by `config`, per D1). Fail-fast: `Load` returns a descriptive error naming the variable and violated constraint; `main` (`api/cmd/procrastinator/main.go`) treats it as fatal before listening. Injection: `api.New(...)` gains a credential parameter (or a `Server` field set by `New`) held on `api.Server`, and `Routes()` builds the middleware from it — the wiring task covers `config → api.New → Server → Routes()`. Documented verbatim in `procrastinator-backend/.env.example`.
+5. **UI: single shared credential helper + XHR header injection, UTF-8-safe.** New module `ui/src/lib/api/auth.ts` exports `basicAuthHeader(): Record<string, string>` computing `Authorization: Basic <base64>` from `import.meta.env.VITE_API_BASIC_AUTH_USER` / `VITE_API_BASIC_AUTH_PASSWORD` using a UTF-8-safe encoding: `btoa(String.fromCharCode(...new TextEncoder().encode(`${user}:${password}`)))` — plain `btoa` throws `InvalidCharacterError` on non-Latin1 characters, and non-ASCII credentials are a supported class per the backend grammar. It throws at module load (startup) if either variable is missing. `mutator.ts` `customFetch` merges the header into `init.headers` (augmenting, not replacing). `upload.ts` merges the same header into its XHR `headers` record. This satisfies "single centralized point" (one helper module; two consumers).
+6. **OpenAPI contract change.** Add `components.securitySchemes.basicAuth = {type: http, scheme: basic}`; add item to root-level `security: [{basicAuth: []}]`. Existing non-2xx envelope invariant extends to 401. Regenerate with the exact version-pinned repo commands: Go stubs — `make codegen-go`; TS orval client — `make codegen-ts` and `make codegen-ts-client` (orval config at `ui/orval.config.ts`); then `make codegen-drift-check` to satisfy committed-artifact drift tests. No behavior change in the Go handler beyond header decoration — the middleware layer enforces, the generated layer only documents. Reword the ~20 existing 401 response descriptions ("Missing or invalid user identity") so they cover failed Basic Auth as well.
+7. **Testing for auth middleware** is a table-driven unit test in `api/auth` plus one integration test in the existing api test suite (`api/server_test.go`) asserting: (a) 401 without header, (b) 401 with wrong creds on a registered user path and zero registry lookups (order pin per D3), (c) 401 with non-Basic scheme, (d) valid creds reach the handler with normal response, (e) timing parity of status/headers/body with equal-length inputs.
+
+## Risks / Trade-offs
+
+- [Baked-in frontend credentials expose the shared secret to anyone who loads the bundle] → Explicitly accepted by the proposal as the exposure model for an application-level secret. UI env vars are for transport-auth only; no per-user identity in them. Documented, not mitigated.
+- [Plaintext env vars backend-side] → Accepted; documented trade-off. Capacity for a later vault-backed source exists at the `config.Load` boundary without touching auth middleware or UI.
+- [Frontend failing fast at module load] → Deliberate fail-fast; better to surface provisioning gaps at build/deploy time than at first request. Not needed to opt out now.
+- [Breaks existing unauthenticated tooling / tests] → Migration plan below. Existing tests that call the API unauthenticated (`api/handlers_test.go` `testEnv`/`do`/`uploadFile` helpers, `e2e/tenancy_e2e_test.go`) all begin returning 401 once auth is wired; a dedicated task introduces a shared credential fixture and attaches the header in those helpers so suites return green.
+- [Timing side-channel in comparison] → Mitigated via fixed-length padding + `subtle.ConstantTimeCompare`; parity test uses equal-length inputs.
+
+## Migration Plan
+
+1. Backend merges with new required env var — deploying the backend without it fails fast. Deployment order: provision `PROCRASTINATOR_BASIC_AUTH_USERS` first, deploy the backend binary, then deploy a UI build with the UI env vars set. Rollback = revert to previous binary/env.
+2. Update `.env.example` / `.env` examples; run integration test suites with the fixture credential set.
+
+## Open Questions
+
+- None outstanding; all open items were resolved during the spec-review cycle.

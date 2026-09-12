@@ -138,7 +138,7 @@ export function NavSheet({ open, onOpenChange, triggerRef }: NavSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
-        side="right"
+        side="left"
         className="w-full sm:max-w-sm gap-0 p-0 flex flex-col"
         onCloseAutoFocus={(event) => {
           event.preventDefault();

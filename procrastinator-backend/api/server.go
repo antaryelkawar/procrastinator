@@ -10,6 +10,7 @@ import (
 
 	"procrastinator-backend/api/add"
 	"procrastinator-backend/api/assets"
+	"procrastinator-backend/api/auth"
 	"procrastinator-backend/api/documents"
 	"procrastinator-backend/api/finance"
 	"procrastinator-backend/api/gen"
@@ -18,6 +19,7 @@ import (
 	apisearch "procrastinator-backend/api/search"
 	"procrastinator-backend/api/reviews"
 	"procrastinator-backend/commons/repo"
+	"procrastinator-backend/config"
 	"procrastinator-backend/core/household"
 	"procrastinator-backend/core/ledger"
 	"procrastinator-backend/core/lifecycle"
@@ -65,6 +67,10 @@ type Server struct {
 	householdsSvc *households.Service
 	// documentsSvc serves the documents-section endpoints (list, reprocess, keep, delete).
 	documentsSvc *documents.Service
+	// basicAuthUsers holds the parsed Basic Auth credential pairs enforced by
+	// the auth middleware in Routes(). It is set at construction via New
+	// (main passes cfg.BasicAuthUsers); a nil slice rejects every request.
+	basicAuthUsers []config.Credential
 }
 
 // New constructs a Server. ledgerSvc and balancer serve the finance accounts
@@ -75,8 +81,10 @@ type Server struct {
 // both at the HTTP layer (MaxBytesReader) and inside the statement service.
 // searchSvc serves the search endpoints; reviewSvc serves the ingest review
 // endpoints; lifecycleSvc serves the asset lifecycle endpoints (delete,
-// restore, merge, patch).
-func New(svc *processing.Service, factory *repo.Factory, ledgerSvc *ledger.Service, balancer ledger.BalanceQuerier, maxBytes int64, statementSvc *statement.Service, maxStatementBytes int64, householdSvc *household.Service, searchSvc *search.Service, reviewSvc *review.Service, lifecycleSvc *lifecycle.Service) *Server {
+// restore, merge, patch). basicAuthUsers are the parsed config credentials
+// enforced by the auth middleware in Routes() (a nil slice rejects every
+// request; production passes cfg.BasicAuthUsers from main).
+func New(svc *processing.Service, factory *repo.Factory, ledgerSvc *ledger.Service, balancer ledger.BalanceQuerier, maxBytes int64, statementSvc *statement.Service, maxStatementBytes int64, householdSvc *household.Service, searchSvc *search.Service, reviewSvc *review.Service, lifecycleSvc *lifecycle.Service, basicAuthUsers []config.Credential) *Server {
 	s := &Server{
 		svc:               svc,
 		factory:           factory,
@@ -89,6 +97,7 @@ func New(svc *processing.Service, factory *repo.Factory, ledgerSvc *ledger.Servi
 		search:            searchSvc,
 		review:            reviewSvc,
 		lifecycle:         lifecycleSvc,
+		basicAuthUsers:    basicAuthUsers,
 	}
 	s.assetsSvc = assets.New(factory, lifecycleSvc)
 	s.addSvc = add.New(svc, factory, statementSvc)
@@ -162,6 +171,12 @@ func (s *Server) Routes() http.Handler {
 			Middlewares: []gen.MiddlewareFunc{
 				httpx.UserMiddleware(s.factory.Users),
 				httpx.MaxBodyMiddleware(s.maxBytes, s.maxStatementBytes),
+				// auth.Middleware is appended LAST: the generated chain folds
+				// the slice forward (`handler = middleware(handler)`), so the
+				// last element wraps outermost and executes FIRST. This makes
+				// Basic Auth run before tenancy resolution, so the user
+				// registry is never consulted on an auth rejection (design D3).
+				auth.Middleware(s.basicAuthUsers),
 			},
 		},
 	)

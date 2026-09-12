@@ -45,6 +45,7 @@ import (
 	"procrastinator-backend/infra/filestorage"
 	"procrastinator-backend/infra/pdftext"
 	"procrastinator-backend/infra/postgres"
+	"procrastinator-backend/internal/testcred"
 )
 
 // defaultDSN is the app-role DSN for the compose postgres service (role
@@ -110,7 +111,7 @@ func buildServer(t *testing.T, storageDir string, pool *pgxpool.Pool, factory *r
 		maxBytes,
 		100000,
 	)
-	srv := api.New(svc, factory, ledgerSvc, movRepo, maxBytes, stmtSvc, maxBytes, household.New(factory), searchSvc, reviewSvc, lifecycleSvc)
+	srv := api.New(svc, factory, ledgerSvc, movRepo, maxBytes, stmtSvc, maxBytes, household.New(factory), searchSvc, reviewSvc, lifecycleSvc, testcred.Creds)
 	return srv.Routes()
 }
 
@@ -127,9 +128,13 @@ func provisionUsers(ctx context.Context, pool *pgxpool.Pool, users ...string) er
 }
 
 // httpGet issues a GET against the handler and returns the status + body.
+// Every helper request carries the shared fixture Authorization header
+// (testcred) because the e2e Server is constructed with testcred.Creds and
+// Basic Auth runs outermost in the Routes() chain.
 func httpGet(t *testing.T, h http.Handler, path string) (int, []byte) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", testcred.Header())
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec.Code, rec.Body.Bytes()
@@ -143,6 +148,7 @@ func httpPostJSON(t *testing.T, h http.Handler, path string, body any) (int, []b
 		t.Fatalf("marshal JSON body: %v", err)
 	}
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
+	req.Header.Set("Authorization", testcred.Header())
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -175,6 +181,7 @@ func httpPostFileForm(t *testing.T, h http.Handler, path, filename string, conte
 		t.Fatalf("close multipart writer: %v", err)
 	}
 	req := httptest.NewRequest(http.MethodPost, path, &buf)
+	req.Header.Set("Authorization", testcred.Header())
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

@@ -19,6 +19,8 @@ info:
 servers:
   - url: /
     description: Base path (path tenancy is in the route prefix)
+security:
+  - basicAuth: []
 paths:
   /api/users/{userId}/documents:
     parameters:
@@ -320,7 +322,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/error'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -656,7 +658,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/error'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -687,7 +689,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/account'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -723,7 +725,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/account'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -771,7 +773,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/error'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -828,7 +830,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/error'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -864,7 +866,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/movement'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -907,7 +909,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/error'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -932,7 +934,7 @@ paths:
         "204":
           description: No Content
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -995,7 +997,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/error'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1026,7 +1028,7 @@ paths:
         "204":
           description: No Content
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1092,7 +1094,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/error'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1141,7 +1143,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/import_batch'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1177,7 +1179,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/import_batch'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1219,7 +1221,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/commit_summary'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1267,7 +1269,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/import_batch'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1321,7 +1323,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/error'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1358,7 +1360,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/household'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1394,7 +1396,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/household'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1443,7 +1445,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/error'
         "401":
-          description: Missing or invalid user identity
+          description: Missing or invalid Basic Auth credentials, or missing or invalid user identity
           content:
             application/json:
               schema:
@@ -1875,6 +1877,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/error'
 components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
   schemas:
     asset:
       type: object

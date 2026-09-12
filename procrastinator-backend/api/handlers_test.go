@@ -50,6 +50,7 @@ import (
 	"procrastinator-backend/infra/llm"
 	"procrastinator-backend/infra/pdftext"
 	"procrastinator-backend/infra/postgres"
+	"procrastinator-backend/internal/testcred"
 )
 
 const migrationsDir = "../migrations"
@@ -321,7 +322,7 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 		maxBytes, // the statement size limit follows the env's upload limit (oversize tests use maxBytes: 64)
 		stmtMaxLines,
 	)
-	srv := New(svc, factory, ledgerSvc, movRepo, maxBytes, statementSvc, maxBytes, household.New(factory), searchSvc, reviewSvc, lifecycleSvc)
+	srv := New(svc, factory, ledgerSvc, movRepo, maxBytes, statementSvc, maxBytes, household.New(factory), searchSvc, reviewSvc, lifecycleSvc, testcred.Creds)
 
 	t.Cleanup(func() {
 		llmServer.Close()
@@ -337,9 +338,12 @@ func newEnv(t *testing.T, opts envOpts) *testEnv {
 }
 
 // do performs an HTTP request against the handler via httptest.NewRecorder
-// and returns the recorded response. A nil body is passed as a nil io.Reader
-// (not a typed-nil *bytes.Buffer) because Go 1.27's httptest.NewRequest
-// dereferences *bytes.Buffer bodies without a nil check.
+// and returns the recorded response. Every request carries the shared fixture
+// Authorization header (testcred) so previously-unauthenticated call sites
+// keep passing behind the Basic Auth middleware; tests that assert rejection
+// build their own request (see api/server_test.go). A nil body is passed as a
+// nil io.Reader (not a typed-nil *bytes.Buffer) because Go 1.27's
+// httptest.NewRequest dereferences *bytes.Buffer bodies without a nil check.
 //
 // When userID is non-empty and the path starts with /api/finance, the path is
 // folded to /api/users/{userID}/finance/... so that legacy call sites keep
@@ -353,13 +357,23 @@ func do(t *testing.T, handler http.Handler, method, path, userID string, body *b
 	if body != nil {
 		reader = body
 	}
-	req := httptest.NewRequest(method, path, reader)
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
+	req := newAuthedRequest(t, method, path, reader, contentType)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	return rec
+}
+
+// newAuthedRequest builds an httptest request with the fixture Authorization
+// header and an optional Content-Type. do is the main caller; the hand-built
+// call sites in lifecycle_test.go use it directly so they authenticate too.
+func newAuthedRequest(t *testing.T, method, path string, body io.Reader, contentType string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(method, path, body)
+	req.Header.Set("Authorization", testcred.Header())
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	return req
 }
 
 // buildMultipart writes a single file part with the given name, filename,

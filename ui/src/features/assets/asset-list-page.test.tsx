@@ -5,6 +5,7 @@ import { axe } from 'vitest-axe';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AssetListPage } from './asset-list-page';
 import * as hooks from '@/features/docs/hooks';
+import { ApiError, errorCopy } from '@/lib/api/errors';
 import { MemoryRouter } from 'react-router';
 
 const mockNavigate = vi.fn();
@@ -84,6 +85,16 @@ describe('AssetListPage', () => {
     } as any);
     renderPage();
     expect(screen.getByText(/failed to load assets/i)).toBeDefined();
+  });
+
+  it('surfaces the 401 (rejected credentials) copy in the error alert', () => {
+    vi.mocked(hooks.useAssets).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new ApiError(401, errorCopy(401), 'unauthorized'),
+    } as any);
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent(errorCopy(401));
   });
 
   it('renders the empty state and its CTA points to the landing page', () => {

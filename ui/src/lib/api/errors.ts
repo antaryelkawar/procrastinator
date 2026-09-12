@@ -33,13 +33,17 @@ export class ApiError extends Error {
 export const NETWORK_STATUS = 0;
 
 /**
- * Status → human-readable copy. Covers the statuses the backend emits for the
- * user-facing flows plus the network-failure pseudo-status.
+ * Status → human-readable copy. Covers every status the backend can emit for
+ * the user-facing flows — including 401 (rejected credentials), which is a
+ * deterministic configuration problem, not a retryable failure — plus the
+ * network-failure pseudo-status.
  */
 export function errorCopy(status: number): string {
   switch (status) {
     case 400:
       return 'That request was invalid. Check the details and try again.';
+    case 401:
+      return 'Access was denied — the server rejected the app’s credentials. This is a configuration issue; reloading or retrying won’t fix it. Contact support or your administrator.';
     case 404:
       return 'We couldn’t find that. It may have been removed.';
     case 409:

@@ -21,6 +21,7 @@ func TestLoad(t *testing.T) {
 		"PROCRASTINATOR_STORAGE_DIR":      "/tmp/alt-storage",
 		"PROCRASTINATOR_MAX_UPLOAD_BYTES": "1024",
 		"PROCRASTINATOR_LLM_TIMEOUT":      "45s",
+		"PROCRASTINATOR_BASIC_AUTH_USERS": `[{"user":"admin","pass":"s3cret-pw"}]`,
 	}
 
 	without := func(src map[string]string, keys ...string) map[string]string {
@@ -44,31 +45,32 @@ func TestLoad(t *testing.T) {
 		{
 			name: "all vars set non-default",
 			src: map[string]string{
-				"PROCRASTINATOR_DATABASE_URL":                "postgres://user:pass@localhost:5432/db",
-				"PROCRASTINATOR_LLM_API_KEY":                 "api-key-123",
-				"PROCRASTINATOR_LLM_MODEL":                   "gemma-4-26b-a4b-it",
-				"PROCRASTINATOR_HTTP_ADDR":                   ":9090",
-				"PROCRASTINATOR_LLM_BASE_URL":                "https://example.invalid/v1",
-				"PROCRASTINATOR_STORAGE_DIR":                 "/tmp/alt-storage",
-				"PROCRASTINATOR_MAX_UPLOAD_BYTES":            "1024",
-				"PROCRASTINATOR_MAX_STATEMENT_BYTES":         "10485760",
-				"PROCRASTINATOR_MAX_STATEMENT_LINES":         "2500",
-				"PROCRASTINATOR_LLM_TIMEOUT":                 "45s",
-				"PROCRASTINATOR_INGEST_REVIEW_THRESHOLD":     "0.92",
+				"PROCRASTINATOR_DATABASE_URL":            "postgres://user:pass@localhost:5432/db",
+				"PROCRASTINATOR_LLM_API_KEY":             "api-key-123",
+				"PROCRASTINATOR_LLM_MODEL":               "gemma-4-26b-a4b-it",
+				"PROCRASTINATOR_HTTP_ADDR":               ":9090",
+				"PROCRASTINATOR_LLM_BASE_URL":            "https://example.invalid/v1",
+				"PROCRASTINATOR_STORAGE_DIR":             "/tmp/alt-storage",
+				"PROCRASTINATOR_MAX_UPLOAD_BYTES":        "1024",
+				"PROCRASTINATOR_MAX_STATEMENT_BYTES":     "10485760",
+				"PROCRASTINATOR_MAX_STATEMENT_LINES":     "2500",
+				"PROCRASTINATOR_LLM_TIMEOUT":             "45s",
+				"PROCRASTINATOR_INGEST_REVIEW_THRESHOLD": "0.92",
+				"PROCRASTINATOR_BASIC_AUTH_USERS":        `[{"user":"admin","pass":"s3cret-pw"}]`,
 			},
 			wantErr: false,
 			want: &Config{
-				DatabaseURL:              "postgres://user:pass@localhost:5432/db",
-				HTTPAddr:                 ":9090",
-				LLMBaseURL:               "https://example.invalid/v1",
-				LLMAPIKey:                "api-key-123",
-				LLMModel:                 "gemma-4-26b-a4b-it",
-				StorageDir:               "/tmp/alt-storage",
-				MaxUploadBytes:           1024,
-				MaxStatementBytes:        10485760,
-				MaxStatementLines:        2500,
-				LLMTimeout:               45 * time.Second,
-				IngestReviewThreshold:    0.92,
+				DatabaseURL:           "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:              ":9090",
+				LLMBaseURL:            "https://example.invalid/v1",
+				LLMAPIKey:             "api-key-123",
+				LLMModel:              "gemma-4-26b-a4b-it",
+				StorageDir:            "/tmp/alt-storage",
+				MaxUploadBytes:        1024,
+				MaxStatementBytes:     10485760,
+				MaxStatementLines:     2500,
+				LLMTimeout:            45 * time.Second,
+				IngestReviewThreshold: 0.92,
 				LLMWorkers: []Worker{
 					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
 					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "verify"},
@@ -77,14 +79,16 @@ func TestLoad(t *testing.T) {
 				LookupCandidateLimit:     10,
 				ProcessTimeout:           30 * time.Second,
 				BrandLexicon:             nil,
+				BasicAuthUsers:           []Credential{{User: "admin", Pass: "s3cret-pw"}},
 			},
 		},
 		{
 			name: "defaults applied for optional vars",
 			src: map[string]string{
-				"PROCRASTINATOR_DATABASE_URL": "postgres://user:pass@localhost:5432/db",
-				"PROCRASTINATOR_LLM_API_KEY":  "api-key-123",
-				"PROCRASTINATOR_LLM_MODEL":    "gemma-4-26b-a4b-it",
+				"PROCRASTINATOR_DATABASE_URL":     "postgres://user:pass@localhost:5432/db",
+				"PROCRASTINATOR_LLM_API_KEY":      "api-key-123",
+				"PROCRASTINATOR_LLM_MODEL":        "gemma-4-26b-a4b-it",
+				"PROCRASTINATOR_BASIC_AUTH_USERS": `[{"user":"admin","pass":"s3cret-pw"}]`,
 			},
 			wantErr: false,
 			want: &Config{
@@ -107,6 +111,7 @@ func TestLoad(t *testing.T) {
 				LookupCandidateLimit:     10,
 				ProcessTimeout:           30 * time.Second,
 				BrandLexicon:             nil,
+				BasicAuthUsers:           []Credential{{User: "admin", Pass: "s3cret-pw"}},
 			},
 		},
 		{
@@ -140,6 +145,7 @@ func TestLoad(t *testing.T) {
 				LookupCandidateLimit:     10,
 				ProcessTimeout:           30 * time.Second,
 				BrandLexicon:             nil,
+				BasicAuthUsers:           []Credential{{User: "admin", Pass: "s3cret-pw"}},
 			},
 		},
 		{
@@ -173,6 +179,7 @@ func TestLoad(t *testing.T) {
 				LookupCandidateLimit:     10,
 				ProcessTimeout:           30 * time.Second,
 				BrandLexicon:             nil,
+				BasicAuthUsers:           []Credential{{User: "admin", Pass: "s3cret-pw"}},
 			},
 		},
 		{
@@ -206,6 +213,7 @@ func TestLoad(t *testing.T) {
 				LookupCandidateLimit:     10,
 				ProcessTimeout:           30 * time.Second,
 				BrandLexicon:             nil,
+				BasicAuthUsers:           []Credential{{User: "admin", Pass: "s3cret-pw"}},
 			},
 		},
 		{
@@ -388,17 +396,17 @@ func TestLoad(t *testing.T) {
 			}(),
 			wantErr: false,
 			want: &Config{
-				DatabaseURL:              "postgres://user:pass@localhost:5432/db",
-				HTTPAddr:                 ":9090",
-				LLMBaseURL:               "https://example.invalid/v1",
-				LLMAPIKey:                "api-key-123",
-				LLMModel:                 "gemma-4-26b-a4b-it",
-				StorageDir:               "/tmp/alt-storage",
-				MaxUploadBytes:           1024,
-				MaxStatementBytes:        52428800,
-				MaxStatementLines:        100000,
-				LLMTimeout:               45 * time.Second,
-				IngestReviewThreshold:    0.7,
+				DatabaseURL:           "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:              ":9090",
+				LLMBaseURL:            "https://example.invalid/v1",
+				LLMAPIKey:             "api-key-123",
+				LLMModel:              "gemma-4-26b-a4b-it",
+				StorageDir:            "/tmp/alt-storage",
+				MaxUploadBytes:        1024,
+				MaxStatementBytes:     52428800,
+				MaxStatementLines:     100000,
+				LLMTimeout:            45 * time.Second,
+				IngestReviewThreshold: 0.7,
 				LLMWorkers: []Worker{
 					{Model: "model-a", BaseURL: "https://a.invalid/v1", Strategy: "extract"},
 					{Model: "model-b", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
@@ -406,6 +414,7 @@ func TestLoad(t *testing.T) {
 				AssetDeleteRetentionDays: 30,
 				LookupCandidateLimit:     10,
 				ProcessTimeout:           30 * time.Second,
+				BasicAuthUsers:           []Credential{{User: "admin", Pass: "s3cret-pw"}},
 			},
 		},
 		{
@@ -440,6 +449,7 @@ func TestLoad(t *testing.T) {
 				AssetDeleteRetentionDays: 45,
 				LookupCandidateLimit:     25,
 				ProcessTimeout:           45 * time.Second,
+				BasicAuthUsers:           []Credential{{User: "admin", Pass: "s3cret-pw"}},
 			},
 		},
 		{
@@ -514,17 +524,17 @@ func TestLoad(t *testing.T) {
 			}(),
 			wantErr: false,
 			want: &Config{
-				DatabaseURL:              "postgres://user:pass@localhost:5432/db",
-				HTTPAddr:                 ":9090",
-				LLMBaseURL:               "https://example.invalid/v1",
-				LLMAPIKey:                "api-key-123",
-				LLMModel:                 "gemma-4-26b-a4b-it",
-				StorageDir:               "/tmp/alt-storage",
-				MaxUploadBytes:           1024,
-				MaxStatementBytes:        52428800,
-				MaxStatementLines:        100000,
-				LLMTimeout:               45 * time.Second,
-				IngestReviewThreshold:    0.7,
+				DatabaseURL:           "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:              ":9090",
+				LLMBaseURL:            "https://example.invalid/v1",
+				LLMAPIKey:             "api-key-123",
+				LLMModel:              "gemma-4-26b-a4b-it",
+				StorageDir:            "/tmp/alt-storage",
+				MaxUploadBytes:        1024,
+				MaxStatementBytes:     52428800,
+				MaxStatementLines:     100000,
+				LLMTimeout:            45 * time.Second,
+				IngestReviewThreshold: 0.7,
 				LLMWorkers: []Worker{
 					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
 					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "verify"},
@@ -533,6 +543,7 @@ func TestLoad(t *testing.T) {
 				LookupCandidateLimit:     10,
 				ProcessTimeout:           30 * time.Second,
 				BrandLexicon:             []string{"Alpha", "Beta"},
+				BasicAuthUsers:           []Credential{{User: "admin", Pass: "s3cret-pw"}},
 			},
 		},
 		{
@@ -562,6 +573,176 @@ func TestLoad(t *testing.T) {
 			wantErr:     true,
 			errContains: "PROCRASTINATOR_LOOKUP_CANDIDATE_LIMIT",
 			want:        nil,
+		},
+		{
+			name:        "missing PROCRASTINATOR_BASIC_AUTH_USERS",
+			src:         without(base, "PROCRASTINATOR_BASIC_AUTH_USERS"),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_BASIC_AUTH_USERS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_BASIC_AUTH_USERS empty array",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_BASIC_AUTH_USERS"] = `[]`
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_BASIC_AUTH_USERS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_BASIC_AUTH_USERS malformed JSON",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_BASIC_AUTH_USERS"] = `not-json`
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_BASIC_AUTH_USERS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_BASIC_AUTH_USERS not an array",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_BASIC_AUTH_USERS"] = `{"user":"a","pass":"password1"}`
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_BASIC_AUTH_USERS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_BASIC_AUTH_USERS extra unknown key",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_BASIC_AUTH_USERS"] = `[{"user":"admin","pass":"s3cret-pw","extra":"x"}]`
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_BASIC_AUTH_USERS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_BASIC_AUTH_USERS user empty (0 chars)",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_BASIC_AUTH_USERS"] = `[{"user":"","pass":"s3cret-pw"}]`
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_BASIC_AUTH_USERS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_BASIC_AUTH_USERS user 65 chars",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_BASIC_AUTH_USERS"] = `[{"user":"` + strings.Repeat("a", 65) + `","pass":"s3cret-pw"}]`
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_BASIC_AUTH_USERS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_BASIC_AUTH_USERS pass 7 chars",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_BASIC_AUTH_USERS"] = `[{"user":"admin","pass":"1234567"}]`
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_BASIC_AUTH_USERS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_BASIC_AUTH_USERS pass 129 chars",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_BASIC_AUTH_USERS"] = `[{"user":"admin","pass":"` + strings.Repeat("p", 129) + `"}]`
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_BASIC_AUTH_USERS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_BASIC_AUTH_USERS 17 pairs",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_BASIC_AUTH_USERS"] = `[` + strings.Repeat(`{"user":"u","pass":"password1"},`, 16) + `{"user":"u","pass":"password1"}` + `]`
+				return m
+			}(),
+			wantErr:     true,
+			errContains: "PROCRASTINATOR_BASIC_AUTH_USERS",
+			want:        nil,
+		},
+		{
+			name: "PROCRASTINATOR_BASIC_AUTH_USERS valid 2 pairs",
+			src: func() map[string]string {
+				m := make(map[string]string, len(base))
+				for k, v := range base {
+					m[k] = v
+				}
+				m["PROCRASTINATOR_BASIC_AUTH_USERS"] = `[{"user":"admin","pass":"s3cret-pw"},{"user":"deploy","pass":"deploy-pw"}]`
+				return m
+			}(),
+			wantErr: false,
+			want: &Config{
+				DatabaseURL:           "postgres://user:pass@localhost:5432/db",
+				HTTPAddr:              ":9090",
+				LLMBaseURL:            "https://example.invalid/v1",
+				LLMAPIKey:             "api-key-123",
+				LLMModel:              "gemma-4-26b-a4b-it",
+				StorageDir:            "/tmp/alt-storage",
+				MaxUploadBytes:        1024,
+				MaxStatementBytes:     52428800,
+				MaxStatementLines:     100000,
+				LLMTimeout:            45 * time.Second,
+				IngestReviewThreshold: 0.7,
+				LLMWorkers: []Worker{
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "extract"},
+					{Model: "gemma-4-26b-a4b-it", BaseURL: "https://example.invalid/v1", Strategy: "verify"},
+				},
+				AssetDeleteRetentionDays: 30,
+				LookupCandidateLimit:     10,
+				ProcessTimeout:           30 * time.Second,
+				BrandLexicon:             nil,
+				BasicAuthUsers: []Credential{
+					{User: "admin", Pass: "s3cret-pw"},
+					{User: "deploy", Pass: "deploy-pw"},
+				},
+			},
 		},
 	}
 

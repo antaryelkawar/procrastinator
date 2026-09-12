@@ -91,7 +91,7 @@ func main() {
 	lifecycleSvc := lifecycle.New(factory, cfg.AssetDeleteRetentionDays)
 	statementSvc := statement.New(factory, statementStore, movRepo, docRepo, pdfExtractor, cfg.MaxStatementBytes, cfg.MaxStatementLines)
 	householdSvc := household.New(factory)
-	server := api.New(svc, factory, ledgerSvc, movRepo, cfg.MaxUploadBytes, statementSvc, cfg.MaxStatementBytes, householdSvc, searchSvc, reviewSvc, lifecycleSvc)
+	server := api.New(svc, factory, ledgerSvc, movRepo, cfg.MaxUploadBytes, statementSvc, cfg.MaxStatementBytes, householdSvc, searchSvc, reviewSvc, lifecycleSvc, cfg.BasicAuthUsers)
 
 	// Start the documents pending-choice sweeper (design D7a: resolves
 	// expired pending uploads to keep_existing every 60 s, with an

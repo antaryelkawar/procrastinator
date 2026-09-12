@@ -12,6 +12,7 @@ import (
 	"procrastinator-backend/commons/entity"
 	"procrastinator-backend/commons/repo"
 	"procrastinator-backend/core/ledger"
+	"procrastinator-backend/internal/testcred"
 )
 
 // wireUserReg is the user registry for the wire-parity test: "test-user" is
@@ -118,7 +119,7 @@ func TestWireParity(t *testing.T) {
 		Assets:    wireAssetRepo{list: []entity.Asset{{ID: "asset-1"}}},
 		Movements: wireMovementRepo{mv: entity.MoneyMovement{ID: "mv-1"}},
 	}
-	s := New(nil, factory, ledger.New(factory, wireBalancer{}), wireBalancer{}, defaultMaxBytes, nil, defaultMaxBytes, nil, nil, nil, nil)
+	s := New(nil, factory, ledger.New(factory, wireBalancer{}), wireBalancer{}, defaultMaxBytes, nil, defaultMaxBytes, nil, nil, nil, nil, testcred.Creds)
 	handler := s.Routes()
 
 	do := func(method, path, body string, ct string) *httptest.ResponseRecorder {
@@ -128,6 +129,10 @@ func TestWireParity(t *testing.T) {
 			reader = bytes.NewBufferString(body)
 		}
 		req := httptest.NewRequest(method, path, reader)
+		// Basic Auth runs outermost in Routes(), so every wire-parity request
+		// must carry the fixture credentials to reach the wire behavior under
+		// test (add-basic-auth task 5.1).
+		req.Header.Set("Authorization", testcred.Header())
 		if ct != "" {
 			req.Header.Set("Content-Type", ct)
 		}

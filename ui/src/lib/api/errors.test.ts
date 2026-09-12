@@ -5,6 +5,7 @@ describe('errorCopy — status → human-readable copy', () => {
   it('maps every specified status to a distinct non-empty message', () => {
     const expected: Record<number, string> = {
       400: 'That request was invalid. Check the details and try again.',
+      401: 'Access was denied — the server rejected the app’s credentials. This is a configuration issue; reloading or retrying won’t fix it. Contact support or your administrator.',
       404: 'We couldn’t find that. It may have been removed.',
       409: 'This clashes with the current state. Refresh and try again.',
       413: 'That file is too large to upload.',
@@ -19,7 +20,7 @@ describe('errorCopy — status → human-readable copy', () => {
   });
 
   it('covers exactly the required set of statuses (no gaps)', () => {
-    const required = [400, 404, 409, 413, 415, 422, 502, NETWORK_STATUS];
+    const required = [400, 401, 404, 409, 413, 415, 422, 502, NETWORK_STATUS];
     for (const status of required) {
       expect(errorCopy(status)).not.toBe('Something went wrong. Please try again.');
     }

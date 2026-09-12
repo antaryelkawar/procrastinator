@@ -8,6 +8,7 @@
  * `performUpload` resolves it (with the parsed report) instead of rejecting.
  */
 import { ApiError, errorCopy, errorDetailFromBody, NETWORK_STATUS } from './errors';
+import { basicAuthHeader } from './auth';
 import { getUploadDocumentUrl, getCreateImportBatchUrl } from './generated/orval/procrastinator';
 import type { Asset, DuplicateReport, ImportBatch, IngestReview } from './generated/orval/procrastinator';
 
@@ -27,11 +28,20 @@ async function performUpload<T>(
    */
   onDuplicate?: (report: DuplicateReport) => T
 ): Promise<T> {
+  // Centralized Basic Auth injection for the XHR paths (design D5): merge the
+  // shared `Authorization` header into every upload request, call-site headers
+  // overriding on conflict (none set today). Read per request rather than at
+  // module scope so this stays mockable in tests (`vi.mock` factories hoist
+  // above env stubbing) — the fail-fast guarantee is unaffected:
+  // `basicAuthHeader()` throws naming the missing var(s) *before* the XHR is
+  // created, so no upload is ever sent with empty credentials (spec scenario
+  // "Frontend credentials are absent").
+  const merged: Record<string, string> = { ...basicAuthHeader(), ...headers };
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
 
-    Object.entries(headers).forEach(([key, value]) => {
+    Object.entries(merged).forEach(([key, value]) => {
       xhr.setRequestHeader(key, value);
     });
 
