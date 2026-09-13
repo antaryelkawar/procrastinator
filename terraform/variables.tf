@@ -53,13 +53,13 @@ variable "ui_image_tag" {
 variable "backend_host_port" {
   description = "Host port to publish for the backend container (container port 8080)"
   type        = number
-  default     = 8080
+  default     = 8321
 }
 
 variable "ui_host_port" {
   description = "Host port to publish for the UI container (container port 80)"
   type        = number
-  default     = 8081
+  default     = 8322
 }
 
 variable "backend_database_url" {

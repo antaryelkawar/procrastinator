@@ -33,8 +33,8 @@ A **pre-created, writable backend storage host path** (Unraid share or `mkdir`) 
 | `registry_password` | string | — (required) | yes | via `TF_VAR_registry_password` |
 | `backend_image_tag` | string | `latest` | no | image tag |
 | `ui_image_tag` | string | `latest` | no | image tag |
-| `backend_host_port` | number | `8080` | no | host port (container 8080) |
-| `ui_host_port` | number | `8081` | no | host port (container 80) |
+| `backend_host_port` | number | `8321` | no | host port (container 8080) |
+| `ui_host_port` | number | `8322` | no | host port (container 80) |
 | `backend_database_url` | string | — (required) | yes | Postgres URL; via `TF_VAR_backend_database_url` |
 | `backend_llm_api_key` | string | — (required) | yes | via `TF_VAR_backend_llm_api_key` |
 | `backend_llm_model` | string | — (required) | no | non-secret model name |
@@ -58,13 +58,13 @@ docker inspect procrastinator-backend --format "{{.State.Running}}"
 2. **Backend HTTP** — expected `401` (Basic-Auth-guarded API; no unauthenticated `/health` route exists):
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" http://<unraid-host>:8080/api/users/x/documents
+curl -s -o /dev/null -w "%{http_code}" http://<unraid-host>:8321/api/users/x/documents
 ```
 
 3. **UI serving** — expected HTTP 200 with an HTML body:
 
 ```bash
-curl -fsS http://<unraid-host>:8081/
+curl -fsS http://<unraid-host>:8322/
 ```
 
 4. **Image provenance** — expected `registry.yelkawar.com/procrastinator-backend:<tag>` (and the `procrastinator-ui` equivalent):
