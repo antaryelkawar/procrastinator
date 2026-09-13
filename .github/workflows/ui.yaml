@@ -61,7 +61,10 @@ jobs:
         with:
           context: ui
           push: true
-          platforms: linux/amd64,linux/arm64
+          # amd64 only: the arm64 leg runs npm ci + vite under QEMU on the
+          # amd64 runner and took 70+ min without completing (cancelled),
+          # vs ~1 min native for amd64. The deploy host (Unraid) is x86_64.
+          platforms: linux/amd64
           tags: |
             ${{ secrets.REGISTRY_URL }}/procrastinator-ui:latest
             ${{ secrets.REGISTRY_URL }}/procrastinator-ui:${{ github.sha }}
