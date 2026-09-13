@@ -2,7 +2,7 @@
 
 # Multi-stage build for the procrastinator-ui React + Vite SPA (PWA).
 #
-# Stage 1 ("build") compiles the TypeScript/Vite bundle on node:22-alpine.
+# Stage 1 ("build") compiles the TypeScript/Vite bundle on node:26-alpine.
 # Stage 2 ships ONLY the static output on nginx:alpine — no node/npm, no source.
 #
 # Both base images are multi-arch (linux/amd64 + linux/arm64) and the build has
@@ -12,7 +12,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: build the Vite production bundle
 # ---------------------------------------------------------------------------
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 
 WORKDIR /app
 
