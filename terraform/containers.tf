@@ -61,7 +61,11 @@ resource "docker_container" "postgres" {
   mounts {
     type   = "volume"
     source = docker_volume.postgres_data.name
-    target = "/var/lib/postgresql/data"
+    # postgres:18+ images use the pg_ctlcluster layout (data lives in
+    # /var/lib/postgresql/18/docker); mounting a volume directly at
+    # /var/lib/postgresql/data makes the 18 entrypoint refuse to start
+    # ("unused mount/volume" crash-loop). Mount the parent instead.
+    target = "/var/lib/postgresql"
   }
 
   networks_advanced {
