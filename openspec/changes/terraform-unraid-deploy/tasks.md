@@ -94,3 +94,34 @@ Tags: `[terraform]` `.tf` implementation · `[github]` GitHub provider · `[docs
       run `terraform plan` twice with identical inputs (against a static-config run or
       dry parse) and confirm deterministic resource set. Verify: no drift in declared
       resources; `.gitignore` excludes real tfvars.
+
+## 8. Postgres scope addition (user-directed)
+
+- [x] 8.1 `[terraform]` Add `docker_container.postgres` to `terraform/containers.tf`:
+      image `postgres:18`, name `procrastinator-postgres`, env `POSTGRES_USER`/
+      `POSTGRES_PASSWORD`/`POSTGRES_DB`, port 5432→`var.postgres_host_port`,
+      volume mount `/var/lib/postgresql/data`, healthcheck `pg_isready`.
+      Add `docker_volume.postgres_data` (name `procrastinator-pgdata`) in
+      `terraform/volumes.tf`. Add 4 variables (`postgres_user`, `postgres_password`,
+      `postgres_db`, `postgres_host_port`) and 2 outputs (`postgres_container_id`,
+      `postgres_port`). Update `terraform/README.md` (prerequisite, variables table,
+      destroy/census notes). `terraform init -backend=false` + `validate` +
+      `fmt -check` all pass. Review: 0 critical, 0 major.
+
+## 9. Host network migration (APPLY phase, user-directed)
+
+- [x] 9.1 `[terraform]` Migrate `procrastinator-backend` + `procrastinator-postgres` to Docker
+      **host networking** (`network_mode = "host"`; remove `ports` + `networks_advanced`).
+      Add `PROCRASTINATOR_HTTP_ADDR=:${var.backend_host_port}` (`:8321`) to the backend so it
+      binds the host port directly (no image rebuild — env already supported). **UI exception:**
+      keep `procrastinator-ui` on the default bridge network with port mapping `8322 -> 80`
+      (official `nginx:alpine` hardcodes `listen 80;`; a host-mode UI would need an image
+      rebuild, out of scope). Remove `terraform/network.tf` (`docker_network.procrastinator`)
+      and the `network_id` output. Point `backend_database_url` at `localhost:5432`
+      (host net) in `variables.tf` default + `terraform.tfvars`. Update `README.md`.
+      Verify: `terraform validate` + `fmt -check` exit 0; `terraform apply -auto-approve`
+      (3 added / 0 changed / 4 destroyed); live — backend `netmode=host` on `:8321`,
+      postgres `netmode=host` `:5432` healthy (`pg_isready localhost` accepting), ui
+      `netmode=bridge` `:8322` 200, authed `/api/users/admin/documents` → 404 unknown-user
+      (= DB reached via `localhost:5432`). Review: PASS-with-minors (0 critical, 1 major
+      pre-existing tfvars secrets out of scope). Report: `apply-host-network.md`.

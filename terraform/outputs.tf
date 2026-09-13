@@ -9,7 +9,7 @@ output "ui_container_id" {
 }
 
 output "backend_host_port" {
-  description = "Host port published for the backend container (container port 8080)"
+  description = "Host port the backend listens on directly (host networking; binds :<port>)"
   value       = var.backend_host_port
 }
 
@@ -37,17 +37,12 @@ output "github_secret_names" {
   ]
 }
 
-output "network_id" {
-  description = "Docker network ID for procrastinator-net"
-  value       = docker_network.procrastinator.id
-}
-
 output "postgres_container_id" {
   description = "Docker container ID for procrastinator-postgres"
   value       = docker_container.postgres.id
 }
 
 output "postgres_port" {
-  description = "Host port published for the Postgres container (container port 5432)"
+  description = "Host port the Postgres container listens on directly (host networking)"
   value       = var.postgres_host_port
 }
